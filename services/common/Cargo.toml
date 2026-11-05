@@ -1,0 +1,10 @@
+[package]
+name = "monexa-common"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+dotenvy.workspace = true
+tracing-subscriber.workspace = true
