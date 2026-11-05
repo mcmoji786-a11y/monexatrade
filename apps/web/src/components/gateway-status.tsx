@@ -9,7 +9,7 @@ type Health = {
   solana_slot: number | null;
 };
 
-const GATEWAY = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8080";
+import { GATEWAY_HTTP as GATEWAY } from "@/lib/gateway";
 
 // Polls the Rust gateway's /health endpoint. Shows real status only, no mock data.
 export function GatewayStatus() {
@@ -40,7 +40,7 @@ export function GatewayStatus() {
   }, []);
 
   const dot = (ok: boolean) => (
-    <span className={`inline-block h-2 w-2 rounded-full ${ok ? "bg-emerald" : "bg-danger"}`} />
+    <span className={`inline-block h-2 w-2 rounded-full ${ok ? "bg-emerald" : "bg-negative"}`} />
   );
 
   if (error || !health) {

@@ -38,6 +38,10 @@ impl Config {
     pub fn helius_rpc_url(&self) -> String {
         format!("https://mainnet.helius-rpc.com/?api-key={}", self.helius_api_key)
     }
+
+    pub fn helius_ws_url(&self) -> String {
+        format!("wss://mainnet.helius-rpc.com/?api-key={}", self.helius_api_key)
+    }
 }
 
 impl fmt::Debug for Config {

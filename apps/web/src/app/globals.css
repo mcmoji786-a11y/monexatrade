@@ -1,41 +1,86 @@
 @import "tailwindcss";
 
-/* MONEXA design tokens: near-black base, emerald + cyan accents, no purple. */
+/* MONEXA tokens. Variables are prefixed --mx- because generic names like --bg and
+   --text get overwritten by browser extensions that inject their own :root vars.
+   Graphite neutrals on a near-black base. Emerald is the single chrome accent
+   (live state, selection). Cyan is reserved for on-chain identifiers. No purple. */
 :root {
-  --bg: #07090b;
-  --surface: #0d1114;
-  --surface-2: #131a1e;
-  --border: #1e272c;
-  --text: #e6edf0;
-  --muted: #7d8a91;
-  --emerald: #10b981;
-  --cyan: #22d3ee;
-  --danger: #f43f5e;
-  --warning: #f59e0b;
+  --mx-bg: #08090a;
+  --mx-surface: #0e0f11;
+  --mx-surface-2: #16171a;
+  --mx-surface-3: #202226;
+  --mx-border: rgb(237 237 237 / 0.08);
+  --mx-text: #ededed;
+  --mx-text-2: #a1a1a6;
+  --mx-muted: #85858b;
+  --mx-emerald: #34d399;
+  --mx-cyan: #67e8f9;
+  --mx-positive: #4cc38a;
+  --mx-negative: #e5484d;
+  --mx-warning: #e0a63e;
+  --mx-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-border: var(--border);
-  --color-text: var(--text);
-  --color-muted: var(--muted);
-  --color-emerald: var(--emerald);
-  --color-cyan: var(--cyan);
-  --color-danger: var(--danger);
-  --color-warning: var(--warning);
+  --color-bg: var(--mx-bg);
+  --color-surface: var(--mx-surface);
+  --color-surface-2: var(--mx-surface-2);
+  --color-surface-3: var(--mx-surface-3);
+  --color-border: var(--mx-border);
+  --color-text: var(--mx-text);
+  --color-text-2: var(--mx-text-2);
+  --color-muted: var(--mx-muted);
+  --color-emerald: var(--mx-emerald);
+  --color-cyan: var(--mx-cyan);
+  --color-positive: var(--mx-positive);
+  --color-negative: var(--mx-negative);
+  --color-warning: var(--mx-warning);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains);
 }
 
 html,
 body {
-  background: var(--bg);
-  color: var(--text);
+  background-color: var(--mx-bg);
+  color: var(--mx-text);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mx-surface-3) transparent;
 }
 
 body {
   font-family: var(--font-inter), system-ui, sans-serif;
-  font-feature-settings: "tnum" 1; /* tabular numbers for price tables */
+  font-variant-numeric: tabular-nums;
+}
+
+/* One entrance: a new card fades and drops in a few pixels. */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+    background-color: var(--mx-surface-3);
+  }
+}
+.row-in {
+  animation: row-in 400ms var(--mx-ease);
+}
+
+/* Radar scope sweep: the one moving element on Sol Radar. */
+@keyframes sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.radar-sweep {
+  animation: sweep 4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-in,
+  .radar-sweep {
+    animation: none;
+  }
 }

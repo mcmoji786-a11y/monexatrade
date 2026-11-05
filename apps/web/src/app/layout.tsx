@@ -18,13 +18,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex h-full min-h-screen">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 items-center justify-between border-b border-border px-5">
-            <span className="text-sm font-semibold tracking-[0.2em] md:hidden">MONEXA</span>
+          <header className="flex h-14 items-center justify-between border-b border-border px-6">
+            <span className="text-base font-semibold md:hidden">Monexa</span>
             <div className="ml-auto">
               <GatewayStatus />
             </div>
           </header>
-          <main className="flex-1 p-5">{children}</main>
+          <main className="mx-auto w-full max-w-[1600px] flex-1 px-6 py-8">{children}</main>
         </div>
       </body>
     </html>
