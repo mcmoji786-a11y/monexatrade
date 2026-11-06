@@ -4,6 +4,7 @@
 
 mod account;
 mod admin;
+mod demo;
 mod presence;
 mod book;
 mod devs;
@@ -11,6 +12,7 @@ mod dex;
 mod jupiter;
 mod metadata;
 mod pools;
+mod portfolio;
 mod rpc;
 mod txdecode;
 
@@ -240,13 +242,19 @@ async fn main() -> Result<()> {
         .route("/admin/creator-applications/{id}", axum::routing::post(admin::set_application))
         .with_state(admin::AdminState::load());
 
-    // Accounts: profile sync and wallet linking (account.rs).
+    let acct = account::AccountState::new(state.http.clone(), &config.supabase_url, &config.supabase_anon_key, &config.supabase_service_role_key);
+    // Demo trading (demo.rs): virtual balance filled at live market prices.
+    let demo_routes: Router<Arc<AppState>> = Router::new()
+        .route("/demo/account", get(demo::get_account))
+        .route("/demo/order", axum::routing::post(demo::order))
+        .route("/demo/reset", axum::routing::post(demo::reset))
+        .route("/demo/trades", get(demo::trades))
+        .with_state(demo::DemoCtx { app: state.clone(), acct: acct.clone() });
+    // Accounts: profile sync (account.rs).
     let account_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/sync", axum::routing::post(account::sync))
         .route("/account/me", get(account::me_handler))
-        .route("/account/link-nonce", axum::routing::post(account::link_nonce))
-        .route("/account/link-wallet", axum::routing::post(account::link_wallet))
-        .with_state(account::AccountState::new(state.http.clone(), &config.supabase_url, &config.supabase_anon_key, &config.supabase_service_role_key));
+        .with_state(acct);
 
     let app = Router::new()
         .route("/health", get(health))
@@ -257,11 +265,15 @@ async fn main() -> Result<()> {
         .route("/token/{mint}/wallets", get(wallets_handler))
         .route("/token/{mint}/dex", get(dex_handler))
         .route("/smart-money", get(smart_handler))
+        .route("/wallet/{address}/balance", get(balance_handler))
+        .route("/wallet/{address}/portfolio", get(portfolio_handler))
+        .route("/wallet/{address}/activity", get(activity_handler))
         .route("/alerts/status", get(alerts_status))
         .route("/ws/wallets", get(ws_wallets))
         .route("/ws/token/{mint}", get(ws_token))
         .merge(admin_routes)
         .merge(account_routes)
+        .merge(demo_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -1786,4 +1798,77 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> Json<serde_json:
         },
         "business": { "trading_live": false, "traders": 0, "volume_usd": 0, "fees_usd": 0, "revenue_usd": 0 },
     }))
+}
+
+/// `GET /wallet/{address}/balance`: SOL in a wallet, cached 20 seconds per address.
+async fn balance_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
+    use std::sync::Mutex as StdMutex;
+    use std::time::{Duration, Instant};
+    static CACHE: StdMutex<Option<HashMap<String, (Instant, f64)>>> = StdMutex::new(None);
+    if !account::is_solana_address(&address) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some((at, sol)) = CACHE.lock().expect("balance cache").get_or_insert_with(HashMap::new).get(&address) {
+        if at.elapsed() < Duration::from_secs(20) {
+            return Ok(Json(serde_json::json!({ "sol": sol })));
+        }
+    }
+    let sol = rpc::sol_balance(&state.http, &state.config.helius_rpc_url(), &address).await.ok_or(StatusCode::BAD_GATEWAY)?;
+    let mut c = CACHE.lock().expect("balance cache");
+    let m = c.get_or_insert_with(HashMap::new);
+    if m.len() > 10_000 {
+        m.clear();
+    }
+    m.insert(address, (Instant::now(), sol));
+    Ok(Json(serde_json::json!({ "sol": sol })))
+}
+
+/// `GET /wallet/{address}/portfolio`: SOL and every token held, with live prices.
+/// Cached 20 seconds per wallet.
+async fn portfolio_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<portfolio::Portfolio>, StatusCode> {
+    static CACHE: Mutex<Option<HashMap<String, (Instant, portfolio::Portfolio)>>> = Mutex::new(None);
+    if !account::is_solana_address(&address) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some((at, p)) = CACHE.lock().expect("portfolio cache").get_or_insert_with(HashMap::new).get(&address) {
+        if at.elapsed() < Duration::from_secs(20) {
+            return Ok(Json(p.clone()));
+        }
+    }
+    let (sol, das_sol_usd, mut tokens) = portfolio::holdings(&state.http, &state.config.helius_rpc_url(), &address).await.ok_or(StatusCode::BAD_GATEWAY)?;
+    portfolio::enrich(&state.http, &mut tokens).await;
+    tokens.sort_by(|a, b| b.value_usd.unwrap_or(0.0).total_cmp(&a.value_usd.unwrap_or(0.0)));
+    let sol_usd = state.board.lock().expect("board lock").sol_usd.or(das_sol_usd);
+    let p = portfolio::Portfolio { wallet: address.clone(), sol, sol_usd, tokens, updated: now_unix() };
+    let mut c = CACHE.lock().expect("portfolio cache");
+    let m = c.get_or_insert_with(HashMap::new);
+    if m.len() > 2_000 {
+        m.clear();
+    }
+    m.insert(address, (Instant::now(), p.clone()));
+    Ok(Json(p))
+}
+
+/// `GET /wallet/{address}/activity`: the wallet's swaps among its latest 100
+/// transactions, newest first. Cached 60 seconds per wallet.
+async fn activity_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<Vec<portfolio::Trade>>, StatusCode> {
+    static CACHE: Mutex<Option<HashMap<String, (Instant, Vec<portfolio::Trade>)>>> = Mutex::new(None);
+    if !account::is_solana_address(&address) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some((at, t)) = CACHE.lock().expect("activity cache").get_or_insert_with(HashMap::new).get(&address) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return Ok(Json(t.clone()));
+        }
+    }
+    let mut trades = portfolio::history(&state.http, &state.config.helius_api_key, &address).await.ok_or(StatusCode::BAD_GATEWAY)?;
+    portfolio::name_trades(&state.http, &mut trades).await;
+    trades.sort_by(|a, b| b.time.cmp(&a.time));
+    let mut c = CACHE.lock().expect("activity cache");
+    let m = c.get_or_insert_with(HashMap::new);
+    if m.len() > 2_000 {
+        m.clear();
+    }
+    m.insert(address, (Instant::now(), trades.clone()));
+    Ok(Json(trades))
 }

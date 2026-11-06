@@ -1,15 +1,62 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { orderError, placeOrder, previewOrder, setMode, useDemo, type DemoFill } from "@/lib/demo";
+import { useAccount } from "@/lib/account";
+import { pushToast } from "@/lib/toast";
 
-const PRESETS = ["0.1", "0.5", "1", "2"];
+const BUY_USD = ["10", "50", "100", "500"];
+const SELL_PCT = ["25", "50", "75", "100"];
 
-/** Order ticket. Layout only: no wallet connects and no order is sent. Real-money
+/** Order ticket. Demo mode trades the virtual account at live prices; real-money
  *  trading stays off until the founder approves it after a security review. */
-export function TradePanel({ symbol }: { symbol: string }) {
+export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
+  const { mode, account } = useDemo();
+  const auth = useAccount();
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [kind, setKind] = useState<"market" | "limit">("market");
   const [amount, setAmount] = useState("");
+  const [preview, setPreview] = useState<DemoFill | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const demo = mode === "demo" && auth.status === "signed-in";
+  const held = account?.positions.find((p) => p.mint === mint);
+  const value = Number(amount);
+  const valid = side === "buy" ? value >= 1 : value > 0 && value <= 100;
+
+  // Live estimate of the fill while typing (debounced).
+  useEffect(() => {
+    if (!demo || !valid || (side === "sell" && !held)) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      previewOrder(side === "buy" ? { mint, side, usd: value } : { mint, side, fraction: value / 100 })
+        .then((r) => alive && (setPreview(r.fill), setPreviewErr(null)))
+        .catch((e) => alive && (setPreview(null), setPreviewErr(orderError(e))));
+    }, 350);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [demo, valid, side, value, mint, held]);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const r = await placeOrder(side === "buy" ? { mint, side, usd: value } : { mint, side, fraction: value / 100 });
+      const f = r.fill;
+      pushToast({
+        tone: side === "buy" ? "good" : r.realized_usd != null && r.realized_usd < 0 ? "bad" : "good",
+        title: `Demo ${side === "buy" ? "bought" : "sold"} ${r.symbol || symbol}`,
+        body: `${money(f.usd)} at ${tinyPrice(f.price_usd)}${r.realized_usd != null ? ` · P&L ${signed(r.realized_usd)}` : ""}`,
+      });
+      setAmount("");
+      setPreview(null);
+    } catch (e) {
+      pushToast({ tone: "bad", title: "Order not filled", body: orderError(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="border-b border-border p-4">
@@ -19,7 +66,7 @@ export function TradePanel({ symbol }: { symbol: string }) {
             key={s}
             type="button"
             aria-pressed={side === s}
-            onClick={() => setSide(s)}
+            onClick={() => (setSide(s), setAmount(""), setPreview(null), setPreviewErr(null))}
             className={`h-9 rounded-md text-sm capitalize transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
               side === s ? (s === "buy" ? "bg-[#2ebd85] font-medium text-bg" : "bg-[#f6465d] font-medium text-text") : "text-text-2 hover:text-text"
             }`}
@@ -29,74 +76,107 @@ export function TradePanel({ symbol }: { symbol: string }) {
         ))}
       </div>
 
-      <div className="mt-4 flex gap-4 text-sm">
-        {(["market", "limit"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setKind(k)}
-            className={`capitalize transition-colors ${kind === k ? "text-text" : "text-muted hover:text-text-2"}`}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
+      {demo && (
+        <div className="mt-3 flex items-center justify-between text-xs">
+          <span className="text-warning">Demo account</span>
+          <span className="font-mono tabular-nums text-text-2">
+            {side === "buy" ? `${account ? money(account.cash_usd) : "…"} available` : held ? `${compact(held.tokens)} ${symbol || ""} held` : "None held"}
+          </span>
+        </div>
+      )}
 
       <label className="mt-3 flex h-11 items-center gap-2 rounded-lg border border-border bg-bg px-3 focus-within:border-emerald/50">
         <span className="text-xs text-muted">Amount</span>
         <input
           inputMode="decimal"
           value={amount}
+          disabled={!demo}
           onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-          placeholder="0.0"
-          className="min-w-0 flex-1 bg-transparent text-right font-mono text-sm text-text outline-none placeholder:text-muted"
+          onKeyDown={(e) => e.key === "Enter" && demo && valid && !busy && submit()}
+          placeholder="0"
+          className="min-w-0 flex-1 bg-transparent text-right font-mono text-sm text-text outline-none placeholder:text-muted disabled:cursor-not-allowed"
         />
-        <span className="font-mono text-xs text-text-2">{side === "buy" ? "SOL" : "%"}</span>
+        <span className="font-mono text-xs text-text-2">{side === "buy" ? "USD" : "%"}</span>
       </label>
 
       <div className="mt-2 grid grid-cols-4 gap-1">
-        {(side === "buy" ? PRESETS : ["25", "50", "75", "100"]).map((p) => (
+        {(side === "buy" ? BUY_USD : SELL_PCT).map((p) => (
           <button
             key={p}
             type="button"
+            disabled={!demo}
             onClick={() => setAmount(p)}
-            className="h-8 rounded-md border border-border font-mono text-xs text-text-2 transition-colors hover:bg-surface-3 hover:text-text"
+            className="h-8 rounded-md border border-border font-mono text-xs text-text-2 transition-colors hover:bg-surface-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {side === "buy" ? p : `${p}%`}
+            {side === "buy" ? `$${p}` : `${p}%`}
           </button>
         ))}
       </div>
 
-      {kind === "limit" && (
-        <label className="mt-2 flex h-11 items-center gap-2 rounded-lg border border-border bg-bg px-3">
-          <span className="text-xs text-muted">At market cap</span>
-          <input disabled placeholder="$0" className="min-w-0 flex-1 bg-transparent text-right font-mono text-sm outline-none placeholder:text-muted" />
-        </label>
+      {demo && valid && (
+        <dl className="mt-3 flex flex-col gap-1 rounded-lg border border-border px-3 py-2 font-mono text-xs tabular-nums">
+          {preview ? (
+            <>
+              <Row k={side === "buy" ? "You get" : "You receive"} v={side === "buy" ? `${compact(preview.tokens)} ${symbol || ""}` : money(preview.usd)} />
+              <Row k="Avg price" v={tinyPrice(preview.price_usd)} />
+              <Row k="Price impact" v={`${preview.impact_pct.toFixed(2)}%`} warn={preview.impact_pct > 10} />
+              <Row k="Fees" v={money(preview.fee_usd)} />
+            </>
+          ) : previewErr ? (
+            <span className="text-negative">{previewErr}</span>
+          ) : (
+            <span className="text-muted">Pricing at the live market…</span>
+          )}
+        </dl>
       )}
 
-      <dl className="mt-4 grid grid-cols-3 gap-2 font-mono text-xs">
-        <Setting k="Slippage" v="15%" />
-        <Setting k="Priority" v="0.001" />
-        <Setting k="MEV guard" v="On" />
-      </dl>
-
-      <button
-        type="button"
-        disabled
-        className={`mt-4 h-11 w-full cursor-not-allowed rounded-full text-sm font-medium opacity-60 ${side === "buy" ? "bg-[#2ebd85] text-bg" : "bg-[#f6465d] text-text"}`}
-      >
-        {side === "buy" ? "Buy" : "Sell"} {symbol || "token"}
-      </button>
-      <p className="mt-2 text-center text-xs text-muted">Trading opens after wallet connect, coming soon</p>
+      {demo ? (
+        <button
+          type="button"
+          disabled={!valid || busy || (side === "sell" && !held) || !!previewErr}
+          onClick={submit}
+          className={`mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#2ebd85] text-bg" : "bg-[#f6465d] text-text"}`}
+        >
+          {busy && <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />}
+          {busy ? "Filling at market" : `${side === "buy" ? "Buy" : "Sell"} ${symbol || "token"}`}
+        </button>
+      ) : (
+        <>
+          <button type="button" disabled className={`mt-4 h-11 w-full cursor-not-allowed rounded-full text-sm font-medium opacity-50 ${side === "buy" ? "bg-[#2ebd85] text-bg" : "bg-[#f6465d] text-text"}`}>
+            {side === "buy" ? "Buy" : "Sell"} {symbol || "token"}
+          </button>
+          <p className="mt-2 text-center text-xs text-muted">
+            Real trading is coming soon.{" "}
+            <button type="button" onClick={() => setMode("demo")} className="text-warning underline underline-offset-2">
+              Practise in demo
+            </button>
+          </p>
+        </>
+      )}
+      {demo && <p className="mt-2 text-center text-[11px] text-muted">Filled at the live price with real fees and price impact</p>}
     </section>
   );
 }
 
-function Setting({ k, v }: { k: string; v: string }) {
+function Row({ k, v, warn }: { k: string; v: string; warn?: boolean }) {
   return (
-    <div className="rounded-md border border-border px-2 py-1.5">
-      <dt className="text-[11px] text-muted">{k}</dt>
-      <dd className="mt-0.5 text-text-2">{v}</dd>
+    <div className="flex justify-between">
+      <dt className="text-muted">{k}</dt>
+      <dd className={warn ? "text-warning" : "text-text-2"}>{v}</dd>
     </div>
   );
+}
+
+export const money = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+export const signed = (v: number) => `${v >= 0 ? "+" : "−"}${money(Math.abs(v))}`;
+export function tinyPrice(v: number) {
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (v >= 1) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(Math.min(20, Math.ceil(-Math.log10(v)) + 3))}`;
+}
+export function compact(v: number) {
+  if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v >= 1 ? v.toFixed(2) : v.toPrecision(3);
 }

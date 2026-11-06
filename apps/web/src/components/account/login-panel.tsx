@@ -11,10 +11,10 @@ import { useFeatures } from "@/lib/features";
 type Busy = null | "google" | "phantom" | "send" | "verify";
 
 /** Sign in with Google, Phantom or an email code. */
-export function LoginPanel() {
+export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?: string; inPopup?: boolean; onDone?: () => void } = {}) {
   const router = useRouter();
   const params = useSearchParams();
-  const next = safeNext(params.get("next"));
+  const next = safeNext(nextProp ?? params.get("next"));
   const account = useAccount();
   const features = useFeatures();
   const [busy, setBusy] = useState<Busy>(null);
@@ -32,8 +32,10 @@ export function LoginPanel() {
   }, []);
 
   useEffect(() => {
-    if (account.status === "signed-in") router.replace(next);
-  }, [account.status, next, router]);
+    if (account.status !== "signed-in") return;
+    onDone?.();
+    if (!inPopup || nextProp) router.replace(next);
+  }, [account.status, next, router, onDone, inPopup, nextProp]);
 
   useEffect(() => {
     if (step === "code") codeInput.current?.focus();
@@ -55,9 +57,11 @@ export function LoginPanel() {
 
   return (
     <div className="w-full max-w-[400px]">
-      <Link href="/discover" className="mb-8 flex items-center gap-2 text-sm text-text-2 hover:text-text">
-        <span className="font-medium tracking-tight text-text">MONEXA</span>
-      </Link>
+      {!inPopup && (
+        <Link href="/" className="mb-8 flex items-center gap-2 text-sm text-text-2 hover:text-text">
+          <span className="font-medium tracking-tight text-text">MONEXA</span>
+        </Link>
+      )}
 
       <div className="rounded-2xl border border-border bg-surface p-6">
         {!features.accounts ? (
@@ -152,7 +156,7 @@ export function LoginPanel() {
       </div>
 
       <p className="mt-6 text-xs leading-relaxed text-muted">
-        MONEXA never asks for your seed phrase and signing in never moves funds. Google and email accounts link a wallet next
+        MONEXA never asks for your seed phrase and signing in never moves funds
       </p>
     </div>
   );

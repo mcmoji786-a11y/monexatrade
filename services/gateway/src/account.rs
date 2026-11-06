@@ -78,7 +78,7 @@ impl AccountState {
     }
 
     /// The signed-in user behind `Authorization: Bearer <token>`, checked with Supabase.
-    async fn user(&self, headers: &HeaderMap) -> Result<User, (StatusCode, String)> {
+    pub(crate) async fn user(&self, headers: &HeaderMap) -> Result<User, (StatusCode, String)> {
         let token = headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
@@ -86,7 +86,7 @@ impl AccountState {
             .filter(|t| t.len() > 20 && t.len() < 4096)
             .ok_or((StatusCode::UNAUTHORIZED, "sign in first".into()))?;
         if let Some((at, u)) = self.users.lock().expect("users lock").get(token) {
-            if at.elapsed() < Duration::from_secs(60) {
+            if at.elapsed() < Duration::from_secs(15) {
                 return Ok(u.clone());
             }
         }
@@ -106,13 +106,13 @@ impl AccountState {
         let user = parse_user(&v).ok_or((StatusCode::UNAUTHORIZED, "unknown user".into()))?;
         let mut cache = self.users.lock().expect("users lock");
         if cache.len() > 5_000 {
-            cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
+            cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(15));
         }
         cache.insert(token.to_string(), (Instant::now(), user.clone()));
         Ok(user)
     }
 
-    async fn rest(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, (StatusCode, String)> {
+    pub(crate) async fn rest(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, (StatusCode, String)> {
         let mut req = self
             .http
             .request(method, format!("{}/rest/v1/{path}", self.url))
@@ -254,6 +254,13 @@ pub async fn sync(State(a): State<Arc<AccountState>>, headers: HeaderMap) -> Res
         row["wallet"] = json!(addr);
         row["wallet_verified_at"] = json!("now()");
     }
+    // Google and email accounts never keep a wallet (they connect one per visit); clear
+    // any saved by the earlier link flow.
+    let stale = u.solana.is_none() && existing.as_ref().is_some_and(|p| p.wallet.is_some());
+    if stale {
+        row["wallet"] = Value::Null;
+        row["wallet_verified_at"] = Value::Null;
+    }
     let p = if existing.is_none() || row.get("wallet").is_some() { a.upsert(fix_now(row)).await? } else { existing.unwrap_or_default() };
     Ok(Json(me(&u, &p)))
 }
@@ -311,7 +318,9 @@ pub struct NonceIn {
     wallet: String,
 }
 
-/// `POST /account/link-nonce {wallet}`: the message to sign.
+/// `POST /account/link-nonce {wallet}`: the message to sign. Not routed: Google and email
+/// accounts no longer save a wallet. Kept, with its tests, for a future verified link.
+#[allow(dead_code)]
 pub async fn link_nonce(State(a): State<Arc<AccountState>>, headers: HeaderMap, Json(input): Json<NonceIn>) -> Result<Json<Value>, (StatusCode, String)> {
     let u = a.user(&headers).await?;
     if !is_solana_address(&input.wallet) {
@@ -337,7 +346,8 @@ pub struct LinkIn {
     signature: String,
 }
 
-/// `POST /account/link-wallet {wallet, signature}`: checks and saves the wallet.
+/// `POST /account/link-wallet {wallet, signature}`: checks and saves the wallet. Not routed.
+#[allow(dead_code)]
 pub async fn link_wallet(State(a): State<Arc<AccountState>>, headers: HeaderMap, Json(input): Json<LinkIn>) -> Result<Json<Me>, (StatusCode, String)> {
     let u = a.user(&headers).await?;
     // The challenge is used once, whatever the outcome.
@@ -355,7 +365,14 @@ pub async fn link_wallet(State(a): State<Arc<AccountState>>, headers: HeaderMap,
         return Err((StatusCode::CONFLICT, "this wallet is linked to another account".into()));
     }
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
-    let method = a.profile(&u.id).await?.and_then(|p| p.login_method).unwrap_or_else(|| method_of(&u).to_string());
+    let existing = a.profile(&u.id).await?;
+    // A Phantom account is its wallet; it cannot be swapped for another one.
+    if let Some(addr) = &u.solana {
+        if addr != &input.wallet {
+            return Err((StatusCode::CONFLICT, "this account signs in with its own wallet".into()));
+        }
+    }
+    let method = existing.and_then(|p| p.login_method).unwrap_or_else(|| method_of(&u).to_string());
     let p = a.upsert(json!({ "id": u.id, "wallet": input.wallet, "wallet_verified_at": chrono_iso(secs), "login_method": method })).await?;
     tracing::info!(user = %u.id, "wallet linked");
     Ok(Json(me(&u, &p)))

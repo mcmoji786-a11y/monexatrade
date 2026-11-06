@@ -3,7 +3,9 @@
 import { useFeatures } from "@/lib/features";
 import { useEffect, useRef } from "react";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
-import { pnl, sniperStep, useSniper, type SniperEvent } from "@/lib/sniper";
+import { dropPosition, pnl, sniperStep, useSniper, type SniperEvent } from "@/lib/sniper";
+import { orderError, placeOrder, useMode } from "@/lib/demo";
+import { useAccount } from "@/lib/account";
 import { launchSignals, safetyScore } from "@/lib/safety";
 import { pushToast } from "@/lib/toast";
 import { tokenHref } from "@/lib/open-token";
@@ -15,6 +17,12 @@ const STEP_MS = 2_000;
 function SniperEngineInner() {
   const { settings, positions } = useSniper();
   const feed = useRadarFeed();
+  const mode = useMode();
+  const auth = useAccount();
+  const demo = useRef(false);
+  useEffect(() => {
+    demo.current = mode === "demo" && auth.status === "signed-in";
+  }, [mode, auth.status]);
   const latest = useRef(feed);
   const prefs = useRef(settings);
   useEffect(() => {
@@ -35,7 +43,10 @@ function SniperEngineInner() {
       const safetyOf = (t: (typeof tokens)[number]) =>
         safetyScore(launchSignals(t, markets[t.mint] ?? null, { copyOfReal: false, sameSymbol: copied(t), sameXAccount: false, smart: smart[t.mint] ?? 0, nowSecs })).score;
       const events = sniperStep(tokens, copied, solUsd, safetyOf);
-      if (events.length) announce(events, prefs.current, solUsd);
+      if (events.length) {
+        announce(events, prefs.current, solUsd);
+        if (demo.current) mirrorToDemo(events, solUsd);
+      }
     }, STEP_MS);
     return () => clearInterval(id);
   }, [active]);
@@ -71,6 +82,24 @@ function announce(events: SniperEvent[], s: { notifyToast: boolean; notifySound:
     }
   }
   if (s.notifySound) chime(events.some((e) => e.kind === "buy"));
+}
+
+/** In demo mode every sniper buy and sell is also a real demo order, so the demo
+ *  account's balance and P&L include the sniper (filled at live prices, with fees). */
+function mirrorToDemo(events: SniperEvent[], solUsd: number | null) {
+  for (const e of events) {
+    const p = e.position;
+    const order =
+      e.kind === "buy"
+        ? solUsd
+          ? placeOrder({ mint: p.mint, side: "buy", usd: p.sizeSol * solUsd, source: "sniper" })
+          : Promise.reject(new Error("SOL price not loaded"))
+        : placeOrder({ mint: p.mint, side: "sell", fraction: 1, source: "sniper" });
+    order.catch((err) => {
+      if (e.kind === "buy") dropPosition(p.id);
+      pushToast({ tone: "bad", title: `Sniper demo ${e.kind} not filled: ${p.symbol || "coin"}`, body: orderError(err) });
+    });
+  }
 }
 
 /** A short two-note chime: rising for a buy, falling for a sell. */

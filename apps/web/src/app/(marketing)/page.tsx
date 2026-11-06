@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { ButtonLink } from "@/components/ui/button";
+import { Suspense } from "react";
+import { ButtonLink, buttonClass } from "@/components/ui/button";
+import { LoginPopup, TradeNowButton } from "@/components/account/auth-gate";
 import { LivePreview } from "@/components/landing/live-preview";
 import { SiteNav } from "@/components/landing/site-nav";
 import {
@@ -35,9 +37,7 @@ export default function LandingPage() {
               MONEXA reads launches straight from the chain, prices them itself and flags the risks it can verify.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-3">
-              <ButtonLink href="/discover" size="lg">
-                Trade now
-              </ButtonLink>
+              <TradeNowButton className={buttonClass("primary", "lg")}>Trade now</TradeNowButton>
               <ButtonLink href="#features" size="lg" variant="ghost">
                 See features
               </ButtonLink>
@@ -55,6 +55,9 @@ export default function LandingPage() {
         <FinalCta />
       </main>
       <SiteFooter />
+      <Suspense fallback={null}>
+        <LoginPopup />
+      </Suspense>
     </>
   );
 }

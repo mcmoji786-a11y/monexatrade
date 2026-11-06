@@ -23,6 +23,8 @@ export type Features = {
   rewards: boolean;
   safety_score: boolean;
   accounts: boolean;
+  portfolio: boolean;
+  demo: boolean;
 };
 
 export const ALL_ON: Features = {
@@ -41,6 +43,8 @@ export const ALL_ON: Features = {
   rewards: true,
   safety_score: true,
   accounts: true,
+  portfolio: true,
+  demo: true,
 };
 
 /** Admin labels for every switch, in the order the admin shows them. */
@@ -55,6 +59,8 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "smart_money", label: "Smart Money", hint: "Leaderboard of profitable wallets" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
+  { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },
+  { key: "demo", label: "Demo account", hint: "Virtual $10,000 traded at live prices" },
   { key: "accounts", label: "Accounts", hint: "Sign in with Google, Phantom or email" },
 ];
 
@@ -98,4 +104,5 @@ export const PAGE_FLAG: Record<string, keyof Features> = {
   "smart-money": "smart_money",
   wallets: "wallet_monitor",
   rewards: "rewards",
+  portfolio: "portfolio",
 };

@@ -222,6 +222,10 @@ impl MarketBoard {
         stale
     }
 
+    pub fn get(&self, mint: &str) -> Option<MarketToken> {
+        self.tokens.get(mint).map(|(t, _)| t.clone())
+    }
+
     pub fn all(&self) -> Vec<MarketToken> {
         self.tokens.values().map(|(t, _)| t.clone()).collect()
     }

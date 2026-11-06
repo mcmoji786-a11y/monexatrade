@@ -54,6 +54,13 @@ async fn call(http: &reqwest::Client, url: &str, body: &Value) -> Option<Value> 
     res.json().await.ok()
 }
 
+/// SOL balance of a wallet, in SOL.
+pub async fn sol_balance(http: &reqwest::Client, url: &str, wallet: &str) -> Option<f64> {
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [wallet, { "commitment": "confirmed" }] });
+    let v = call(http, url, &body).await?;
+    v["result"]["value"].as_u64().map(|l| l as f64 / 1e9)
+}
+
 /// Owner program of an account, or None when it does not exist.
 pub async fn account_owner(http: &reqwest::Client, url: &str, pubkey: &str) -> Option<String> {
     let body = json!({

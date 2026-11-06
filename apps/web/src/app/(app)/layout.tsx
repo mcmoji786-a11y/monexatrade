@@ -4,7 +4,9 @@ import { Topbar } from "@/components/topbar";
 import { PriceAlertWatcher } from "@/components/token/price-alerts";
 import { SniperEngine } from "@/components/sniper/sniper-engine";
 import { Toaster } from "@/components/toaster";
-import { WalletGate } from "@/components/account/wallet-gate";
+import { AuthGate } from "@/components/account/auth-gate";
+import { TermsGate } from "@/components/account/terms-gate";
+import { DemoBanner } from "@/components/account/demo-banner";
 import { PageReporter } from "@/components/page-reporter";
 import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
 
@@ -15,7 +17,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PriceAlertWatcher />
       <SniperEngine />
       <Toaster />
-      <WalletGate />
+      <TermsGate />
       <Suspense fallback={null}>
         <PageReporter />
       </Suspense>
@@ -28,11 +30,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Topbar />
         </Suspense>
         {/* The trade terminal runs edge to edge; other pages keep the centered column. */}
+        <DemoBanner />
         <AnnouncementBar />
         <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-6 has-[.terminal]:max-w-none has-[.terminal]:p-0">
           {/* Pages the admin paused show a notice instead (lib/features.ts). */}
           <Suspense fallback={children}>
-            <FeatureGuard>{children}</FeatureGuard>
+            <AuthGate>
+              <FeatureGuard>{children}</FeatureGuard>
+            </AuthGate>
           </Suspense>
         </main>
       </div>

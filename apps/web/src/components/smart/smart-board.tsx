@@ -238,6 +238,7 @@ export function SmartMoneyBoard() {
                           title={`Copy wallet ${l.wallet}`}
                           className="text-cyan"
                         />
+                        <PortfolioLink wallet={l.wallet} />
                       </span>
                     </td>
                     <td className="px-3 text-right font-mono text-positive">
@@ -330,6 +331,7 @@ function Podium({
             title={`Copy wallet ${l.wallet}`}
             className="text-cyan"
           />
+          <PortfolioLink wallet={l.wallet} />
         </span>
         <span className="flex items-center gap-2 font-mono text-xs text-muted">
           <Move by={move} />#{rank}
@@ -563,4 +565,17 @@ function useLeaderTrades(wallets: string[]) {
     };
   }, [key]);
   return key ? trades : [];
+}
+
+/** Opens the wallet's holdings and P&L, read-only. */
+function PortfolioLink({ wallet }: { wallet: string }) {
+  return (
+    <Link
+      href={`/portfolio?wallet=${wallet}`}
+      onClick={(e) => e.stopPropagation()}
+      className="rounded-md border border-border px-1.5 py-0.5 text-[11px] text-text-2 transition-colors hover:bg-surface-3 hover:text-text"
+    >
+      Portfolio
+    </Link>
+  );
 }

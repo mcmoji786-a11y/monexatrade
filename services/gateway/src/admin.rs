@@ -127,6 +127,10 @@ pub struct FeatureFlags {
     pub safety_score: bool,
     /// Sign-in and accounts (Google, Phantom, email).
     pub accounts: bool,
+    /// Portfolio page.
+    pub portfolio: bool,
+    /// Demo trading account.
+    pub demo: bool,
 }
 
 impl Default for FeatureFlags {
@@ -147,6 +151,8 @@ impl Default for FeatureFlags {
             rewards: true,
             safety_score: true,
             accounts: true,
+            portfolio: true,
+            demo: true,
         }
     }
 }

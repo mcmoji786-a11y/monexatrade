@@ -18,10 +18,64 @@ declare global {
   }
 }
 
+/* Wallet Standard: modern wallets (Phantom included) register themselves through these
+   window events, even when another extension has taken window.solana. */
+type StdAccount = { address: string; publicKey: Uint8Array };
+type StdWallet = {
+  name: string;
+  accounts: readonly StdAccount[];
+  features: Record<string, unknown>;
+};
+const registered: StdWallet[] = [];
+if (typeof window !== "undefined") {
+  const register = (...ws: StdWallet[]) => {
+    for (const w of ws) if (!registered.includes(w)) registered.push(w);
+    return () => {};
+  };
+  window.addEventListener("wallet-standard:register-wallet", ((e: CustomEvent) => {
+    try {
+      (e.detail as (api: { register: typeof register }) => void)({ register });
+    } catch {}
+  }) as EventListener);
+  try {
+    window.dispatchEvent(Object.assign(new Event("wallet-standard:app-ready"), { detail: { register } }));
+  } catch {}
+}
+
+function fromStandard(w: StdWallet): PhantomSolana {
+  const f = w.features as Record<string, { connect?: () => Promise<{ accounts: readonly StdAccount[] }>; signMessage?: (...i: { account: StdAccount; message: Uint8Array }[]) => Promise<{ signature: Uint8Array }[]>; disconnect?: () => Promise<void> }>;
+  let account: StdAccount | undefined = w.accounts[0];
+  const key = () => ({ toString: () => account?.address ?? "" });
+  return {
+    isPhantom: true,
+    get publicKey() {
+      return account ? key() : null;
+    },
+    async connect() {
+      const out = await f["standard:connect"].connect!();
+      account = out.accounts[0] ?? w.accounts[0];
+      if (!account) throw new Error("No account selected in the wallet");
+      return { publicKey: key() };
+    },
+    async signMessage(message: Uint8Array) {
+      if (!account) await this.connect();
+      const [out] = await f["solana:signMessage"].signMessage!({ account: account!, message });
+      return { signature: out.signature };
+    },
+    disconnect: f["standard:disconnect"]?.disconnect,
+  };
+}
+
+/** Phantom (or, failing that, any installed Solana wallet that can sign messages). */
 export function phantom(): PhantomSolana | null {
   if (typeof window === "undefined") return null;
-  const p = window.phantom?.solana ?? window.solana;
-  return p?.isPhantom ? p : null;
+  const direct = window.phantom?.solana;
+  if (direct && typeof direct.signMessage === "function") return direct;
+  const std = registered.filter((w) => w.features["standard:connect"] && w.features["solana:signMessage"]);
+  const pick = std.find((w) => /phantom/i.test(w.name)) ?? std[0];
+  if (pick) return fromStandard(pick);
+  const legacy = window.solana;
+  return legacy && typeof legacy.signMessage === "function" ? legacy : null;
 }
 
 export const PHANTOM_INSTALL = "https://phantom.com/download";

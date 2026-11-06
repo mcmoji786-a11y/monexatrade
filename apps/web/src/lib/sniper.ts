@@ -143,6 +143,11 @@ function closeIn(list: SnipePosition[], id: string, price: number, reason: ExitR
   return list.map((p) => (p.id === id && !p.exitTs ? { ...p, exitPrice: price * cost, exitTs: Math.floor(Date.now() / 1000), reason } : p));
 }
 
+/** Removes a position the demo account could not fill (for example, not enough balance). */
+export function dropPosition(id: string) {
+  set({ ...get(), positions: get().positions.filter((p) => p.id !== id) });
+}
+
 /** Profit in SOL and % for a position at `price` (exit price if closed). */
 export function pnl(p: SnipePosition, price: number | null) {
   const exit = p.exitPrice ?? (price != null ? price * (1 - get().settings.slippagePct / 100) : null);
