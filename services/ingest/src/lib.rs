@@ -6,8 +6,13 @@
 //! Dead tokens are dropped and unsubscribed, so data usage follows what Sol Radar
 //! actually shows (ADR 0003, ADR 0004). Nothing is persisted.
 
+pub mod launches;
+pub mod launchlab;
+pub mod logs;
 pub mod market;
+pub mod moonshot;
 pub mod pumpfun;
+pub mod pumpswap;
 pub mod sol_price;
 
 use anyhow::{bail, Context, Result};
@@ -24,7 +29,10 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{net::TcpStream, sync::broadcast};
+use tokio::{
+    net::TcpStream,
+    sync::{broadcast, mpsc},
+};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 const PING_EVERY: Duration = Duration::from_secs(30);
@@ -35,6 +43,10 @@ const FLUSH_EVERY: Duration = Duration::from_secs(1);
 const PRUNE_EVERY: Duration = Duration::from_secs(15);
 const DEDUP_CAPACITY: usize = 100_000;
 const CREATES_REQUEST_ID: u64 = 1;
+/// Request ids 2.. subscribe to the other launchpads (launches::SOURCES).
+const LAUNCH_REQUEST_ID: u64 = 2;
+/// Parallel transaction reads for new non-pump.fun coins (2 Helius calls each).
+const RESOLVE_CONCURRENCY: usize = 3;
 
 type WsSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
@@ -42,9 +54,31 @@ type WsSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 #[derive(Debug, Clone)]
 pub enum IngestEvent {
     Created(NewToken),
+    /// A coin created outside pump.fun (launches.rs). No curve is tracked for it; its
+    /// market figures come from the gateway's market provider.
+    Launched(NewToken),
     Market { sol_usd: Option<f64>, items: Vec<MarketSnapshot> },
     Removed(Vec<String>),
+    /// Every decoded, successful trade on a tracked curve, with its transaction.
+    Trade { signature: String, trade: pumpfun::Trade },
+    /// A successful transaction on a watched pool whose program does not log its
+    /// trades (Raydium, Orca, Meteora...): the gateway fetches and decodes it.
+    PoolTx { mint: String, signature: String },
 }
+
+/// Requests from the gateway. Pools are watched only while someone has the coin's trade
+/// page open, so Helius streams just the pools people are looking at.
+#[derive(Debug, Clone)]
+pub enum IngestCommand {
+    /// Stream a pool's transactions for `mint`. `decode_logs`: the pool is PumpSwap,
+    /// whose trades are decoded straight from the logs; otherwise each transaction is
+    /// reported as `PoolTx` for the gateway to fetch.
+    WatchPool { pool: String, mint: String, decode_logs: bool },
+    UnwatchPool { pool: String },
+}
+
+/// Prefix that marks a pending subscription as a pool rather than a curve.
+const POOL_KEY: &str = "pool:";
 
 /// Live counters used to measure Helius data usage (credits are billed per MB streamed).
 #[derive(Default)]
@@ -98,18 +132,36 @@ pub async fn run_forever(
     rpc_url: String,
     out: broadcast::Sender<IngestEvent>,
     stats: Arc<IngestStats>,
+    mut commands: mpsc::UnboundedReceiver<IngestCommand>,
 ) {
     let sol_usd: sol_price::SolPrice = Arc::default();
-    tokio::spawn(sol_price::run(rpc_url, sol_usd.clone()));
+    tokio::spawn(sol_price::run(rpc_url.clone(), sol_usd.clone()));
 
-    let mut engine = Engine { tracker: Tracker::default(), seen: Dedup::new(DEDUP_CAPACITY), sol_usd };
+    let http = reqwest::Client::new();
+    let (launched_tx, launched_rx) = mpsc::unbounded_channel();
+    let mut engine = Engine {
+        tracker: Tracker::default(),
+        seen: Dedup::new(DEDUP_CAPACITY),
+        sol_usd,
+        pools: HashMap::new(),
+        rpc_url,
+        http,
+        resolving: Arc::new(tokio::sync::Semaphore::new(RESOLVE_CONCURRENCY)),
+        launched_tx,
+        launched_rx,
+        lab_pools: HashMap::new(),
+        moon_curves: HashMap::new(),
+    };
     let mut backoff = Duration::from_secs(1);
     loop {
         let mut subscribed = false;
-        let result = engine.run_once(&ws_url, &out, &stats, &mut subscribed).await;
+        let result = engine.run_once(&ws_url, &out, &stats, &mut subscribed, &mut commands).await;
         stats.connected.store(false, Ordering::Relaxed);
         stats.reconnects.fetch_add(1, Ordering::Relaxed);
         engine.tracker.clear_subs();
+        for w in engine.pools.values_mut() {
+            w.sub_id = None;
+        }
         if subscribed {
             backoff = Duration::from_secs(1);
         }
@@ -126,6 +178,25 @@ struct Engine {
     tracker: Tracker,
     seen: Dedup,
     sol_usd: sol_price::SolPrice,
+    /// Watched PumpSwap pools: pool address -> coin and subscription.
+    pools: HashMap<String, PoolWatch>,
+    rpc_url: String,
+    http: reqwest::Client,
+    /// Bounds RPC reads for non-pump.fun creates during a launch burst.
+    resolving: Arc<tokio::sync::Semaphore>,
+    /// Resolved non-pump.fun coins, handed back from their RPC tasks.
+    launched_tx: mpsc::UnboundedSender<NewToken>,
+    launched_rx: mpsc::UnboundedReceiver<NewToken>,
+    /// LaunchLab curve -> coin, for the coins we track.
+    lab_pools: HashMap<String, String>,
+    /// Moonshot curve -> coin.
+    moon_curves: HashMap<String, String>,
+}
+
+struct PoolWatch {
+    mint: String,
+    decode_logs: bool,
+    sub_id: Option<u64>,
 }
 
 /// Per-connection subscription bookkeeping.
@@ -168,14 +239,21 @@ impl Engine {
         out: &broadcast::Sender<IngestEvent>,
         stats: &IngestStats,
         subscribed: &mut bool,
+        commands: &mut mpsc::UnboundedReceiver<IngestCommand>,
     ) -> Result<()> {
         let (ws, _) = connect_async(url).await.context("websocket connect failed")?;
         let (mut tx, mut rx) = ws.split();
 
         send_logs_subscribe(&mut tx, CREATES_REQUEST_ID, pumpfun::MINT_AUTHORITY).await?;
-        let mut subs = Subs { next_id: CREATES_REQUEST_ID + 1, pending: HashMap::new() };
+        for (i, program) in launches::SOURCES.iter().enumerate() {
+            send_logs_subscribe(&mut tx, LAUNCH_REQUEST_ID + i as u64, program).await?;
+        }
+        let mut subs = Subs { next_id: LAUNCH_REQUEST_ID + launches::SOURCES.len() as u64, pending: HashMap::new() };
         for (mint, curve) in self.tracker.targets() {
             subs.subscribe(&mut tx, mint, &curve).await?;
+        }
+        for pool in self.pools.keys() {
+            subs.subscribe(&mut tx, format!("{POOL_KEY}{pool}"), pool).await?;
         }
         tracing::info!(resubscribed = self.tracker.len(), "subscribed to pump.fun creates");
         *subscribed = true;
@@ -189,6 +267,44 @@ impl Engine {
             tokio::select! {
                 _ = ping.tick() => tx.send(Message::Ping(Vec::new().into())).await?,
 
+                Some(cmd) = commands.recv() => match cmd {
+                    IngestCommand::WatchPool { pool, mint, decode_logs } => {
+                        if !self.pools.contains_key(&pool) {
+                            subs.subscribe(&mut tx, format!("{POOL_KEY}{pool}"), &pool).await?;
+                            self.pools.insert(pool, PoolWatch { mint, decode_logs, sub_id: None });
+                        }
+                    }
+                    IngestCommand::UnwatchPool { pool } => {
+                        if let Some(PoolWatch { sub_id: Some(id), .. }) = self.pools.remove(&pool) {
+                            subs.unsubscribe(&mut tx, id).await?;
+                        }
+                    }
+                },
+
+                Some(mut token) = self.launched_rx.recv() => {
+                    stats.tokens_detected.fetch_add(1, Ordering::Relaxed);
+                    // LaunchLab curves are decoded from logs like pump.fun's, so the coin
+                    // is tracked live. Others list with provider data for now.
+                    let curve = match token.launchpad.as_str() {
+                        "letsbonk.fun" | "raydium-launchlab" => launchlab::pool_of(&token.mint).map(|c| (c, true)),
+                        "moonshot" => moonshot::curve_of(&token.mint).map(|c| (c, false)),
+                        _ => None,
+                    };
+                    match curve {
+                        Some((curve, lab)) => {
+                            token.bonding_curve = curve.clone();
+                            if self.tracker.add(token.clone()) {
+                                let map = if lab { &mut self.lab_pools } else { &mut self.moon_curves };
+                                map.insert(curve, token.mint.clone());
+                                let _ = out.send(IngestEvent::Created(token));
+                            }
+                        }
+                        None => {
+                            let _ = out.send(IngestEvent::Launched(token));
+                        }
+                    }
+                }
+
                 _ = flush.tick() => {
                     let items = self.tracker.take_dirty(now_secs(), sol_price::read(&self.sol_usd));
                     if !items.is_empty() {
@@ -198,6 +314,11 @@ impl Engine {
 
                 _ = prune.tick() => {
                     let removed = self.tracker.prune(now_secs());
+                    if !removed.is_empty() {
+                        let gone: HashSet<&String> = removed.iter().map(|(m, _)| m).collect();
+                        self.lab_pools.retain(|_, m| !gone.contains(m));
+                        self.moon_curves.retain(|_, m| !gone.contains(m));
+                    }
                     for (_, sub) in &removed {
                         if let Some(id) = sub {
                             subs.unsubscribe(&mut tx, *id).await?;
@@ -244,8 +365,15 @@ impl Engine {
             if let Some(err) = v.get("error") {
                 tracing::error!(id, %err, "rpc error");
                 subs.pending.remove(&id);
-            } else if let (Some(mint), Some(sub_id)) = (subs.pending.remove(&id), v.get("result").and_then(Value::as_u64)) {
-                self.tracker.set_sub(&mint, sub_id);
+            } else if let (Some(key), Some(sub_id)) = (subs.pending.remove(&id), v.get("result").and_then(Value::as_u64)) {
+                match key.strip_prefix(POOL_KEY) {
+                    Some(pool) => match self.pools.get_mut(pool) {
+                        Some(w) => w.sub_id = Some(sub_id),
+                        // Unwatched while the subscribe was in flight.
+                        None => subs.unsubscribe(tx, sub_id).await?,
+                    },
+                    None => self.tracker.set_sub(&key, sub_id),
+                }
             }
             return Ok(());
         }
@@ -260,6 +388,20 @@ impl Engine {
         let Some(sig) = value.get("signature").and_then(Value::as_str) else { return Ok(()) };
         let Some(logs) = value.get("logs").and_then(Value::as_array) else { return Ok(()) };
         let logs: Vec<String> = logs.iter().filter_map(|l| l.as_str().map(String::from)).collect();
+
+        // New coins from other launchpads: read the transaction off the hot path.
+        if launches::is_candidate(&logs) && self.seen.insert(&format!("{sig}:launch")) {
+            let (http, url, back, sem) = (self.http.clone(), self.rpc_url.clone(), self.launched_tx.clone(), self.resolving.clone());
+            let (sig, logs) = (sig.to_string(), logs.clone());
+            tokio::spawn(async move {
+                let Ok(_permit) = sem.acquire().await else { return };
+                if let Some(token) = launches::resolve(&http, &url, &sig, &logs).await {
+                    tracing::info!(mint = %token.mint, launchpad = %token.launchpad, symbol = %token.symbol, "new launch");
+                    let _ = back.send(token);
+                }
+            });
+            return Ok(());
+        }
 
         // A create with a dev buy arrives on two subscriptions; dedupe per event.
         for (i, event) in pumpfun::parse_events(sig, &logs).into_iter().enumerate() {
@@ -277,8 +419,77 @@ impl Engine {
                 Event::Trade(trade) => {
                     stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
                     self.tracker.apply_trade(&trade);
+                    let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
                 }
                 Event::Complete { mint } => self.tracker.complete(&mint, now_secs()),
+            }
+        }
+
+        // Watched pools whose program does not log trades: hand the transaction over.
+        // A notification belongs to a pool subscription when its id matches one.
+        if let Some(sub) = v.pointer("/params/subscription").and_then(Value::as_u64) {
+            if let Some(w) = self.pools.values().find(|w| !w.decode_logs && w.sub_id == Some(sub)) {
+                if self.seen.insert(&format!("{sig}:tx")) {
+                    let _ = out.send(IngestEvent::PoolTx { mint: w.mint.clone(), signature: sig.to_string() });
+                }
+                return Ok(());
+            }
+        }
+
+        // Raydium LaunchLab curve trades (letsbonk.fun and others) for coins we track.
+        if !self.lab_pools.is_empty() && logs.iter().any(|l| l.contains(launchlab::PROGRAM_ID)) {
+            for (i, t) in launchlab::parse_trades(&logs).into_iter().enumerate() {
+                let Some(mint) = self.lab_pools.get(&t.pool).cloned() else { continue };
+                if !self.seen.insert(&format!("{sig}:lab{i}")) {
+                    continue;
+                }
+                stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
+                self.tracker.set_curve_total(&mint, t.total_base_sell);
+                let complete = t.complete;
+                let trade = t.into_trade(&mint, now_secs());
+                self.tracker.apply_trade(&trade);
+                if complete {
+                    self.tracker.complete(&mint, now_secs());
+                }
+                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
+            }
+        }
+
+        // Moonshot curve trades for coins we track.
+        if !self.moon_curves.is_empty() && logs.iter().any(|l| l.contains(moonshot::PROGRAM_ID)) {
+            for (i, t) in moonshot::parse_trades(&logs).into_iter().enumerate() {
+                let Some(mint) = self.moon_curves.get(&t.curve).cloned() else { continue };
+                if !self.seen.insert(&format!("{sig}:moon{i}")) {
+                    continue;
+                }
+                stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
+                let trade = t.into_trade(&mint, now_secs());
+                self.tracker.apply_trade(&trade);
+                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
+            }
+        }
+
+        // PumpSwap trades on watched pools, reported in the same shape as curve trades
+        // (pool reserves play the role of the curve's virtual reserves).
+        if !self.pools.is_empty() && logs.iter().any(|l| l.contains(pumpswap::PROGRAM_ID)) {
+            for (i, s) in pumpswap::parse_swaps(&logs).into_iter().enumerate() {
+                let Some(w) = self.pools.get(&s.pool) else { continue };
+                if !self.seen.insert(&format!("{sig}:ps{i}")) {
+                    continue;
+                }
+                stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
+                let trade = pumpfun::Trade {
+                    mint: w.mint.clone(),
+                    sol_amount: s.quote_amount,
+                    token_amount: s.base_amount,
+                    is_buy: s.is_buy,
+                    user: s.user,
+                    timestamp: s.timestamp,
+                    virtual_sol_reserves: s.pool_quote_reserves,
+                    virtual_token_reserves: s.pool_base_reserves,
+                    real_token_reserves: 0,
+                };
+                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
             }
         }
         Ok(())

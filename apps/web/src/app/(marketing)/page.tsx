@@ -1,0 +1,60 @@
+import type { Metadata } from "next";
+import { ButtonLink } from "@/components/ui/button";
+import { LivePreview } from "@/components/landing/live-preview";
+import { SiteNav } from "@/components/landing/site-nav";
+import {
+  ChainData,
+  Faq,
+  Features,
+  Fees,
+  FinalCta,
+  HowItWorks,
+  Security,
+  SiteFooter,
+} from "@/components/landing/sections";
+
+export const metadata: Metadata = {
+  title: "MONEXA · See every new Solana token the second it launches",
+};
+
+export default function LandingPage() {
+  return (
+    <>
+      <SiteNav />
+      <main>
+        <section className="mx-auto grid max-w-300 gap-12 px-4 pb-24 pt-16 md:px-8 md:pt-24 lg:grid-cols-[1fr_1.05fr] lg:items-center">
+          <div>
+            <div className="flex items-center gap-2 font-mono text-xs text-text-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
+              Solana mainnet
+            </div>
+            <h1 className="mt-6 text-4xl font-medium leading-[1.06] tracking-[-0.02em] text-text md:text-6xl md:tracking-[-0.03em]">
+              See every new Solana token the second it launches
+            </h1>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-text-2">
+              MONEXA reads launches straight from the chain, prices them itself and flags the risks it can verify.
+            </p>
+            <div className="mt-10 flex flex-wrap items-center gap-3">
+              <ButtonLink href="/discover" size="lg">
+                Trade now
+              </ButtonLink>
+              <ButtonLink href="#features" size="lg" variant="ghost">
+                See features
+              </ButtonLink>
+            </div>
+          </div>
+          <LivePreview />
+        </section>
+
+        <Features />
+        <HowItWorks />
+        <ChainData />
+        <Security />
+        <Fees />
+        <Faq />
+        <FinalCta />
+      </main>
+      <SiteFooter />
+    </>
+  );
+}

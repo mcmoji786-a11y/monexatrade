@@ -50,15 +50,29 @@ fn candidates(url: &str) -> Vec<String> {
     }
 }
 
-/// `https://any.host/ipfs/<cid>[/...]` -> `<cid>[/...]`
-fn ipfs_path(url: &str) -> Option<&str> {
-    let (_, path) = url.split_once("/ipfs/")?;
-    (!path.is_empty()).then_some(path)
+/// The content path of an IPFS URL, in either gateway style:
+/// - path style:      `https://any.host/ipfs/<cid>[/...]`  -> `<cid>[/...]`
+/// - subdomain style: `https://<cid>.ipfs.any.host[/...]`  -> `<cid>[/...]`
+fn ipfs_path(url: &str) -> Option<String> {
+    if let Some((_, path)) = url.split_once("/ipfs/") {
+        return (!path.is_empty()).then(|| path.to_string());
+    }
+    let rest = url.strip_prefix("https://")?;
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let (cid, _) = host.split_once(".ipfs.")?;
+    let path = path.trim_end_matches('/');
+    (!cid.is_empty()).then(|| {
+        if path.is_empty() {
+            cid.to_string()
+        } else {
+            format!("{cid}/{path}")
+        }
+    })
 }
 
-/// Image URLs on slow IPFS gateways are rewritten to the fastest one, since every
-/// visitor's browser loads them.
-fn rewrite_image(url: String) -> String {
+/// Image URLs on slow or cross-origin-blocking IPFS gateways are rewritten to the
+/// fastest one, since every visitor's browser loads them.
+pub fn rewrite_image(url: String) -> String {
     match ipfs_path(&url) {
         Some(path) => format!("{}{path}", IPFS_GATEWAYS[0]),
         None => url,
@@ -70,7 +84,10 @@ async fn fetch_one(http: &reqwest::Client, url: &str) -> Option<TokenMeta> {
     if !res.status().is_success() {
         return None;
     }
-    if res.content_length().is_some_and(|len| len as usize > MAX_BYTES) {
+    if res
+        .content_length()
+        .is_some_and(|len| len as usize > MAX_BYTES)
+    {
         return None;
     }
     let bytes = res.bytes().await.ok()?;
@@ -95,9 +112,12 @@ fn clean(raw: Raw) -> TokenMeta {
 }
 
 /// Accept only absolute https URLs. Rejects javascript:, data:, http: and garbage.
-fn safe_url(s: &str) -> Option<String> {
+pub fn safe_url(s: &str) -> Option<String> {
     let s = s.trim();
-    if s.len() > 512 || !s.starts_with("https://") || s.chars().any(|c| c.is_whitespace() || c == '"') {
+    if s.len() > 512
+        || !s.starts_with("https://")
+        || s.chars().any(|c| c.is_whitespace() || c == '"')
+    {
         return None;
     }
     let host = s["https://".len()..].split(['/', '?', '#']).next()?;
@@ -127,8 +147,27 @@ mod tests {
         let c = candidates("https://ipfs.io/ipfs/QmABC");
         assert_eq!(c[0], "https://pump.mypinata.cloud/ipfs/QmABC");
         assert_eq!(c.len(), 2);
-        assert_eq!(candidates("https://meta.example.com/x.json"), vec!["https://meta.example.com/x.json"]);
-        assert_eq!(rewrite_image("https://ipfs.io/ipfs/QmImg".into()), "https://pump.mypinata.cloud/ipfs/QmImg");
+        assert_eq!(
+            candidates("https://meta.example.com/x.json"),
+            vec!["https://meta.example.com/x.json"]
+        );
+        assert_eq!(
+            rewrite_image("https://ipfs.io/ipfs/QmImg".into()),
+            "https://pump.mypinata.cloud/ipfs/QmImg"
+        );
+        // subdomain-style gateway, seen blocked by the browser (ERR_BLOCKED_BY_ORB)
+        assert_eq!(
+            rewrite_image("https://bafkreihztk.ipfs.dweb.link/".into()),
+            "https://pump.mypinata.cloud/ipfs/bafkreihztk"
+        );
+        assert_eq!(
+            rewrite_image("https://bafyabc.ipfs.w3s.link/logo.png".into()),
+            "https://pump.mypinata.cloud/ipfs/bafyabc/logo.png"
+        );
+        assert_eq!(
+            rewrite_image("https://arweave.net/x".into()),
+            "https://arweave.net/x"
+        );
     }
 
     #[test]

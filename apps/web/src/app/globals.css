@@ -51,6 +51,13 @@ body {
   scrollbar-color: var(--mx-surface-3) transparent;
 }
 
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 body {
   font-family: var(--font-inter), system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
@@ -78,7 +85,91 @@ body {
   animation: sweep 4s linear infinite;
 }
 
+/* Mobile navigation drawer slides in from the left. */
+@keyframes drawer-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0;
+  }
+}
+.drawer-in {
+  animation: drawer-in 220ms var(--mx-ease);
+}
+
+/* Live value changes: a short tint that fades, green up, red down. */
+@keyframes tick-up {
+  from {
+    background-color: rgb(76 195 138 / 0.28);
+  }
+}
+@keyframes tick-down {
+  from {
+    background-color: rgb(229 72 77 / 0.28);
+  }
+}
+.tick-up,
+.tick-down {
+  border-radius: 4px;
+  animation-duration: 900ms;
+  animation-timing-function: var(--mx-ease);
+}
+.tick-up {
+  animation-name: tick-up;
+}
+.tick-down {
+  animation-name: tick-down;
+}
+
+/* Landing: scroll reveal and preview motion. */
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 500ms var(--mx-ease),
+    transform 500ms var(--mx-ease);
+}
+.reveal.in {
+  opacity: 1;
+  transform: none;
+}
+@media (scripting: none) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.fade-up {
+  animation: fade-up 360ms var(--mx-ease) both;
+}
+
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+.grow-x {
+  transform-origin: left;
+  animation: grow-x 700ms var(--mx-ease) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .tick-up,
+  .tick-down,
+  .fade-up,
+  .grow-x,
+  .drawer-in,
   .row-in,
   .radar-sweep {
     animation: none;

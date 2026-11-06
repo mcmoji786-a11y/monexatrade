@@ -15,5 +15,10 @@ These must be done before any real user or real money touches MONEXA.
 - [ ] API security testing and rate limiting
 - [ ] Disaster recovery test
 
+## Data providers
+- [ ] Review Jupiter Tokens API terms for commercial use. Get an API key if it raises limits (ADR 0004)
+- [ ] Run our own IPFS gateway instead of pump.fun's Pinata gateway (gateway `metadata.rs`)
+- [ ] Rotate the Upstash Redis password (it was shared in chat)
+
 ## Legal
 - [ ] Legal review of trading fees and automated trading in the target jurisdictions

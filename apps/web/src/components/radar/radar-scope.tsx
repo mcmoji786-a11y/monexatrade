@@ -3,9 +3,6 @@
 import type { RadarToken } from "./use-radar-feed";
 
 const WINDOW_SECS = 60;
-const SIZE = 168;
-const C = SIZE / 2;
-const R = C - 6;
 
 /**
  * Sol Radar's one rich element: a radar scope where every blip is a real launch
@@ -13,7 +10,9 @@ const R = C - 6;
  * center and drift outward), and the angle comes from the mint address, so a token
  * keeps its bearing. Blips fade as they age out of the window.
  */
-export function RadarScope({ tokens, now }: { tokens: RadarToken[]; now: number }) {
+export function RadarScope({ tokens, now, size = 168 }: { tokens: RadarToken[]; now: number; size?: number }) {
+  const c = size / 2;
+  const r = c - 4;
   const blips = now
     ? tokens
         .map((t) => ({ t, age: now / 1000 - t.timestamp }))
@@ -21,40 +20,37 @@ export function RadarScope({ tokens, now }: { tokens: RadarToken[]; now: number 
     : [];
 
   return (
-    <div className="relative shrink-0" style={{ width: SIZE, height: SIZE }} aria-hidden>
-      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="absolute inset-0">
-        <circle cx={C} cy={C} r={R} fill="var(--mx-surface)" stroke="var(--mx-border)" />
-        {[0.25, 0.5, 0.75].map((f) => (
-          <circle key={f} cx={C} cy={C} r={R * f} fill="none" stroke="var(--mx-border)" />
+    <div className="relative shrink-0" style={{ width: size, height: size }} aria-hidden>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="absolute inset-0">
+        <circle cx={c} cy={c} r={r} fill="var(--mx-surface)" stroke="var(--mx-border)" />
+        {[0.33, 0.66].map((f) => (
+          <circle key={f} cx={c} cy={c} r={r * f} fill="none" stroke="var(--mx-border)" />
         ))}
-        <line x1={C - R} y1={C} x2={C + R} y2={C} stroke="var(--mx-border)" />
-        <line x1={C} y1={C - R} x2={C} y2={C + R} stroke="var(--mx-border)" />
+        <line x1={c - r} y1={c} x2={c + r} y2={c} stroke="var(--mx-border)" />
+        <line x1={c} y1={c - r} x2={c} y2={c + r} stroke="var(--mx-border)" />
         {blips.map(({ t, age }) => {
           const angle = bearing(t.mint);
-          const dist = (0.12 + (age / WINDOW_SECS) * 0.88) * R;
-          const x = C + Math.cos(angle) * dist;
-          const y = C + Math.sin(angle) * dist;
+          const dist = (0.12 + (age / WINDOW_SECS) * 0.88) * r;
           const fresh = age < 5;
           return (
             <circle
-              key={t.signature}
-              cx={x}
-              cy={y}
-              r={fresh ? 3.5 : 2.5}
+              key={t.mint}
+              cx={c + Math.cos(angle) * dist}
+              cy={c + Math.sin(angle) * dist}
+              r={fresh ? 3 : 2}
               fill={fresh ? "var(--mx-text)" : "var(--mx-emerald)"}
               opacity={1 - (age / WINDOW_SECS) * 0.75}
             />
           );
         })}
-        <circle cx={C} cy={C} r={2} fill="var(--mx-emerald)" />
+        <circle cx={c} cy={c} r={1.5} fill="var(--mx-emerald)" />
       </svg>
-      {/* Sweep: a single-hue fade inside the scope, clipped to the circle. */}
+      {/* Sweep: a single-hue fade inside the scope. */}
       <div
         className="radar-sweep absolute rounded-full"
         style={{
-          inset: 6,
-          background:
-            "conic-gradient(from 0deg, rgb(52 211 153 / 0.28), rgb(52 211 153 / 0) 70deg, transparent 360deg)",
+          inset: 4,
+          background: "conic-gradient(from 0deg, rgb(52 211 153 / 0.28), rgb(52 211 153 / 0) 70deg, transparent 360deg)",
         }}
       />
     </div>

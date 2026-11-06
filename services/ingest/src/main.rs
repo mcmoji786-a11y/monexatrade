@@ -15,13 +15,16 @@ async fn main() -> Result<()> {
 
     let (tx, mut rx) = broadcast::channel(1024);
     let stats = Arc::new(IngestStats::default());
-    tokio::spawn(monexa_ingest::run_forever(config.helius_ws_url(), config.helius_rpc_url(), tx, stats));
+    let (_commands, commands_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(monexa_ingest::run_forever(config.helius_ws_url(), config.helius_rpc_url(), tx, stats, commands_rx));
 
     while let Ok(event) = rx.recv().await {
         match event {
             IngestEvent::Created(t) => tracing::info!(mint = %t.mint, symbol = %t.symbol, "created"),
             IngestEvent::Market { sol_usd, items } => tracing::info!(?sol_usd, updated = items.len(), "market"),
             IngestEvent::Removed(m) => tracing::info!(removed = m.len(), "pruned"),
+            IngestEvent::Launched(t) => tracing::info!(mint = %t.mint, launchpad = %t.launchpad, symbol = %t.symbol, "launched"),
+            IngestEvent::Trade { .. } | IngestEvent::PoolTx { .. } => {}
         }
     }
     Ok(())

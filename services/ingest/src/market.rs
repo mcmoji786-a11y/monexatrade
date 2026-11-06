@@ -8,7 +8,7 @@
 
 use crate::pumpfun::{NewToken, Trade};
 use serde::Serialize;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 const TOKEN_DECIMALS: f64 = 1_000_000.0;
@@ -19,6 +19,10 @@ const DEFAULT_SUPPLY: u64 = 1_000_000_000_000_000;
 const WHALE_LAMPORTS: u64 = 5_000_000_000;
 const WINDOW_5M: i64 = 300;
 const WINDOW_1H: i64 = 3_600;
+/// Buyers in the first seconds after creation (other than the creator) count as snipers.
+const SNIPE_WINDOW_SECS: i64 = 3;
+/// Price history is sampled at most this often, enough for 5m and 1h changes.
+const PRICE_SAMPLE_SECS: i64 = 5;
 
 /// Tracking limits. These keep Helius usage low and the feed free of dead coins.
 pub const MAX_TRACKED: usize = 300;
@@ -48,13 +52,32 @@ pub struct MarketSnapshot {
     pub volume_1h_usd: Option<f64>,
     pub buys_1h: u32,
     pub sells_1h: u32,
+    /// SOL bought minus SOL sold in the last hour.
+    pub net_buy_1h_sol: f64,
     pub trades_total: u64,
     /// Approximate: wallets with a positive balance from observed trades.
     pub holders: u32,
     pub top10_pct: f64,
     pub dev_pct: f64,
     pub whale_trades_1h: u32,
+    /// Buys of 5 SOL or more in the last hour.
+    pub whale_buys_1h: u32,
+    /// Price change over the window. Tokens younger than the window compare
+    /// against their launch price.
+    pub change_5m_pct: Option<f64>,
+    pub change_1h_pct: Option<f64>,
+    /// Wallets (other than the creator) that bought within 3 s of creation, and the
+    /// share of supply they still hold.
+    pub snipers: u32,
+    pub sniper_pct: f64,
     pub last_trade: i64,
+}
+
+fn price_of(virtual_sol: u64, virtual_tokens: u64) -> f64 {
+    if virtual_tokens == 0 {
+        return 0.0;
+    }
+    (virtual_sol as f64 / LAMPORTS_PER_SOL) / (virtual_tokens as f64 / TOKEN_DECIMALS)
 }
 
 struct WindowTrade {
@@ -77,13 +100,22 @@ pub struct Tracked {
     balances: HashMap<String, u64>,
     last_trade: i64,
     complete_at: Option<i64>,
+    /// (timestamp, price in SOL), oldest first, trimmed to one hour.
+    prices: VecDeque<(i64, f64)>,
+    snipers: HashSet<String>,
     dirty: bool,
 }
 
 impl Tracked {
     fn new(token: NewToken) -> Self {
         let r = token.reserves.clone();
+        let mut prices = VecDeque::new();
+        if let Some(r) = &r {
+            prices.push_back((token.timestamp, price_of(r.virtual_sol, r.virtual_token)));
+        }
         Self {
+            prices,
+            snipers: HashSet::new(),
             initial_real_tokens: r.as_ref().map_or(DEFAULT_INITIAL_REAL_TOKENS, |r| r.real_token),
             supply: r.as_ref().map_or(DEFAULT_SUPPLY, |r| r.total_supply).max(1),
             virtual_sol: r.as_ref().map_or(0, |r| r.virtual_sol),
@@ -108,19 +140,34 @@ impl Tracked {
             self.virtual_tokens = t.virtual_token_reserves;
             self.real_tokens = t.real_token_reserves;
             self.reserves_ts = t.timestamp;
+
+            // Merge samples closer than PRICE_SAMPLE_SECS, but never overwrite the
+            // first sample: it is the launch price that young tokens compare against.
+            let p = price_of(t.virtual_sol_reserves, t.virtual_token_reserves);
+            let len = self.prices.len();
+            match self.prices.back_mut() {
+                Some(last) if len > 1 && t.timestamp - last.0 < PRICE_SAMPLE_SECS => last.1 = p,
+                _ => self.prices.push_back((t.timestamp, p)),
+            }
+        }
+        if !t.user.is_empty() && t.is_buy && t.user != self.token.creator && t.timestamp - self.token.timestamp <= SNIPE_WINDOW_SECS {
+            self.snipers.insert(t.user.clone());
         }
         self.window.push_back(WindowTrade { ts: t.timestamp, lamports: t.sol_amount, is_buy: t.is_buy });
         self.trades_total += 1;
         self.last_trade = self.last_trade.max(t.timestamp);
 
-        let bal = self.balances.entry(t.user.clone()).or_insert(0);
-        if t.is_buy {
-            *bal = bal.saturating_add(t.token_amount);
-        } else {
-            *bal = bal.saturating_sub(t.token_amount);
-        }
-        if *bal == 0 {
-            self.balances.remove(&t.user);
+        // Trades without a trader (LaunchLab logs) move price and volume only.
+        if !t.user.is_empty() {
+            let bal = self.balances.entry(t.user.clone()).or_insert(0);
+            if t.is_buy {
+                *bal = bal.saturating_add(t.token_amount);
+            } else {
+                *bal = bal.saturating_sub(t.token_amount);
+            }
+            if *bal == 0 {
+                self.balances.remove(&t.user);
+            }
         }
         self.dirty = true;
     }
@@ -130,10 +177,21 @@ impl Tracked {
             self.window.pop_front();
         }
 
-        let price_sol = if self.virtual_tokens > 0 {
-            (self.virtual_sol as f64 / LAMPORTS_PER_SOL) / (self.virtual_tokens as f64 / TOKEN_DECIMALS)
-        } else {
-            0.0
+        // Keep one sample at or before the 1h boundary so the 1h change has a reference.
+        while self.prices.len() > 1 && self.prices[1].0 <= now - WINDOW_1H {
+            self.prices.pop_front();
+        }
+
+        let price_sol = price_of(self.virtual_sol, self.virtual_tokens);
+        let change = |window: i64| -> Option<f64> {
+            let reference = self
+                .prices
+                .iter()
+                .rev()
+                .find(|(ts, _)| *ts <= now - window)
+                .or_else(|| self.prices.front())?
+                .1;
+            (reference > 0.0 && price_sol > 0.0).then(|| ((price_sol / reference - 1.0) * 1000.0).round() / 10.0)
         };
         let mc_sol = price_sol * self.supply as f64 / TOKEN_DECIMALS;
 
@@ -144,17 +202,22 @@ impl Tracked {
             (sold as f64 / self.initial_real_tokens.max(1) as f64 * 100.0).clamp(0.0, 100.0)
         };
 
-        let (mut v5, mut v1h, mut buys, mut sells, mut whales) = (0u64, 0u64, 0u32, 0u32, 0u32);
+        let (mut v5, mut v1h, mut buys, mut sells) = (0u64, 0u64, 0u32, 0u32);
+        let (mut whales, mut whale_buys) = (0u32, 0u32);
+        let mut net: i128 = 0;
         for w in &self.window {
             v1h += w.lamports;
+            net += if w.is_buy { w.lamports as i128 } else { -(w.lamports as i128) };
             if now - w.ts <= WINDOW_5M {
                 v5 += w.lamports;
             }
             if w.is_buy { buys += 1 } else { sells += 1 }
             if w.lamports >= WHALE_LAMPORTS {
                 whales += 1;
+                whale_buys += w.is_buy as u32;
             }
         }
+        let sniper_held: u64 = self.snipers.iter().filter_map(|s| self.balances.get(s)).sum();
 
         let mut top: Vec<u64> = self.balances.values().copied().collect();
         top.sort_unstable_by(|a, b| b.cmp(a));
@@ -179,11 +242,17 @@ impl Tracked {
             volume_1h_usd: sol_usd.map(|p| v1h_sol * p),
             buys_1h: buys,
             sells_1h: sells,
+            net_buy_1h_sol: net as f64 / LAMPORTS_PER_SOL,
             trades_total: self.trades_total,
             holders: self.balances.len() as u32,
             top10_pct: pct(top10),
             dev_pct: pct(dev),
             whale_trades_1h: whales,
+            whale_buys_1h: whale_buys,
+            change_5m_pct: change(WINDOW_5M),
+            change_1h_pct: change(WINDOW_1H),
+            snipers: self.snipers.len() as u32,
+            sniper_pct: pct(sniper_held),
             last_trade: self.last_trade,
         }
     }
@@ -230,9 +299,24 @@ impl Tracker {
         }
     }
 
-    /// (mint, bonding curve) for every tracked token, to (re)subscribe.
+    /// (mint, bonding curve) for every tracked pump.fun token, to (re)subscribe. Other
+    /// curves arrive on their launchpad's program subscription.
     pub fn targets(&self) -> Vec<(String, String)> {
-        self.tokens.values().map(|t| (t.token.mint.clone(), t.token.bonding_curve.clone())).collect()
+        self.tokens
+            .values()
+            .filter(|t| t.token.launchpad == "pump.fun")
+            .map(|t| (t.token.mint.clone(), t.token.bonding_curve.clone()))
+            .collect()
+    }
+
+    /// Curves that sell a different amount than pump.fun's (LaunchLab reports its own
+    /// total in every trade); sets the base for curve progress.
+    pub fn set_curve_total(&mut self, mint: &str, total: u64) {
+        if let Some(tr) = self.tokens.get_mut(mint) {
+            if total > 0 {
+                tr.initial_real_tokens = total;
+            }
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -294,6 +378,7 @@ mod tests {
             }),
             standard: TokenStandard::Spl,
             quote_mint: None,
+            launchpad: "pump.fun".to_string(),
         }
     }
 
@@ -339,6 +424,13 @@ mod tests {
         assert_eq!((s.buys_1h, s.sells_1h, s.trades_total), (2, 1, 3));
         assert!((s.volume_1h_sol - 7.5).abs() < 1e-9);
         assert_eq!(s.whale_trades_1h, 1);
+        assert_eq!(s.whale_buys_1h, 1);
+        // launch price 30 SOL / 1.073B tokens -> 5e-8 now: +78.8% since launch
+        assert_eq!(s.change_5m_pct, Some(78.8));
+        assert_eq!(s.change_1h_pct, Some(78.8));
+        // "whale" bought 2 s after launch (sniper) and sold everything; dev is excluded
+        assert_eq!(s.snipers, 1);
+        assert_eq!(s.sniper_pct, 0.0);
         assert_eq!(s.holders, 1, "whale sold everything, only dev holds");
         assert!((s.dev_pct - 10.0).abs() < 1e-9);
         // sold 100M of 793.1M curve tokens

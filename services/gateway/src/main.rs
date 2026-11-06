@@ -2,15 +2,21 @@
 //! Runs the ingest engine in-process: one Helius connection serves all users.
 //! Tracked tokens live only in memory (no database), per ADR 0003.
 
+mod book;
+mod dex;
+mod jupiter;
 mod metadata;
+mod pools;
+mod rpc;
+mod txdecode;
 
 use anyhow::Result;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Path, Query, State,
     },
-    http::HeaderValue,
+    http::{HeaderValue, StatusCode},
     response::Response,
     routing::get,
     Json, Router,
@@ -25,7 +31,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{broadcast, mpsc, Semaphore};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 /// Max concurrent metadata fetches, so a launch burst cannot flood outbound requests.
@@ -44,16 +50,65 @@ struct FeedToken {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum FeedEvent {
-    Token { token: FeedToken },
-    Meta { mint: String, meta: TokenMeta },
-    Market { sol_usd: Option<f64>, items: Vec<MarketSnapshot> },
-    Removed { mints: Vec<String> },
+    Token {
+        token: FeedToken,
+    },
+    Meta {
+        mint: String,
+        meta: TokenMeta,
+    },
+    Market {
+        sol_usd: Option<f64>,
+        items: Vec<MarketSnapshot>,
+    },
+    Removed {
+        mints: Vec<String>,
+    },
+    /// Established tokens across Solana (Jupiter provider), only those that changed.
+    Markets {
+        items: Vec<jupiter::MarketToken>,
+    },
+    MarketsRemoved {
+        mints: Vec<String>,
+    },
 }
 
 #[derive(Default)]
 struct Board {
     tokens: HashMap<String, FeedToken>,
     sol_usd: Option<f64>,
+    markets: jupiter::MarketBoard,
+    /// Recent USD prices per coin for Discover's mini charts, oldest first.
+    sparks: HashMap<String, std::collections::VecDeque<(i64, f64)>>,
+}
+
+/// One price sample per coin at most this often, keeping this many (30 minutes).
+const SPARK_EVERY: i64 = 30;
+const SPARK_POINTS: usize = 60;
+
+impl Board {
+    fn sample(&mut self, mint: &str, price: Option<f64>, now: i64) {
+        let Some(price) = price.filter(|p| p.is_finite() && *p > 0.0) else { return };
+        let s = self.sparks.entry(mint.to_string()).or_default();
+        match s.back_mut() {
+            Some(last) if now - last.0 < SPARK_EVERY => last.1 = price,
+            _ => {
+                s.push_back((now, price));
+                if s.len() > SPARK_POINTS {
+                    s.pop_front();
+                }
+            }
+        }
+    }
+
+    /// Price series per coin for a new browser connection.
+    fn spark_series(&self) -> HashMap<&str, Vec<f64>> {
+        self.sparks.iter().filter(|(_, s)| s.len() > 1).map(|(m, s)| (m.as_str(), s.iter().map(|(_, p)| *p).collect())).collect()
+    }
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
 struct AppState {
@@ -64,6 +119,25 @@ struct AppState {
     stats: Arc<IngestStats>,
     started: Instant,
     meta_slots: Semaphore,
+    /// Trade history per tracked launch, for the trade page.
+    books: Mutex<book::Books>,
+    /// GeckoTerminal candles and trades for tokens outside our decoder.
+    dex: Arc<dex::DexCache>,
+    /// Commands to the ingest engine (watch or unwatch a PumpSwap pool).
+    ingest_cmd: mpsc::UnboundedSender<monexa_ingest::IngestCommand>,
+    /// Graduated coins whose PumpSwap pool is streamed, by mint.
+    watches: Mutex<HashMap<String, Watch>>,
+    /// Pool discovery (DexScreener) and quote token prices (Jupiter).
+    pools: pools::Pools,
+    /// Pool transactions to fetch and decode: (mint, signature, attempts).
+    tx_queue: mpsc::UnboundedSender<(String, String, u8)>,
+    /// A book changed in bulk (history arrived): open trade pages for this mint resend it.
+    refresh: broadcast::Sender<String>,
+    /// Every trade on a tracked launch, as (mint, row); trade pages filter by mint.
+    trades: broadcast::Sender<(String, book::TradeRow)>,
+    /// Single-token lookups for the trade page, cached briefly so many open pages
+    /// cost one Jupiter call per token every few seconds.
+    token_cache: Mutex<HashMap<String, (Instant, Option<jupiter::MarketToken>)>>,
 }
 
 #[derive(Serialize)]
@@ -87,9 +161,11 @@ async fn main() -> Result<()> {
         .user_agent("monexa-gateway/0.1")
         .build()?;
 
-    let (ingest_tx, ingest_rx) = broadcast::channel(1024);
+    let (ingest_tx, ingest_rx) = broadcast::channel(8192);
     let (feed, _) = broadcast::channel(1024);
     let stats = Arc::new(IngestStats::default());
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    let (tx_queue_tx, tx_queue_rx) = mpsc::unbounded_channel();
     let state = Arc::new(AppState {
         http,
         feed,
@@ -97,11 +173,30 @@ async fn main() -> Result<()> {
         stats: stats.clone(),
         started: Instant::now(),
         meta_slots: Semaphore::new(META_CONCURRENCY),
+        books: Mutex::new(book::Books::default()),
+        ingest_cmd: cmd_tx,
+        watches: Mutex::new(HashMap::new()),
+        pools: pools::Pools::default(),
+        tx_queue: tx_queue_tx,
+        refresh: broadcast::channel(256).0,
+        dex: Arc::new(dex::DexCache::default()),
+        trades: broadcast::channel(4096).0,
+        token_cache: Mutex::new(HashMap::new()),
         config: config.clone(),
     });
 
-    tokio::spawn(monexa_ingest::run_forever(config.helius_ws_url(), config.helius_rpc_url(), ingest_tx, stats));
+    tokio::spawn(monexa_ingest::run_forever(
+        config.helius_ws_url(),
+        config.helius_rpc_url(),
+        ingest_tx,
+        stats,
+        cmd_rx,
+    ));
+    tokio::spawn(expire_watches(state.clone()));
+    tokio::spawn(fetch_pool_txs(state.clone(), tx_queue_rx));
     tokio::spawn(process_events(state.clone(), ingest_rx));
+    tokio::spawn(poll_markets(state.clone()));
+    tokio::spawn(prune_launches(state.clone()));
 
     let cors = CorsLayer::new()
         .allow_origin(config.allowed_origin.parse::<HeaderValue>()?)
@@ -111,6 +206,10 @@ async fn main() -> Result<()> {
         .route("/health", get(health))
         .route("/stats", get(stats_handler))
         .route("/ws/new-tokens", get(ws_new_tokens))
+        .route("/token/{mint}", get(token_handler))
+        .route("/token/{mint}/wallets", get(wallets_handler))
+        .route("/token/{mint}/dex", get(dex_handler))
+        .route("/ws/token/{mint}", get(ws_token))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -137,8 +236,38 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
 
         match event {
             IngestEvent::Created(token) => {
-                let item = FeedToken { token: token.clone(), meta: None, market: None };
-                state.board.lock().expect("board lock").tokens.insert(token.mint.clone(), item.clone());
+                // The trade book counts amounts in SOL. Curves quoted in another
+                // currency (USD1 and similar) would read as $0, so those coins use
+                // their DEX history instead.
+                if token.quote_mint.is_none() {
+                    state.books.lock().expect("books lock").add(&token);
+                }
+                let item = FeedToken {
+                    token: token.clone(),
+                    meta: None,
+                    market: None,
+                };
+                state
+                    .board
+                    .lock()
+                    .expect("board lock")
+                    .tokens
+                    .insert(token.mint.clone(), item.clone());
+                let _ = state.feed.send(FeedEvent::Token { token: item });
+                spawn_metadata(state.clone(), token);
+            }
+            IngestEvent::Launched(token) => {
+                let item = FeedToken {
+                    token: token.clone(),
+                    meta: None,
+                    market: None,
+                };
+                state
+                    .board
+                    .lock()
+                    .expect("board lock")
+                    .tokens
+                    .insert(token.mint.clone(), item.clone());
                 let _ = state.feed.send(FeedEvent::Token { token: item });
                 spawn_metadata(state.clone(), token);
             }
@@ -146,31 +275,229 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 {
                     let mut board = state.board.lock().expect("board lock");
                     board.sol_usd = sol_usd.or(board.sol_usd);
+                    let now = now_unix();
                     for m in &items {
                         if let Some(t) = board.tokens.get_mut(&m.mint) {
                             t.market = Some(m.clone());
                         }
+                        board.sample(&m.mint, m.price_usd, now);
                     }
                 }
                 let _ = state.feed.send(FeedEvent::Market { sol_usd, items });
             }
             IngestEvent::Removed(mints) => {
                 {
+                    // Copy the watched set first: watch_pool locks watches before books,
+                    // so never hold books while waiting for watches.
+                    let watched: std::collections::HashSet<String> = state
+                        .watches
+                        .lock()
+                        .expect("watches lock")
+                        .keys()
+                        .cloned()
+                        .collect();
                     let mut board = state.board.lock().expect("board lock");
+                    let mut books = state.books.lock().expect("books lock");
                     for m in &mints {
                         board.tokens.remove(m);
+                        board.sparks.remove(m);
+                        // A graduated coin pruned from the launch board keeps its book
+                        // while its pool is being watched.
+                        if !watched.contains(m) {
+                            books.remove(m);
+                        }
                     }
                 }
                 let _ = state.feed.send(FeedEvent::Removed { mints });
             }
+            IngestEvent::PoolTx { mint, signature } => {
+                let _ = state.tx_queue.send((mint, signature, 0));
+            }
+            IngestEvent::Trade {
+                signature,
+                mut trade,
+            } => {
+                // Pools quoted in another token (WBTC, USDC...) report raw quote units;
+                // convert them to lamports of equal value so the book stays in SOL.
+                let factor = state
+                    .watches
+                    .lock()
+                    .expect("watches lock")
+                    .get(&trade.mint)
+                    .map_or(1.0, |w| w.factor);
+                if factor != 1.0 {
+                    scale_quote(&mut trade, factor);
+                }
+                let row = state
+                    .books
+                    .lock()
+                    .expect("books lock")
+                    .apply(&signature, &trade);
+                if let Some(row) = row {
+                    let _ = state.trades.send((trade.mint, row));
+                }
+            }
+        }
+    }
+}
+
+/// Poll one Jupiter category at a time and push only what changed to browsers.
+async fn poll_markets(state: Arc<AppState>) {
+    let mut delay = jupiter::POLL_EVERY;
+    let mut round = 0usize;
+    let mut category_round = 0usize;
+    loop {
+        round += 1;
+        // Every few rounds, fetch exact holders/liquidity for our most traded launches.
+        let launches = if round % jupiter::ENRICH_EVERY == 0 {
+            most_traded_launches(&state)
+        } else {
+            Vec::new()
+        };
+        let (category, result) = if !launches.is_empty() {
+            (
+                "launch enrichment",
+                jupiter::fetch_mints(&state.http, &launches).await,
+            )
+        } else {
+            let c = jupiter::category(category_round);
+            category_round += 1;
+            (c, jupiter::fetch_category(&state.http, c).await)
+        };
+        delay = jupiter::next_delay(delay, &result);
+        match result {
+            jupiter::PollResult::Ok(items) => {
+                let (changed, removed) = {
+                    let mut board = state.board.lock().expect("board lock");
+                    let now = now_unix();
+                    for t in &items {
+                        // Coins our engine prices keep one source for their chart.
+                        let own = board.tokens.get(&t.mint).and_then(|f| f.market.as_ref()).is_some_and(|m| m.sol_quoted);
+                        if !own {
+                            board.sample(&t.mint, t.price_usd, now);
+                        }
+                    }
+                    let changed = board.markets.merge(items);
+                    let removed = board.markets.prune();
+                    for m in &removed {
+                        if !board.tokens.contains_key(m) {
+                            board.sparks.remove(m);
+                        }
+                    }
+                    (changed, removed)
+                };
+                if !changed.is_empty() {
+                    let _ = state.feed.send(FeedEvent::Markets { items: changed });
+                }
+                if !removed.is_empty() {
+                    let _ = state
+                        .feed
+                        .send(FeedEvent::MarketsRemoved { mints: removed });
+                }
+            }
+            jupiter::PollResult::RateLimited => {
+                tracing::warn!(category, ?delay, "jupiter rate limited, backing off")
+            }
+            jupiter::PollResult::Failed => {}
+        }
+        tokio::time::sleep(delay).await;
+    }
+}
+
+/// Mints to enrich from the market provider: coins from other launchpads first (we
+/// decode no curve for them, so the provider is their only market data), newest
+/// first, then pump.fun launches with the most volume in the last hour.
+fn most_traded_launches(state: &AppState) -> Vec<String> {
+    let board = state.board.lock().expect("board lock");
+    let mut others: Vec<(&String, i64)> = board
+        .tokens
+        .values()
+        .filter(|t| t.token.launchpad != "pump.fun")
+        .map(|t| (&t.token.mint, t.token.timestamp))
+        .collect();
+    others.sort_by(|a, b| b.1.cmp(&a.1));
+    let mut launches: Vec<(&String, f64)> = board
+        .tokens
+        .values()
+        .filter_map(|t| t.market.as_ref().map(|m| (&t.token.mint, m.volume_1h_sol)))
+        .filter(|(_, v)| *v > 0.0)
+        .collect();
+    launches.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let others = others
+        .into_iter()
+        .take(jupiter::ENRICH_BATCH / 2)
+        .map(|(m, _)| m.clone());
+    others
+        .chain(launches.into_iter().map(|(m, _)| m.clone()))
+        .take(jupiter::ENRICH_BATCH)
+        .collect()
+}
+
+/// Coins from other launchpads leave the board when nothing trades them: after
+/// `LAUNCH_QUIET` without a market from the provider, or `LAUNCH_MAX_AGE` in any case
+/// (Discover takes over for coins that keep trading). At most `LAUNCH_MAX` are kept.
+const LAUNCH_QUIET: i64 = 20 * 60;
+const LAUNCH_MAX_AGE: i64 = 6 * 3600;
+const LAUNCH_MAX: usize = 300;
+
+async fn prune_launches(state: Arc<AppState>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(30));
+    loop {
+        tick.tick().await;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        let removed: Vec<String> = {
+            let mut board = state.board.lock().expect("board lock");
+            let trading: std::collections::HashSet<String> = board
+                .markets
+                .all()
+                .into_iter()
+                .filter(|m| m.volume_1h_usd.unwrap_or(0.0) > 0.0)
+                .map(|m| m.mint)
+                .collect();
+            let mut others: Vec<(String, i64, bool)> = board
+                .tokens
+                .values()
+                .filter(|t| t.token.launchpad != "pump.fun")
+                .map(|t| {
+                    (
+                        t.token.mint.clone(),
+                        t.token.timestamp,
+                        trading.contains(&t.token.mint),
+                    )
+                })
+                .collect();
+            others.sort_by(|a, b| b.1.cmp(&a.1));
+            let gone: Vec<String> = others
+                .iter()
+                .enumerate()
+                .filter(|(i, (_, ts, trading))| {
+                    *i >= LAUNCH_MAX
+                        || now - ts > LAUNCH_MAX_AGE
+                        || (!trading && now - ts > LAUNCH_QUIET)
+                })
+                .map(|(_, (m, _, _))| m.clone())
+                .collect();
+            for m in &gone {
+                board.tokens.remove(m);
+            }
+            gone
+        };
+        if !removed.is_empty() {
+            let _ = state.feed.send(FeedEvent::Removed { mints: removed });
         }
     }
 }
 
 fn spawn_metadata(state: Arc<AppState>, token: NewToken) {
     tokio::spawn(async move {
-        let Ok(_permit) = state.meta_slots.acquire().await else { return };
-        let Some(meta) = metadata::fetch(&state.http, &token.uri).await else { return };
+        let Ok(_permit) = state.meta_slots.acquire().await else {
+            return;
+        };
+        let Some(meta) = metadata::fetch(&state.http, &token.uri).await else {
+            return;
+        };
         {
             let mut board = state.board.lock().expect("board lock");
             match board.tokens.get_mut(&token.mint) {
@@ -178,7 +505,10 @@ fn spawn_metadata(state: Arc<AppState>, token: NewToken) {
                 None => return, // pruned meanwhile
             }
         }
-        let _ = state.feed.send(FeedEvent::Meta { mint: token.mint, meta });
+        let _ = state.feed.send(FeedEvent::Meta {
+            mint: token.mint,
+            meta,
+        });
     });
 }
 
@@ -194,7 +524,8 @@ async fn stream_tokens(mut socket: WebSocket, state: Arc<AppState>) {
         let board = state.board.lock().expect("board lock");
         let mut tokens: Vec<&FeedToken> = board.tokens.values().collect();
         tokens.sort_by(|a, b| b.token.timestamp.cmp(&a.token.timestamp));
-        json!({ "type": "snapshot", "sol_usd": board.sol_usd, "tokens": tokens }).to_string()
+        json!({ "type": "snapshot", "sol_usd": board.sol_usd, "tokens": tokens, "markets": board.markets.all(), "sparks": board.spark_series() })
+            .to_string()
     };
     if socket.send(Message::Text(msg.into())).await.is_err() {
         return;
@@ -248,13 +579,22 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         supabase,
         helius,
         solana_slot: slot,
-        stream_connected: state.stats.connected.load(std::sync::atomic::Ordering::Relaxed),
+        stream_connected: state
+            .stats
+            .connected
+            .load(std::sync::atomic::Ordering::Relaxed),
     })
 }
 
 async fn check_supabase(state: &AppState) -> bool {
     let url = format!("{}/auth/v1/settings", state.config.supabase_url);
-    match state.http.get(url).header("apikey", &state.config.supabase_anon_key).send().await {
+    match state
+        .http
+        .get(url)
+        .header("apikey", &state.config.supabase_anon_key)
+        .send()
+        .await
+    {
         Ok(res) => res.status().is_success(),
         Err(err) => {
             tracing::warn!(%err, "supabase health check failed");
@@ -275,4 +615,606 @@ async fn solana_slot(state: &AppState) -> Option<u64> {
         .ok()?;
     let value: serde_json::Value = res.json().await.ok()?;
     value.get("result")?.as_u64()
+}
+
+const TOKEN_CACHE_TTL: Duration = Duration::from_secs(3);
+const TOKEN_CACHE_MAX: usize = 2_000;
+
+/// A Solana address: base58, 32 to 44 characters.
+fn is_mint(s: &str) -> bool {
+    (32..=44).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() && !matches!(b, b'0' | b'O' | b'I' | b'l'))
+}
+
+/// `GET /token/{mint}`: one token's market data, for a trade page whose token is not
+/// (or no longer) on the live board; `null` when the provider does not know it.
+async fn token_handler(
+    State(state): State<Arc<AppState>>,
+    Path(mint): Path<String>,
+) -> Result<Json<Option<jupiter::MarketToken>>, StatusCode> {
+    if !is_mint(&mint) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(Json(lookup_token(&state, &mint).await.flatten()))
+}
+
+/// A token's market data from the provider, cached. Only Solana memecoins come back:
+/// `fetch_mints` applies the memecoin filter, so stocks, stablecoins, wrapped majors
+/// and DeFi tokens read as unknown.
+/// Outer `None`: the provider is busy and the answer is not known yet.
+async fn lookup_token(state: &Arc<AppState>, mint: &str) -> Option<Option<jupiter::MarketToken>> {
+    if let Some((at, hit)) = state.token_cache.lock().expect("cache lock").get(mint) {
+        if at.elapsed() < TOKEN_CACHE_TTL {
+            return Some(hit.clone());
+        }
+    }
+    let found = match jupiter::fetch_mints(&state.http, &[mint.to_string()]).await {
+        jupiter::PollResult::Ok(items) => items.into_iter().find(|t| t.mint == mint),
+        // Provider busy: unknown for now, not cached.
+        _ => return None,
+    };
+    let mut cache = state.token_cache.lock().expect("cache lock");
+    if cache.len() >= TOKEN_CACHE_MAX {
+        cache.retain(|_, (at, _)| at.elapsed() < TOKEN_CACHE_TTL);
+    }
+    cache.insert(mint.to_string(), (Instant::now(), found.clone()));
+    Some(found)
+}
+
+/// MONEXA shows Solana memecoins only: our own pump.fun launches, or a token the
+/// provider classifies as a memecoin. Anything else gets no chart, trades or pool watch.
+/// While the provider is rate limited we do not block: a confirmed non-memecoin is
+/// cached and blocked on the next answer.
+async fn is_memecoin(state: &Arc<AppState>, mint: &str) -> bool {
+    if !is_mint(mint) {
+        return false;
+    }
+    let on_board = {
+        let board = state.board.lock().expect("board lock");
+        board.tokens.contains_key(mint) || board.markets.all().iter().any(|t| t.mint == mint)
+    };
+    on_board
+        || state.books.lock().expect("books lock").contains(mint)
+        || lookup_token(state, mint).await.is_none_or(|t| t.is_some())
+}
+
+/// `GET /token/{mint}/wallets`: holders, top traders, dev and snipers for a launch
+/// we track; `null` for tokens outside our decoder.
+/// `?wallet=<address>` also returns that wallet's position (the trade page's
+/// Positions tab, before wallet connect exists).
+async fn wallets_handler(
+    State(state): State<Arc<AppState>>,
+    Path(mint): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Json<Option<book::Wallets>> {
+    let focus = q.get("wallet").filter(|w| is_mint(w)).map(String::as_str);
+    Json(
+        state
+            .books
+            .lock()
+            .expect("books lock")
+            .wallets(&mint, focus),
+    )
+}
+
+async fn ws_token(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+    Path(mint): Path<String>,
+) -> Response {
+    ws.on_upgrade(move |socket| stream_token(socket, state, mint))
+}
+
+/// One token's trade book: a snapshot (recent trades and candles), then each new trade.
+/// Tokens we do not decode get `{"type":"untracked"}` and the socket closes.
+async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String) {
+    let mut rx = state.trades.subscribe();
+    let mut refresh = state.refresh.subscribe();
+    // Graduated coins (curve complete, or not on our board at all) trade in a PumpSwap
+    // pool: start streaming it before taking the snapshot.
+    let graduated = state
+        .board
+        .lock()
+        .expect("board lock")
+        .tokens
+        .get(&mint)
+        .is_some_and(|t| t.market.as_ref().is_some_and(|m| m.complete));
+    let known = state.books.lock().expect("books lock").contains(&mint);
+    let watching = if (graduated || !known) && is_memecoin(&state, &mint).await {
+        watch_pool(&state, &mint).await
+    } else {
+        false
+    };
+    let _viewer = watching.then(|| Viewer::new(state.clone(), mint.clone()));
+    let snapshot = state.books.lock().expect("books lock").snapshot(&mint);
+    let msg = match snapshot {
+        Some(s) => json!({ "type": "book", "book": s }),
+        None => json!({ "type": "untracked" }),
+    };
+    if socket
+        .send(Message::Text(msg.to_string().into()))
+        .await
+        .is_err()
+        || snapshot_missing(&msg)
+    {
+        return;
+    }
+    loop {
+        tokio::select! {
+            incoming = socket.recv() => match incoming {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                _ => {}
+            },
+            changed = refresh.recv() => {
+                if matches!(changed, Ok(ref m) if *m == mint) {
+                    let snapshot = state.books.lock().expect("books lock").snapshot(&mint);
+                    if let Some(b) = snapshot {
+                        let msg = json!({ "type": "book", "book": b }).to_string();
+                        if socket.send(Message::Text(msg.into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            },
+            event = rx.recv() => match event {
+                Ok((m, row)) if m == mint => {
+                    let msg = json!({ "type": "trade", "trade": row }).to_string();
+                    if socket.send(Message::Text(msg.into())).await.is_err() {
+                        return;
+                    }
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return,
+            },
+        }
+    }
+}
+
+fn snapshot_missing(msg: &serde_json::Value) -> bool {
+    msg["type"] == "untracked"
+}
+
+/// `GET /token/{mint}/dex`: candles and recent trades from the token's main Solana DEX
+/// pool, for tokens our own decoder does not cover; `null` when no pool is found.
+async fn dex_handler(
+    State(state): State<Arc<AppState>>,
+    Path(mint): Path<String>,
+) -> Result<Json<Option<dex::DexHistory>>, StatusCode> {
+    if !is_mint(&mint) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !is_memecoin(&state, &mint).await {
+        return Ok(Json(None));
+    }
+    Ok(Json(dex::history(&state.http, &state.dex, &mint).await))
+}
+
+/// How long a pool stays streamed after its last viewer leaves.
+const WATCH_GRACE: Duration = Duration::from_secs(120);
+/// Pools streamed at once. Busy pools carry thousands of failed bot transactions a
+/// minute that logsSubscribe cannot filter (measured 2026-11-06: ~20k in 60 s across
+/// three large pools), so the free plan's credits need a hard cap. Raise with the
+/// paid plan.
+const MAX_WATCHES: usize = 3;
+
+struct Watch {
+    pool: String,
+    /// Quote token of the pool (wrapped SOL for migrated pump.fun pools).
+    quote: String,
+    /// Lamports per raw quote unit; 1.0 for wrapped SOL. Refreshed every minute.
+    factor: f64,
+    /// The pool's account data, to find its vaults in transactions.
+    spec: Arc<txdecode::PoolSpec>,
+    viewers: usize,
+    last_seen: Instant,
+}
+
+fn scale_quote(t: &mut monexa_ingest::pumpfun::Trade, factor: f64) {
+    t.sol_amount = (t.sol_amount as f64 * factor) as u64;
+    t.virtual_sol_reserves = (t.virtual_sol_reserves as f64 * factor) as u64;
+}
+
+/// Lamports per raw unit of a quote token at today's prices.
+async fn quote_factor(state: &Arc<AppState>, quote: &str) -> Option<f64> {
+    if quote == monexa_ingest::pumpswap::WSOL {
+        return Some(1.0);
+    }
+    let sol_usd = state.board.lock().expect("board lock").sol_usd?;
+    let (usd, decimals) = state.pools.price(&state.http, quote).await?;
+    Some(pools::lamports_per_raw(usd, decimals, sol_usd))
+}
+
+/// Counts an open trade page for a watched pool; dropping it records when it left.
+struct Viewer {
+    state: Arc<AppState>,
+    mint: String,
+}
+
+impl Viewer {
+    fn new(state: Arc<AppState>, mint: String) -> Self {
+        if let Some(w) = state.watches.lock().expect("watches lock").get_mut(&mint) {
+            w.viewers += 1;
+        }
+        Self { state, mint }
+    }
+}
+
+impl Drop for Viewer {
+    fn drop(&mut self) {
+        if let Some(w) = self
+            .state
+            .watches
+            .lock()
+            .expect("watches lock")
+            .get_mut(&self.mint)
+        {
+            w.viewers = w.viewers.saturating_sub(1);
+            w.last_seen = Instant::now();
+        }
+    }
+}
+
+/// DEXes whose pools the universal decoder reads (DexScreener ids).
+const SUPPORTED_DEXES: [&str; 4] = ["pumpswap", "raydium", "orca", "meteora"];
+
+/// Starts streaming a coin's main pool so every trade arrives live, on any DEX.
+/// PumpSwap pools are decoded from their logs; other DEXes do not log trades, so each
+/// of their transactions is fetched and read by the universal decoder (txdecode.rs).
+/// The page goes live at once; earlier trades and longer candles fill in behind.
+/// False when no supported pool exists (the browser then polls indexed history).
+async fn watch_pool(state: &Arc<AppState>, mint: &str) -> bool {
+    if state
+        .watches
+        .lock()
+        .expect("watches lock")
+        .contains_key(mint)
+    {
+        return true;
+    }
+    let rpc_url = state.config.helius_rpc_url();
+    let amm = monexa_ingest::pumpswap::PROGRAM_ID;
+
+    // 1. The pool pump.fun migrates into (SOL quote), derived without a lookup.
+    // 2. Otherwise the coin's most liquid pool on a supported DEX, in any quote token.
+    // 0. A Meteora DBC coin still on its curve: the pool we saw it created in.
+    let dbc = {
+        let board = state.board.lock().expect("board lock");
+        board
+            .tokens
+            .get(mint)
+            .filter(|t| {
+                matches!(t.token.launchpad.as_str(), "met-dbc" | "bags")
+                    && !t.token.bonding_curve.is_empty()
+            })
+            .map(|t| {
+                (
+                    t.token.bonding_curve.clone(),
+                    t.token
+                        .quote_mint
+                        .clone()
+                        .unwrap_or_else(|| monexa_ingest::pumpswap::WSOL.to_string()),
+                )
+            })
+    };
+    let canonical = match (&dbc, monexa_ingest::pumpswap::canonical_pool(mint)) {
+        (None, Some(p))
+            if rpc::account_owner(&state.http, &rpc_url, &p)
+                .await
+                .as_deref()
+                == Some(amm) =>
+        {
+            Some(p)
+        }
+        _ => None,
+    };
+    let (pool, quote, name, dex) = if let Some((pool, quote)) = dbc {
+        (pool, quote, None, "meteora-dbc".to_string())
+    } else {
+        match canonical {
+            Some(p) => (
+                p,
+                monexa_ingest::pumpswap::WSOL.to_string(),
+                None,
+                "pumpswap".to_string(),
+            ),
+            None => {
+                // Among the top listed pools, take the one with the most successful swaps in
+                // the last five minutes on chain: listing stats can be stale for idle pools.
+                let pairs = state.pools.pairs(&state.http, mint).await;
+                let candidates: Vec<pools::Pair> = pairs
+                    .into_iter()
+                    .filter(|p| SUPPORTED_DEXES.contains(&p.dex.as_str()))
+                    .take(3)
+                    .collect();
+                let mut best: Option<(usize, pools::Pair)> = None;
+                for p in candidates {
+                    let n = rpc::recent_activity(&state.http, &rpc_url, &p.address).await;
+                    if best.as_ref().is_none_or(|(b, _)| n > *b) {
+                        best = Some((n, p));
+                    }
+                }
+                let Some((_, pair)) = best else { return false };
+                (pair.address, pair.quote, Some(pair.name), pair.dex)
+            }
+        }
+    };
+    let Some((owner, data)) = rpc::account_data(&state.http, &rpc_url, &pool).await else {
+        return false;
+    };
+    let decode_logs = owner == amm;
+    let spec = Arc::new(txdecode::PoolSpec {
+        data,
+        coin: mint.to_string(),
+        quote: quote.clone(),
+    });
+    let Some(factor) = quote_factor(state, &quote).await else {
+        return false;
+    };
+    // Market cap = trade price x the mint's real supply, read from chain.
+    let supply = rpc::token_supply(&state.http, &rpc_url, mint).await;
+
+    {
+        let mut watches = state.watches.lock().expect("watches lock");
+        if watches.contains_key(mint) {
+            return true;
+        }
+        if watches.len() >= MAX_WATCHES {
+            // Make room by dropping a pool nobody is viewing; otherwise fall back.
+            let idle = watches
+                .iter()
+                .filter(|(_, w)| w.viewers == 0)
+                .min_by_key(|(_, w)| w.last_seen)
+                .map(|(m, _)| m.clone());
+            match idle {
+                Some(m) => {
+                    if let Some(w) = watches.remove(&m) {
+                        let _ = state
+                            .ingest_cmd
+                            .send(monexa_ingest::IngestCommand::UnwatchPool { pool: w.pool });
+                    }
+                }
+                None => {
+                    tracing::warn!(mint, "pool watch limit reached, using indexed history");
+                    return false;
+                }
+            }
+        }
+        state.books.lock().expect("books lock").add_pool(
+            mint,
+            name.as_deref().unwrap_or(if dex == "meteora-dbc" { "Meteora curve" } else { "PumpSwap" }),
+            &dex,
+            supply,
+            Vec::new(),
+            Vec::new(),
+        );
+        watches.insert(
+            mint.to_string(),
+            Watch {
+                pool: pool.clone(),
+                quote,
+                factor,
+                spec: spec.clone(),
+                viewers: 0,
+                last_seen: Instant::now(),
+            },
+        );
+    }
+    let _ = state
+        .ingest_cmd
+        .send(monexa_ingest::IngestCommand::WatchPool {
+            pool: pool.clone(),
+            mint: mint.to_string(),
+            decode_logs,
+        });
+    tracing::info!(mint, %pool, %dex, factor, decode_logs, "watching pool");
+
+    let (state, mint) = (state.clone(), mint.to_string());
+    tokio::spawn(async move {
+        // 1. Recent trades from the chain, read by the universal decoder.
+        let sigs = rpc::recent_signatures(&state.http, &rpc_url, &pool, RECENT_SWAPS).await;
+        let mut older = Vec::new();
+        for (n, chunk) in sigs.chunks(TX_BATCH).enumerate() {
+            if n > 0 {
+                tokio::time::sleep(TX_BATCH_GAP).await;
+            }
+            for (sig, tx) in chunk
+                .iter()
+                .zip(rpc::transactions(&state.http, &rpc_url, chunk).await)
+            {
+                if let Some(s) = tx.as_ref().and_then(|t| txdecode::decode(t, &spec)) {
+                    older.push((sig.clone(), swap_trade(&mint, s, factor)));
+                }
+            }
+        }
+        if !older.is_empty() {
+            state
+                .books
+                .lock()
+                .expect("books lock")
+                .backfill_trades(&mint, older);
+            let _ = state.refresh.send(mint.clone());
+        }
+        // 2. Longer candle history from the indexer, retried if it is rate limited.
+        for attempt in 0..5 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+            let Some(h) = dex::history(&state.http, &state.dex, &mint).await else {
+                continue;
+            };
+            let Some(sol_usd) = state.board.lock().expect("board lock").sol_usd else {
+                continue;
+            };
+            if h.candles.is_empty() {
+                continue;
+            }
+            let supply = state
+                .books
+                .lock()
+                .expect("books lock")
+                .supply(&mint)
+                .unwrap_or(1_000_000_000.0);
+            let k = supply / sol_usd;
+            let candles = h
+                .candles
+                .iter()
+                .map(|c| book::Candle {
+                    t: c.t,
+                    o: c.o * k,
+                    h: c.h * k,
+                    l: c.l * k,
+                    c: c.c * k,
+                    v: c.v / sol_usd,
+                })
+                .collect();
+            state
+                .books
+                .lock()
+                .expect("books lock")
+                .backfill_candles(&mint, candles);
+            let _ = state.refresh.send(mint.clone());
+            return;
+        }
+    });
+    true
+}
+
+/// A decoded swap as a book trade, its quote converted to lamports of equal value.
+fn swap_trade(mint: &str, s: txdecode::Swap, factor: f64) -> monexa_ingest::pumpfun::Trade {
+    let mut t = monexa_ingest::pumpfun::Trade {
+        mint: mint.to_string(),
+        sol_amount: s.quote_amount,
+        token_amount: s.coin_amount,
+        is_buy: s.is_buy,
+        user: s.wallet,
+        timestamp: s.timestamp,
+        virtual_sol_reserves: 0,
+        virtual_token_reserves: 0,
+        real_token_reserves: 0,
+    };
+    if factor != 1.0 {
+        scale_quote(&mut t, factor);
+    }
+    t
+}
+
+/// Free-plan pacing for transaction fetches: small batches about once a second
+/// (Helius free allows ~10 requests a second, shared with everything else).
+const TX_BATCH: usize = 6;
+const TX_BATCH_GAP: Duration = Duration::from_millis(800);
+/// Pending transactions kept per round; beyond this the oldest are dropped (only a
+/// coin trading faster than the free plan can fetch reaches it).
+const TX_BACKLOG: usize = 600;
+
+/// Fetches the transactions ingest reports for watched pools and applies their swaps.
+async fn fetch_pool_txs(
+    state: Arc<AppState>,
+    mut queue: mpsc::UnboundedReceiver<(String, String, u8)>,
+) {
+    let rpc_url = state.config.helius_rpc_url();
+    let mut pending: std::collections::VecDeque<(String, String, u8)> =
+        std::collections::VecDeque::new();
+    loop {
+        if pending.is_empty() {
+            match queue.recv().await {
+                Some(item) => pending.push_back(item),
+                None => return,
+            }
+        }
+        while let Ok(item) = queue.try_recv() {
+            pending.push_back(item);
+        }
+        if pending.len() > TX_BACKLOG {
+            let drop = pending.len() - TX_BACKLOG;
+            pending.drain(..drop);
+            tracing::warn!(dropped = drop, "pool tx backlog over the free-plan pace");
+        }
+        // Newest first: a live page wants the latest trades, the backlog can wait.
+        let take = pending.len().min(TX_BATCH);
+        let batch: Vec<(String, String, u8)> =
+            pending.drain(pending.len() - take..).rev().collect();
+        let sigs: Vec<String> = batch.iter().map(|(_, s, _)| s.clone()).collect();
+        let txs = rpc::transactions(&state.http, &rpc_url, &sigs).await;
+        for ((mint, sig, tries), tx) in batch.into_iter().zip(txs) {
+            let Some(tx) = tx else {
+                // Not visible yet at "confirmed": try again in a later round.
+                if tries < 3 {
+                    pending.push_back((mint, sig, tries + 1));
+                }
+                continue;
+            };
+            let watch = state
+                .watches
+                .lock()
+                .expect("watches lock")
+                .get(&mint)
+                .map(|w| (w.spec.clone(), w.factor));
+            let Some((spec, factor)) = watch else {
+                continue;
+            };
+            let Some(swap) = txdecode::decode(&tx, &spec) else {
+                continue;
+            };
+            let trade = swap_trade(&mint, swap, factor);
+            let row = state.books.lock().expect("books lock").apply(&sig, &trade);
+            if let Some(row) = row {
+                let _ = state.trades.send((mint, row));
+            }
+        }
+        tokio::time::sleep(TX_BATCH_GAP).await;
+    }
+}
+
+/// Recent pool transactions fetched when a coin's page opens.
+const RECENT_SWAPS: usize = 40;
+
+/// Stops streaming pools nobody has looked at for WATCH_GRACE, and drops their books
+/// unless the coin is still on the launch board.
+async fn expire_watches(state: Arc<AppState>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(60));
+    loop {
+        tick.tick().await;
+        let expired: Vec<(String, String)> = {
+            let mut watches = state.watches.lock().expect("watches lock");
+            let gone: Vec<String> = watches
+                .iter()
+                .filter(|(_, w)| w.viewers == 0 && w.last_seen.elapsed() > WATCH_GRACE)
+                .map(|(m, _)| m.clone())
+                .collect();
+            gone.into_iter()
+                .filter_map(|m| watches.remove(&m).map(|w| (m, w.pool)))
+                .collect()
+        };
+        let quoted: Vec<(String, String)> = state
+            .watches
+            .lock()
+            .expect("watches lock")
+            .iter()
+            .filter(|(_, w)| w.quote != monexa_ingest::pumpswap::WSOL)
+            .map(|(m, w)| (m.clone(), w.quote.clone()))
+            .collect();
+        for (mint, quote) in quoted {
+            if let Some(f) = quote_factor(&state, &quote).await {
+                if let Some(w) = state.watches.lock().expect("watches lock").get_mut(&mint) {
+                    w.factor = f;
+                }
+            }
+        }
+        for (mint, pool) in expired {
+            let _ = state
+                .ingest_cmd
+                .send(monexa_ingest::IngestCommand::UnwatchPool { pool });
+            let on_board = state
+                .board
+                .lock()
+                .expect("board lock")
+                .tokens
+                .contains_key(&mint);
+            if !on_board {
+                state.books.lock().expect("books lock").remove(&mint);
+            }
+            tracing::info!(%mint, "stopped watching pool");
+        }
+    }
 }

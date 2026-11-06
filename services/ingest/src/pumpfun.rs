@@ -1,6 +1,5 @@
 //! Decoder for pump.fun token-creation events (see docs/decisions/0002-market-data-hybrid.md).
 
-use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 
 pub const PROGRAM_ID: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
@@ -10,7 +9,6 @@ pub const PROGRAM_ID: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 pub const MINT_AUTHORITY: &str = "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM";
 const CREATE_LOG: &str = "Program log: Instruction: Create";
 const CREATE_V2_LOG: &str = "Program log: Instruction: CreateV2";
-const DATA_PREFIX: &str = "Program data: ";
 const CREATE_EVENT_DISCRIMINATOR: [u8; 8] = [27, 114, 169, 77, 222, 235, 99, 118];
 // From pump.fun's public IDL (github.com/pump-fun/pump-public-docs, idl/pump.json).
 const TRADE_EVENT_DISCRIMINATOR: [u8; 8] = [189, 219, 127, 211, 78, 230, 97, 238];
@@ -50,11 +48,9 @@ pub fn parse_events(signature: &str, logs: &[String]) -> Vec<Event> {
     };
 
     let mut out = Vec::new();
-    for bytes in logs
-        .iter()
-        .filter_map(|l| l.strip_prefix(DATA_PREFIX))
-        .filter_map(|b64| STANDARD.decode(b64).ok())
-    {
+    // Only events pump.fun itself emitted: other Anchor programs (Raydium LaunchLab)
+    // log a TradeEvent with the same discriminator.
+    for bytes in crate::logs::program_data(logs, PROGRAM_ID) {
         if bytes.len() <= 8 {
             continue;
         }
@@ -135,6 +131,9 @@ pub struct NewToken {
     /// The currency the curve trades against. `None` means SOL: either the event
     /// predates quote mints, or it names SOL / wrapped SOL.
     pub quote_mint: Option<String>,
+    /// Where the coin was created: "pump.fun", "letsbonk.fun", "bags", "met-dbc",
+    /// "raydium-launchlab", "moonshot" or "other" (launches.rs).
+    pub launchpad: String,
 }
 
 /// Wrapped SOL, and the all-zero key older events use as "no quote mint".
@@ -195,6 +194,7 @@ fn decode_event(signature: &str, data: &[u8], standard: TokenStandard) -> Option
         timestamp,
         reserves,
         standard,
+        launchpad: "pump.fun".to_string(),
     })
 }
 
@@ -238,6 +238,7 @@ impl Reader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine};
 
     fn borsh_str(out: &mut Vec<u8>, s: &str) {
         out.extend((s.len() as u32).to_le_bytes());
@@ -317,6 +318,7 @@ mod tests {
         complete.extend([1u8; 32]);
         complete.extend([7u8; 32]);
         let logs = vec![
+            format!("Program {PROGRAM_ID} invoke [1]"),
             "Program log: Instruction: Sell".to_string(),
             format!("Program data: {}", sample_trade(false)),
             format!("Program data: {}", STANDARD.encode(&complete)),

@@ -5,6 +5,8 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+bs58 = "0.5"
+base64 = "0.22"
 monexa-common = { path = "../common" }
 monexa-ingest = { path = "../ingest" }
 anyhow.workspace = true
