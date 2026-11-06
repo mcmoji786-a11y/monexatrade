@@ -6,12 +6,18 @@ import { tokenHref, useOpenToken } from "@/lib/open-token";
 import { Socials } from "@/components/token/socials";
 import { AiButton } from "@/components/token/ai-analysis";
 import { Sparkline } from "@/components/token/sparkline";
+import { SafetyBadge } from "@/components/token/safety-badge";
+import { rowSignals, safetyScore, type Safety } from "@/lib/safety";
+import type { FeedToken } from "@/lib/gateway";
 import { inputFromRow } from "@/lib/ai";
 
-import { useMemo, useState } from "react";
-import { Activity, BadgeCheck, Crosshair, Flame, ShieldCheck, TrendingUp, type LucideIcon } from "lucide-react";
-import { buildRows, CATEGORIES, rank, rowRisk, type Category, type DiscoverRow, type MetricKey } from "@/lib/categories";
-import { pct, usd } from "@/lib/gateway";
+import { useDeferredValue, useMemo, useState } from "react";
+import { Activity, BadgeCheck, Crosshair, Flame, ShieldCheck, Star, TrendingUp, type LucideIcon } from "lucide-react";
+import { useDiscoverFilters, useWatchlist } from "@/lib/prefs";
+import { DiscoverFiltersMenu, passesDiscover } from "./discover-filters";
+import { StarButton } from "@/components/token/star-button";
+import { buildRows, CATEGORIES, changeIn, rank, rowRisk, volIn, WINDOWS, type Category, type DiscoverRow, type MetricKey, type Window } from "@/lib/categories";
+import { amount, pct, price, usd } from "@/lib/gateway";
 import { formatAge, useNow, useRadarFeed, type FeedStatus } from "@/components/radar/use-radar-feed";
 import { CopyMint, TokenLogo } from "@/components/token/token-bits";
 import { Tick } from "@/components/token/tick";
@@ -23,15 +29,20 @@ const ICONS: Record<string, LucideIcon> = {
   sniped: Crosshair,
   active: Activity,
   "lower-risk": ShieldCheck,
+  watchlist: Star,
 };
 
 /** The figure a category ranks by: raw value (for the flash), text, colour and unit. */
-function figure(metric: MetricKey, r: DiscoverRow) {
+function figure(metric: MetricKey, r: DiscoverRow, w: Window = "1h") {
   switch (metric) {
-    case "volume5m":
-      return { raw: r.vol5mUsd, value: usd(r.vol5mUsd), tone: "text-text", unit: "traded in 5m" };
-    case "change1h":
-      return { raw: r.change1h, value: pct(r.change1h), tone: changeTone(r.change1h), unit: "in 1h" };
+    case "volume5m": {
+      const v = volIn(r, w);
+      return { raw: v, value: usd(v), tone: "text-text", unit: `traded in ${w}` };
+    }
+    case "change1h": {
+      const c = changeIn(r, w);
+      return { raw: c, value: pct(c), tone: changeTone(c), unit: `in ${w}` };
+    }
     case "snipers":
       return { raw: r.sniperPct, value: `${(r.sniperPct ?? 0).toFixed(1)}%`, tone: "text-text", unit: `held by ${r.snipers ?? 0} early buyers` };
     case "risk": {
@@ -47,16 +58,41 @@ function figure(metric: MetricKey, r: DiscoverRow) {
 
 /** Discover: tokens across Solana ranked into four categories, updating live. */
 export function DiscoverBoard() {
-  const { tokens, markets, solUsd, sparks, status, updatedAt } = useRadarFeed();
-  const now = useNow();
+  // Live data renders at low priority: clicks and navigation always come first.
+  const feed = useDeferredValue(useRadarFeed());
+  const { tokens, markets, solUsd, sparks, smart, status, updatedAt } = feed;
+  const launches = useMemo(() => new Map(tokens.map((t) => [t.mint, t])), [tokens]);
+  const now = useDeferredValue(useNow());
   const [active, setActive] = useState(CATEGORIES[0].key);
-
-  const rows = useMemo(() => buildRows(tokens, markets, solUsd), [tokens, markets, solUsd]);
-  const ranked = useMemo(
-    () => Object.fromEntries(CATEGORIES.map((c) => [c.key, rank(rows, c)])) as Record<string, DiscoverRow[]>,
-    [rows],
+  const [win, setWin] = useState<Window>("5m");
+  const watch = useWatchlist().mints;
+  // Starred coins, in the order they were starred.
+  const cats = useMemo<Category[]>(
+    () => [
+      ...CATEGORIES,
+      {
+        key: "watchlist",
+        label: "Watchlist",
+        description: "Coins you starred, newest star first. Saved in this browser",
+        metric: "trades",
+        include: (r) => watch.includes(r.mint),
+        score: (r) => -watch.indexOf(r.mint),
+      },
+    ],
+    [watch],
   );
-  const cat = CATEGORIES.find((c) => c.key === active) ?? CATEGORIES[0];
+
+  const { filters: dfilters } = useDiscoverFilters();
+  const minute = Math.floor(now / 60_000);
+  const rows = useMemo(
+    () => buildRows(tokens, markets, solUsd).filter((r) => passesDiscover(r, dfilters, minute * 60)),
+    [tokens, markets, solUsd, dfilters, minute],
+  );
+  const ranked = useMemo(
+    () => Object.fromEntries(cats.map((c) => [c.key, rank(rows, c, win)])) as Record<string, DiscoverRow[]>,
+    [rows, cats, win],
+  );
+  const cat = cats.find((c) => c.key === active) ?? cats[0];
   const volume1h = rows.reduce((s, r) => s + (r.vol1hUsd ?? 0), 0);
   const latest = useMemo(() => [...tokens].sort((a, b) => b.timestamp - a.timestamp).slice(0, 12), [tokens]);
 
@@ -68,6 +104,7 @@ export function DiscoverBoard() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-medium text-text md:text-3xl">Discover</h1>
             <LiveBadge status={status} updatedAt={updatedAt} now={now} />
+            <DiscoverFiltersMenu />
           </div>
           <p className="mt-1.5 text-sm text-text-2">Solana memecoins moving right now, updated live</p>
         </div>
@@ -79,15 +116,15 @@ export function DiscoverBoard() {
       </div>
 
       {/* Category selector */}
-      <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5" role="tablist" aria-label="Categories">
-        {CATEGORIES.map((c) => (
+      <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6" role="tablist" aria-label="Categories">
+        {cats.map((c) => (
           <CategoryTile key={c.key} cat={c} on={c.key === cat.key} count={ranked[c.key].length} onClick={() => setActive(c.key)} />
         ))}
       </div>
 
       <JustLaunched tokens={latest} now={now} />
 
-      <CategoryView key={cat.key} cat={cat} list={ranked[cat.key]} now={now} status={status} sparks={sparks} />
+      <CategoryView key={cat.key} cat={cat} list={ranked[cat.key]} now={now} status={status} sparks={sparks} win={win} setWin={setWin} launches={launches} smart={smart} />
 
       <p className="mt-6 max-w-3xl text-xs leading-5 text-muted">
         Memecoins only: tokens tagged meme or launched on a memecoin launchpad. Stocks, RWAs and DeFi tokens are
@@ -106,12 +143,20 @@ function CategoryView({
   now,
   status,
   sparks,
+  win,
+  setWin,
+  launches,
+  smart,
 }: {
   cat: Category;
   list: DiscoverRow[];
   now: number;
   status: FeedStatus;
   sparks: Record<string, number[]>;
+  win: Window;
+  setWin: (w: Window) => void;
+  launches: Map<string, FeedToken>;
+  smart: Record<string, number>;
 }) {
   const moves = useRankMoves(list.slice(0, 100).map((r) => r.mint));
   const podium = list.slice(0, 3);
@@ -119,7 +164,24 @@ function CategoryView({
 
   return (
     <div className="fade-up">
-      <p className="mt-6 text-sm text-text-2">{cat.description}</p>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-text-2">{cat.windowed ? cat.description.replace(/last 5 minutes|1h price rise/, (m) => (m === "last 5 minutes" ? `last ${win}` : `${win} price rise`)) : cat.description}</p>
+        {cat.windowed && (
+          <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Time window">
+            {WINDOWS.map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setWin(w)}
+                aria-pressed={win === w}
+                className={`h-7 rounded-md px-3 font-mono text-xs transition-colors ${win === w ? "bg-surface-3 text-text" : "text-muted hover:text-text"}`}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {list.length === 0 ? (
         <div className="mt-4 rounded-2xl border border-dashed border-border px-8 py-20 text-center text-sm text-muted">
@@ -130,7 +192,7 @@ function CategoryView({
           {/* Podium: the top three get the spotlight */}
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
             {podium.map((r, i) => (
-              <Spotlight key={r.mint} row={r} rank={i + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} />
+              <Spotlight key={r.mint} row={r} rank={i + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} safety={safetyScore(rowSignals(r, launches.get(r.mint) ?? null, smart[r.mint] ?? 0, now / 1000))} />
             ))}
           </div>
 
@@ -138,12 +200,12 @@ function CategoryView({
             <>
               {/* Desktop: dense table */}
               <div className="mt-4 hidden overflow-hidden rounded-2xl border border-border bg-surface md:block">
-                <TokenTable rows={rest} now={now} metric={cat.metric} startRank={4} moves={moves} sparks={sparks} />
+                <TokenTable rows={rest} now={now} metric={cat.metric} startRank={4} moves={moves} sparks={sparks} launches={launches} smart={smart} />
               </div>
               {/* Mobile: compact rows */}
               <ol className="mt-3 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface md:hidden">
                 {rest.map((r, i) => (
-                  <MobileRow key={r.mint} row={r} rank={i + 4} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} />
+                  <MobileRow key={r.mint} row={r} rank={i + 4} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} />
                 ))}
               </ol>
             </>
@@ -223,55 +285,104 @@ function CategoryTile({ cat, on, count, onClick }: { cat: Category; on: boolean;
 }
 
 /** Large card for ranks 1 to 3. */
-function Spotlight({ row: r, rank: n, metric, now, move, spark }: { row: DiscoverRow; rank: number; metric: MetricKey; now: number; move?: number; spark?: number[] }) {
-  const f = figure(metric, r);
+function Spotlight({
+  row: r,
+  rank: n,
+  metric,
+  now,
+  move,
+  spark,
+  win,
+  safety,
+}: {
+  row: DiscoverRow;
+  rank: number;
+  metric: MetricKey;
+  now: number;
+  move?: number;
+  spark?: number[];
+  win: Window;
+  safety: Safety;
+}) {
+  const f = figure(metric, r, win);
   const open = useOpenToken();
+  const buys = r.buys1h ?? 0;
+  const sells = r.sells1h ?? 0;
+  const flow = buys + sells;
   return (
     <article
       onClick={open(r.mint)}
-      className={`relative cursor-pointer overflow-hidden rounded-2xl border bg-surface p-5 transition-colors duration-150 hover:bg-surface-2 ${
+      className={`relative flex cursor-pointer flex-col gap-3 overflow-hidden rounded-2xl border bg-surface p-4 transition-colors duration-150 hover:bg-surface-2 ${
         n === 1 ? "border-emerald/30" : "border-border"
       }`}
     >
       {n === 1 && <span className="absolute inset-x-0 top-0 h-px bg-emerald/60" />}
-      <div className="flex items-start gap-4">
-        <TokenLogo src={r.image} symbol={r.symbol} size={56} />
+
+      {/* Identity */}
+      <div className="flex items-center gap-3">
+        <TokenLogo src={r.image} symbol={r.symbol} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate text-base font-medium text-text">{r.symbol || "—"}</span>
               {r.verified && <BadgeCheck size={15} strokeWidth={1.5} className="shrink-0 text-cyan" aria-label="Verified" />}
               <SourceTag row={r} />
+              <StarButton mint={r.mint} />
             </span>
-            <span className="flex items-center gap-2 font-mono text-xs text-muted">
-              <Move by={move} />#{n}
+            <span className="flex shrink-0 items-center gap-3 font-mono text-xs text-muted">
+              <SafetyBadge safety={safety} />
+              <span className="flex items-center gap-2">
+                <Move by={move} />#{n}
+              </span>
             </span>
           </div>
-          <div className="truncate text-sm text-text-2">{r.name}</div>
-          <div className="mt-1 flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="min-w-0 truncate text-text-2">{r.name}</span>
             <CopyMint mint={r.mint} />
-            <Socials twitter={r.twitter} telegram={r.telegram} website={r.website} />
           </div>
         </div>
       </div>
 
-      <div className="mt-5 flex items-end justify-between gap-3">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <Tick value={f.raw} className={`font-mono text-3xl ${f.tone}`}>
-            {f.value}
-          </Tick>
-          <span className="text-xs text-muted">{f.unit}</span>
+      {/* The ranking figure and price, with the chart beside them */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <Tick value={f.raw} className={`font-mono text-2xl ${f.tone}`}>
+              {f.value}
+            </Tick>
+            <span className="text-xs text-muted">{f.unit}</span>
+          </div>
+          <p className="mt-1 flex flex-wrap gap-x-2.5 font-mono text-[11px]">
+            <span className="text-text">{price(r.priceUsd)}</span>
+            <Change label="5m" v={r.change5m} />
+            <Change label="1h" v={r.change1h} />
+          </p>
         </div>
-        <Sparkline points={spark} width={96} height={32} />
+        <Sparkline points={spark} width={110} height={36} />
       </div>
 
-      <dl className="mt-4 grid grid-cols-4 gap-2 border-t border-border pt-4 font-mono text-xs">
+      {/* Market figures in one row, buy and sell pressure under them */}
+      <dl className="grid grid-cols-4 gap-2 border-t border-border pt-3 font-mono text-xs">
         <Mini k="MC" v={<Tick value={r.mcUsd}>{usd(r.mcUsd)}</Tick>} />
-        <Mini k="Vol 1h" v={usd(r.vol1hUsd)} />
-        <Mini k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${r.holders.toLocaleString()}` : "—"} />
+        <Mini k="Liquidity" v={usd(r.liquidityUsd)} />
+        <Mini k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${amount(r.holders)}` : "—"} />
         <Mini k="Age" v={age(r, now)} />
       </dl>
-      <div className="mt-4 flex gap-2">
+      <div className="flex items-center gap-2 font-mono text-[11px]" title={flow ? `Last hour: ${buys.toLocaleString()} buys, ${sells.toLocaleString()} sells` : "No trades counted"}>
+        <span className="text-positive">{amount(buys)}</span>
+        <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-surface-3">
+          {flow > 0 && (
+            <>
+              <span className="h-full bg-positive" style={{ width: `${(buys / flow) * 100}%` }} />
+              <span className="h-full bg-negative" style={{ width: `${(sells / flow) * 100}%` }} />
+            </>
+          )}
+        </span>
+        <span className="text-negative">{amount(sells)}</span>
+      </div>
+
+      <div className="mt-auto flex items-center gap-2">
+        <Socials twitter={r.twitter} telegram={r.telegram} website={r.website} />
         <AiButton input={() => inputFromRow(r)} />
         <div className="flex-1">
           <TradeLink mint={r.mint} full />
@@ -281,8 +392,17 @@ function Spotlight({ row: r, rank: n, metric, now, move, spark }: { row: Discove
   );
 }
 
-function MobileRow({ row: r, rank: n, metric, now, move, spark }: { row: DiscoverRow; rank: number; metric: MetricKey; now: number; move?: number; spark?: number[] }) {
-  const f = figure(metric, r);
+function Change({ label, v }: { label: string; v: number | null }) {
+  return (
+    <span>
+      <span className="text-muted">{label} </span>
+      <span className={changeTone(v)}>{pct(v)}</span>
+    </span>
+  );
+}
+
+function MobileRow({ row: r, rank: n, metric, now, move, spark, win }: { row: DiscoverRow; rank: number; metric: MetricKey; now: number; move?: number; spark?: number[]; win: Window }) {
+  const f = figure(metric, r, win);
   const open = useOpenToken();
   return (
     <li onClick={open(r.mint)} className="flex cursor-pointer items-center gap-3 px-4 py-3">

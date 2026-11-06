@@ -57,12 +57,15 @@ export function Activity({
             sniper: false,
           }))
         : [];
+  // Whales are kept apart by the gateway, so old ones stay after newer trades push
+  // them out of the latest list.
+  const whales: TradeRow[] = book.status === "live" ? book.whales : trades.filter((t) => t.whale);
 
   const count: Partial<Record<TabKey, number>> = {
     trades: trades.length,
     holders: wallets?.holder_count,
     snipers: wallets?.snipers.length,
-    whales: trades.filter((t) => t.whale).length,
+    whales: whales.length,
   };
 
   return (
@@ -97,7 +100,7 @@ export function Activity({
       ) : (
         <div className="max-h-[520px] overflow-y-auto">
           {tab === "trades" && <TradeTable trades={trades} solUsd={solUsd} now={now} />}
-          {tab === "whales" && <TradeTable trades={trades.filter((t) => t.whale)} solUsd={solUsd} now={now} empty="No buys or sells of 5 SOL or more yet" />}
+          {tab === "whales" && <TradeTable trades={whales} solUsd={solUsd} now={now} empty="No buys or sells of 5 SOL or more yet" />}
           {tab === "holders" && <WalletTable rows={wallets?.holders} solUsd={solUsd} now={now} kind="holders" />}
           {tab === "traders" && <WalletTable rows={wallets?.top_traders} solUsd={solUsd} now={now} kind="traders" />}
           {tab === "snipers" && <WalletTable rows={wallets?.snipers} solUsd={solUsd} now={now} kind="traders" empty="No wallet bought in the first 3 seconds" />}

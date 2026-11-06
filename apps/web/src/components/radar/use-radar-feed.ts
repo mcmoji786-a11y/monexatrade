@@ -13,6 +13,8 @@ type Snapshot = {
   solUsd: number | null;
   /** Recent USD prices per coin (one point per 30 s, up to 30 minutes), oldest first. */
   sparks: Record<string, number[]>;
+  /** Smart wallets (profitable across coins) holding each coin. */
+  smart: Record<string, number>;
   status: FeedStatus;
   /** Date.now() of the last message from the gateway (0 = none yet). */
   updatedAt: number;
@@ -21,7 +23,7 @@ type Snapshot = {
 /* One shared WebSocket for the whole page, however many components read the feed.
    It opens with the first subscriber and closes when the last one unmounts. */
 
-const INITIAL: Snapshot = { tokens: [], markets: {}, solUsd: null, sparks: {}, status: "connecting", updatedAt: 0 };
+const INITIAL: Snapshot = { tokens: [], markets: {}, solUsd: null, sparks: {}, smart: {}, status: "connecting", updatedAt: 0 };
 
 /** Same sampling as the gateway (main.rs SPARK_EVERY / SPARK_POINTS). */
 const SPARK_EVERY_MS = 30_000;
@@ -64,6 +66,7 @@ function apply(msg: FeedEvent) {
         solUsd: msg.sol_usd,
         markets: Object.fromEntries((msg.markets ?? []).map((t) => [t.mint, t])),
         sparks: msg.sparks ?? {},
+        smart: msg.smart ?? {},
       });
       break;
     case "markets": {
@@ -74,6 +77,9 @@ function apply(msg: FeedEvent) {
       set({ markets, sparks: withSamples(state.sparks, msg.items.filter((t) => !own.has(t.mint)).map((t) => ({ mint: t.mint, price: t.price_usd }))) });
       break;
     }
+    case "smart":
+      set({ smart: msg.counts });
+      break;
     case "markets_removed": {
       const markets = { ...state.markets };
       for (const m of msg.mints) delete markets[m];
@@ -105,12 +111,21 @@ function apply(msg: FeedEvent) {
   }
 }
 
+/** The page this tab is on, sent to the gateway for the admin's live view (the page
+ *  name only: nothing about the person). */
+let lastPath = "";
+export function reportPage(path: string) {
+  lastPath = path;
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "page", path }));
+}
+
 function connect() {
   const socket = new WebSocket(`${GATEWAY_WS}/ws/new-tokens`);
   ws = socket;
   socket.onopen = () => {
     delay = 1000;
     set({ status: "live" });
+    if (lastPath) socket.send(JSON.stringify({ type: "page", path: lastPath }));
   };
   socket.onmessage = (e) => {
     state = { ...state, updatedAt: Date.now() };

@@ -21,6 +21,12 @@ const WINDOW_5M: i64 = 300;
 const WINDOW_1H: i64 = 3_600;
 /// Buyers in the first seconds after creation (other than the creator) count as snipers.
 const SNIPE_WINDOW_SECS: i64 = 3;
+/// Bundles: at least this many wallets buying in one slot within the first seconds of a
+/// launch (coordinated buys, usually one person splitting across wallets).
+const BUNDLE_MIN_WALLETS: usize = 3;
+const BUNDLE_WINDOW_SECS: i64 = 30;
+/// Holder count is sampled once a minute for the one-hour trend.
+const HOLDER_SAMPLE_SECS: i64 = 60;
 /// Price history is sampled at most this often, enough for 5m and 1h changes.
 const PRICE_SAMPLE_SECS: i64 = 5;
 
@@ -59,6 +65,14 @@ pub struct MarketSnapshot {
     pub holders: u32,
     pub top10_pct: f64,
     pub dev_pct: f64,
+    /// Sells by the creator wallet since launch, and whether it sold everything it bought.
+    pub dev_sells: u32,
+    pub dev_sold_all: bool,
+    /// Wallets that bought in a bundle (see BUNDLE_MIN_WALLETS) and the share they hold.
+    pub bundled: u32,
+    pub bundle_pct: f64,
+    /// Holders now minus holders about an hour ago (or at launch, if younger).
+    pub holders_change_1h: i64,
     pub whale_trades_1h: u32,
     /// Buys of 5 SOL or more in the last hour.
     pub whale_buys_1h: u32,
@@ -103,6 +117,13 @@ pub struct Tracked {
     /// (timestamp, price in SOL), oldest first, trimmed to one hour.
     prices: VecDeque<(i64, f64)>,
     snipers: HashSet<String>,
+    dev_bought: u64,
+    dev_sells: u32,
+    /// Buyers per slot during the bundle window, and the wallets found bundling.
+    slot_buyers: HashMap<u64, HashSet<String>>,
+    bundled: HashSet<String>,
+    /// (timestamp, holders), oldest first, trimmed to just over an hour.
+    holder_samples: VecDeque<(i64, u32)>,
     dirty: bool,
 }
 
@@ -116,6 +137,12 @@ impl Tracked {
         Self {
             prices,
             snipers: HashSet::new(),
+            dev_bought: 0,
+            dev_sells: 0,
+            slot_buyers: HashMap::new(),
+            bundled: HashSet::new(),
+            // Launch counts as zero holders, so a young coin trends from its start.
+            holder_samples: VecDeque::from([(token.timestamp, 0)]),
             initial_real_tokens: r.as_ref().map_or(DEFAULT_INITIAL_REAL_TOKENS, |r| r.real_token),
             supply: r.as_ref().map_or(DEFAULT_SUPPLY, |r| r.total_supply).max(1),
             virtual_sol: r.as_ref().map_or(0, |r| r.virtual_sol),
@@ -133,7 +160,16 @@ impl Tracked {
         }
     }
 
-    fn apply(&mut self, t: &Trade) {
+    fn apply(&mut self, t: &Trade, slot: Option<u64>) {
+        if let Some(slot) = slot {
+            if t.is_buy && !t.user.is_empty() && t.timestamp - self.token.timestamp <= BUNDLE_WINDOW_SECS {
+                let buyers = self.slot_buyers.entry(slot).or_default();
+                buyers.insert(t.user.clone());
+                if buyers.len() >= BUNDLE_MIN_WALLETS {
+                    self.bundled.extend(buyers.iter().cloned());
+                }
+            }
+        }
         // Notifications can arrive slightly out of order; keep the newest reserves.
         if t.timestamp >= self.reserves_ts {
             self.virtual_sol = t.virtual_sol_reserves;
@@ -157,6 +193,13 @@ impl Tracked {
         self.trades_total += 1;
         self.last_trade = self.last_trade.max(t.timestamp);
 
+        if !t.user.is_empty() && t.user == self.token.creator {
+            if t.is_buy {
+                self.dev_bought = self.dev_bought.saturating_add(t.token_amount);
+            } else {
+                self.dev_sells += 1;
+            }
+        }
         // Trades without a trader (LaunchLab logs) move price and volume only.
         if !t.user.is_empty() {
             let bal = self.balances.entry(t.user.clone()).or_insert(0);
@@ -168,6 +211,13 @@ impl Tracked {
             if *bal == 0 {
                 self.balances.remove(&t.user);
             }
+        }
+        match self.holder_samples.back() {
+            Some((ts, _)) if t.timestamp - ts < HOLDER_SAMPLE_SECS => {}
+            _ => self.holder_samples.push_back((t.timestamp, self.balances.len() as u32)),
+        }
+        while self.holder_samples.len() > 2 && self.holder_samples[1].0 <= t.timestamp - WINDOW_1H {
+            self.holder_samples.pop_front();
         }
         self.dirty = true;
     }
@@ -218,6 +268,8 @@ impl Tracked {
             }
         }
         let sniper_held: u64 = self.snipers.iter().filter_map(|s| self.balances.get(s)).sum();
+        let bundle_held: u64 = self.bundled.iter().filter_map(|s| self.balances.get(s)).sum();
+        let holders_then = self.holder_samples.front().map_or(0, |(_, h)| *h as i64);
 
         let mut top: Vec<u64> = self.balances.values().copied().collect();
         top.sort_unstable_by(|a, b| b.cmp(a));
@@ -247,6 +299,11 @@ impl Tracked {
             holders: self.balances.len() as u32,
             top10_pct: pct(top10),
             dev_pct: pct(dev),
+            dev_sells: self.dev_sells,
+            dev_sold_all: self.dev_bought > 0 && dev == 0,
+            bundled: self.bundled.len() as u32,
+            bundle_pct: pct(bundle_held),
+            holders_change_1h: self.balances.len() as i64 - holders_then,
             whale_trades_1h: whales,
             whale_buys_1h: whale_buys,
             change_5m_pct: change(WINDOW_5M),
@@ -274,8 +331,13 @@ impl Tracker {
     }
 
     pub fn apply_trade(&mut self, t: &Trade) {
+        self.apply_trade_in_slot(t, None);
+    }
+
+    /// `slot`: the trade's slot, from the notification; it lets bundles be found.
+    pub fn apply_trade_in_slot(&mut self, t: &Trade, slot: Option<u64>) {
         if let Some(tr) = self.tokens.get_mut(&t.mint) {
-            tr.apply(t);
+            tr.apply(t, slot);
         }
     }
 
@@ -446,5 +508,61 @@ mod tests {
         let removed = t.prune(1_000 + GRACE_SECS + 1);
         assert_eq!(removed, vec![("mint1".to_string(), None)]);
         assert!(t.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod bundle_tests {
+    use super::*;
+    use crate::pumpfun::{NewToken, TokenStandard};
+
+    fn token() -> NewToken {
+        NewToken {
+            signature: "s".into(),
+            name: "n".into(),
+            symbol: "S".into(),
+            uri: String::new(),
+            mint: "M".into(),
+            bonding_curve: "C".into(),
+            creator: "dev".into(),
+            timestamp: 1_000,
+            reserves: None,
+            standard: TokenStandard::Spl,
+            quote_mint: None,
+            launchpad: "pump.fun".into(),
+        }
+    }
+
+    fn buy(user: &str, ts: i64) -> Trade {
+        Trade {
+            mint: "M".into(),
+            sol_amount: 1_000_000_000,
+            token_amount: 10_000_000_000_000,
+            is_buy: true,
+            user: user.into(),
+            timestamp: ts,
+            virtual_sol_reserves: 31_000_000_000,
+            virtual_token_reserves: 1_000_000_000_000_000,
+            real_token_reserves: 780_000_000_000_000,
+        }
+    }
+
+    #[test]
+    fn three_wallets_in_one_early_slot_are_a_bundle() {
+        let mut t = Tracker::default();
+        t.add(token());
+        for w in ["a", "b", "c"] {
+            t.apply_trade_in_slot(&buy(w, 1_001), Some(7));
+        }
+        // Two wallets in another slot, and a late slot with three: neither counts.
+        t.apply_trade_in_slot(&buy("d", 1_002), Some(8));
+        t.apply_trade_in_slot(&buy("e", 1_002), Some(8));
+        for w in ["f", "g", "h"] {
+            t.apply_trade_in_slot(&buy(w, 1_100), Some(99));
+        }
+        let s = &t.take_dirty(1_200, Some(100.0))[0];
+        assert_eq!(s.bundled, 3);
+        assert!((s.bundle_pct - 3.0).abs() < 1e-9, "{}", s.bundle_pct);
+        assert_eq!(s.holders_change_1h, 8);
     }
 }

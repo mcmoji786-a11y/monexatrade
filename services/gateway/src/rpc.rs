@@ -158,3 +158,22 @@ pub async fn transactions(
     }
     out
 }
+
+/// Block times of an account's latest transactions (all of them, failed included),
+/// newest first: how fast a wallet really trades across the whole chain.
+pub async fn signature_times(http: &reqwest::Client, url: &str, account: &str, limit: usize) -> Option<Vec<i64>> {
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress", "params": [account, { "limit": limit, "commitment": "confirmed" }] });
+    let v = call(http, url, &body).await?;
+    Some(v["result"].as_array()?.iter().filter_map(|s| s["blockTime"].as_i64()).collect())
+}
+
+/// An account's latest successful signatures with their block times (newest first),
+/// and the block times of all of them (failed too), from one call.
+pub async fn signatures_with_times(http: &reqwest::Client, url: &str, account: &str, limit: usize) -> Option<(Vec<String>, Vec<i64>)> {
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress", "params": [account, { "limit": limit, "commitment": "confirmed" }] });
+    let v = call(http, url, &body).await?;
+    let all = v["result"].as_array()?;
+    let times = all.iter().filter_map(|s| s["blockTime"].as_i64()).collect();
+    let ok = all.iter().filter(|s| s["err"].is_null()).filter_map(|s| s["signature"].as_str().map(String::from)).collect();
+    Some((ok, times))
+}

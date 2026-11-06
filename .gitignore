@@ -4,3 +4,6 @@
 node_modules/
 target/
 .next/
+
+# Gateway runtime data (smart-money records)
+data/

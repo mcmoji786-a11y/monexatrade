@@ -1,12 +1,13 @@
 "use client";
 
+import { useFeatures } from "@/lib/features";
 import { useEffect, useState } from "react";
 import { Sparkle, X } from "lucide-react";
 import { analyze, type AnalysisInput, type AnalysisResult } from "@/lib/ai";
 import { TokenLogo } from "./token-bits";
 
 /** "AI" button on a coin. `compact` is the small table version. */
-export function AiButton({ input, compact = false }: { input: () => AnalysisInput; compact?: boolean }) {
+function AiButtonInner({ input, compact = false }: { input: () => AnalysisInput; compact?: boolean }) {
   const [open, setOpen] = useState<AnalysisInput | null>(null);
   return (
     <>
@@ -128,4 +129,10 @@ function Section({ title, tone, items }: { title: string; tone: string; items: s
       </ul>
     </div>
   );
+}
+
+/** Hidden when the admin switches "ai_analysis" off (lib/features.ts). */
+export function AiButton(props: { input: () => AnalysisInput; compact?: boolean }) {
+  const f = useFeatures();
+  return f.ai_analysis ? <AiButtonInner {...props} /> : null;
 }

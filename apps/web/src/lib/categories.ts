@@ -15,8 +15,10 @@ export type DiscoverRow = {
   liquidityUsd: number | null;
   change5m: number | null;
   change1h: number | null;
+  change24h: number | null;
   vol5mUsd: number | null;
   vol1hUsd: number | null;
+  vol24hUsd: number | null;
   buys1h: number | null;
   sells1h: number | null;
   holders: number | null;
@@ -53,6 +55,8 @@ function fromLaunch(t: FeedToken, solUsd: number | null): DiscoverRow | null {
     change1h: m.change_1h_pct,
     vol5mUsd: solUsd ? m.volume_5m_sol * solUsd : null,
     vol1hUsd: m.volume_1h_usd,
+    change24h: null,
+    vol24hUsd: null,
     buys1h: m.buys_1h,
     sells1h: m.sells_1h,
     holders: m.holders,
@@ -88,6 +92,8 @@ function fromMarket(t: MarketToken): DiscoverRow {
     change1h: t.change_1h_pct,
     vol5mUsd: t.volume_5m_usd,
     vol1hUsd: t.volume_1h_usd,
+    change24h: t.change_24h_pct,
+    vol24hUsd: t.volume_24h_usd,
     buys1h: t.buys_1h,
     sells1h: t.sells_1h,
     holders: t.holders,
@@ -126,6 +132,8 @@ function merge(own: DiscoverRow, other: DiscoverRow): DiscoverRow {
     freezeAuthDisabled: other.freezeAuthDisabled ?? own.freezeAuthDisabled,
     organicScore: other.organicScore,
     holders: other.holders ?? own.holders,
+    change24h: other.change24h,
+    vol24hUsd: other.vol24hUsd,
     holdersApprox: other.holders == null,
     // Our launch metadata first, the provider's links when the launch has none.
     twitter: own.twitter ?? other.twitter,
@@ -159,9 +167,11 @@ export type Category = {
   label: string;
   description: string;
   metric: MetricKey;
-  include: (r: DiscoverRow) => boolean;
+  include: (r: DiscoverRow, w: Window) => boolean;
   /** Higher ranks first. */
-  score: (r: DiscoverRow) => number;
+  score: (r: DiscoverRow, w: Window) => number;
+  /** Ranked over the chosen time window (Trending, Top gainers). */
+  windowed?: boolean;
 };
 
 /** Top gainers follow the filters large Solana screeners apply, so a handful of trades
@@ -172,11 +182,19 @@ export type Category = {
  *  - liquidity over a floor when known (pump.fun curve coins report none) */
 const GAINER = { minAgeSecs: 3_600, minMcUsd: 50_000, minVol1hUsd: 10_000, minHolders: 200, minLiquidityUsd: 10_000 };
 
-function isGainerCandidate(r: DiscoverRow) {
+/** The time windows Discover can rank Trending and Top gainers over. */
+export type Window = "5m" | "1h" | "24h";
+export const WINDOWS: Window[] = ["5m", "1h", "24h"];
+export const changeIn = (r: DiscoverRow, w: Window) => (w === "5m" ? r.change5m : w === "1h" ? r.change1h : r.change24h);
+export const volIn = (r: DiscoverRow, w: Window) => (w === "5m" ? r.vol5mUsd : w === "1h" ? r.vol1hUsd : r.vol24hUsd);
+
+function isGainerCandidate(r: DiscoverRow, w: Window) {
   const age = r.createdAt != null ? Date.now() / 1000 - r.createdAt : Infinity;
+  // A coin younger than the window compares against its launch price: not a gain.
+  const minAge = w === "24h" ? 86_400 : GAINER.minAgeSecs;
   return (
-    (r.change1h ?? 0) > 0 &&
-    age >= GAINER.minAgeSecs &&
+    (changeIn(r, w) ?? 0) > 0 &&
+    age >= minAge &&
     (r.mcUsd ?? 0) >= GAINER.minMcUsd &&
     (r.vol1hUsd ?? 0) >= GAINER.minVol1hUsd &&
     (r.holders ?? 0) >= GAINER.minHolders &&
@@ -248,8 +266,9 @@ export const CATEGORIES: Category[] = [
     label: "Trending",
     description: "Most traded across Solana in the last 5 minutes",
     metric: "volume5m",
-    include: (r) => (r.vol5mUsd ?? 0) > 0,
-    score: (r) => r.vol5mUsd ?? 0,
+    include: (r, w) => (volIn(r, w) ?? 0) > 0,
+    score: (r, w) => volIn(r, w) ?? 0,
+    windowed: true,
   },
   {
     key: "gainers",
@@ -257,7 +276,8 @@ export const CATEGORIES: Category[] = [
     description: "Biggest 1h price rise among Solana memecoins over an hour old, with $50K+ market cap, $10K+ hourly volume and 200+ holders",
     metric: "change1h",
     include: isGainerCandidate,
-    score: (r) => r.change1h ?? 0,
+    score: (r, w) => changeIn(r, w) ?? 0,
+    windowed: true,
   },
   {
     key: "sniped",
@@ -281,12 +301,19 @@ export const CATEGORIES: Category[] = [
     description:
       "Passed every red-flag check: mint and freeze revoked, 6h+ old, $100K+ market cap, $25K+ liquidity, 500+ holders, top 10 under 25%, dev and early buyers under 5%, organic trading. Fewer red flags, not a guarantee",
     metric: "risk",
-    include: isLowerRisk,
+    include: (r) => isLowerRisk(r),
     // Fewest red flags first, then the most traded.
     score: (r) => (100 - rowRisk(r)) * 1e9 + (r.vol1hUsd ?? 0),
   },
 ];
 
-export function rank(rows: DiscoverRow[], cat: Category) {
-  return rows.filter(cat.include).sort((a, b) => cat.score(b) - cat.score(a));
+/** A coin whose price collapsed (pulled liquidity, a rug) or has no price at all: its
+ *  volume is the crash itself, so it never tops a category. */
+export function isDead(r: DiscoverRow) {
+  return r.priceUsd == null || r.priceUsd <= 0 || (r.change5m ?? 0) <= -95 || (r.change1h ?? 0) <= -95;
+}
+
+export function rank(rows: DiscoverRow[], cat: Category, w: Window = "1h") {
+  // The watchlist shows what the user starred, dead or not.
+  return rows.filter((r) => (cat.key === "watchlist" || !isDead(r)) && cat.include(r, w)).sort((a, b) => cat.score(b, w) - cat.score(a, w));
 }

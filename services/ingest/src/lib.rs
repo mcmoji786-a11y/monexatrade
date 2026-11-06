@@ -379,6 +379,7 @@ impl Engine {
         }
 
         let Some(value) = v.pointer("/params/result/value") else { return Ok(()) };
+        let slot = v.pointer("/params/result/context/slot").and_then(Value::as_u64);
         // Failed transactions still emit logs; never treat them as real activity.
         if !value.get("err").is_some_and(Value::is_null) {
             stats.failed_txs.fetch_add(1, Ordering::Relaxed);
@@ -418,7 +419,7 @@ impl Engine {
                 }
                 Event::Trade(trade) => {
                     stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
-                    self.tracker.apply_trade(&trade);
+                    self.tracker.apply_trade_in_slot(&trade, slot);
                     let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
                 }
                 Event::Complete { mint } => self.tracker.complete(&mint, now_secs()),
@@ -447,7 +448,7 @@ impl Engine {
                 self.tracker.set_curve_total(&mint, t.total_base_sell);
                 let complete = t.complete;
                 let trade = t.into_trade(&mint, now_secs());
-                self.tracker.apply_trade(&trade);
+                self.tracker.apply_trade_in_slot(&trade, slot);
                 if complete {
                     self.tracker.complete(&mint, now_secs());
                 }
@@ -464,7 +465,7 @@ impl Engine {
                 }
                 stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
                 let trade = t.into_trade(&mint, now_secs());
-                self.tracker.apply_trade(&trade);
+                self.tracker.apply_trade_in_slot(&trade, slot);
                 let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
             }
         }

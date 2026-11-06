@@ -1,11 +1,22 @@
 import { Suspense } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
+import { PriceAlertWatcher } from "@/components/token/price-alerts";
+import { SniperEngine } from "@/components/sniper/sniper-engine";
+import { Toaster } from "@/components/toaster";
+import { PageReporter } from "@/components/page-reporter";
+import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
 
 /** App shell: sidebar navigation, top bar and the page content. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
+      <PriceAlertWatcher />
+      <SniperEngine />
+      <Toaster />
+      <Suspense fallback={null}>
+        <PageReporter />
+      </Suspense>
       {/* Both read the URL (usePathname), which needs a Suspense boundary on dynamic routes like /token/[mint]. */}
       <Suspense fallback={<div className="hidden w-60 shrink-0 border-r border-border bg-surface md:block" />}>
         <Sidebar />
@@ -15,7 +26,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Topbar />
         </Suspense>
         {/* The trade terminal runs edge to edge; other pages keep the centered column. */}
-        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-6 has-[.terminal]:max-w-none has-[.terminal]:p-0">{children}</main>
+        <AnnouncementBar />
+        <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-6 has-[.terminal]:max-w-none has-[.terminal]:p-0">
+          {/* Pages the admin paused show a notice instead (lib/features.ts). */}
+          <Suspense fallback={children}>
+            <FeatureGuard>{children}</FeatureGuard>
+          </Suspense>
+        </main>
       </div>
     </div>
   );

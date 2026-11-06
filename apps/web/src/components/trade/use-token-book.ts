@@ -8,7 +8,7 @@ export type BookState =
   | { status: "untracked" }
   /** Not a pump.fun launch we decode: history from its main Solana DEX pool. */
   | { status: "dex"; history: DexHistory }
-  | { status: "live"; source: string; pool: string | null; trades: TradeRow[]; candles: Candle[]; candleSecs: number; supply: number };
+  | { status: "live"; source: string; pool: string | null; trades: TradeRow[]; whales: TradeRow[]; candles: Candle[]; candleSecs: number; supply: number };
 
 const MAX_TRADES = 500;
 
@@ -79,12 +79,17 @@ export function useTokenBook(mint: string): BookState {
           loadDex();
         } else if (msg.type === "book") {
           const b = msg.book;
-          set(() => ({ status: "live", source: b.source, pool: b.pool, trades: b.trades, candles: b.candles, candleSecs: b.candle_secs, supply: b.supply }));
+          set(() => ({ status: "live", source: b.source, pool: b.pool, trades: b.trades, whales: b.whales ?? b.trades.filter((t) => t.whale), candles: b.candles, candleSecs: b.candle_secs, supply: b.supply }));
         } else {
           set((b) =>
             b.status !== "live"
               ? b
-              : { ...b, trades: [msg.trade, ...b.trades].slice(0, MAX_TRADES), candles: addTrade(b.candles, b.candleSecs, msg.trade) },
+              : {
+                  ...b,
+                  trades: [msg.trade, ...b.trades].slice(0, MAX_TRADES),
+                  whales: msg.trade.whale ? [msg.trade, ...b.whales].slice(0, 100) : b.whales,
+                  candles: addTrade(b.candles, b.candleSecs, msg.trade),
+                },
           );
         }
       };

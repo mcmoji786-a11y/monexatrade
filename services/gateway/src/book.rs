@@ -11,6 +11,7 @@ const TOKEN_DECIMALS: f64 = 1_000_000.0;
 const DEFAULT_SUPPLY: u64 = 1_000_000_000_000_000;
 /// Same thresholds as the market engine.
 const WHALE_LAMPORTS: u64 = 5_000_000_000;
+const MAX_WHALES: usize = 100;
 const SNIPE_WINDOW_SECS: i64 = 3;
 /// Trades below this (0.0001 SOL) are priced from reserves instead of their fill.
 const MIN_PRICED_LAMPORTS: u64 = 100_000;
@@ -84,6 +85,9 @@ struct Book {
     unit: f64,
     price_sol: f64,
     trades: VecDeque<TradeRow>,
+    /// Trades of 5 SOL or more, kept apart: on a busy coin they fall out of the latest
+    /// trades long before the hour the radar counts them over.
+    whales: VecDeque<TradeRow>,
     candles: VecDeque<Candle>,
     wallets: HashMap<String, Position>,
 }
@@ -113,6 +117,7 @@ impl Book {
             unit: TOKEN_DECIMALS,
             price_sol,
             trades: VecDeque::new(),
+            whales: VecDeque::new(),
             candles: VecDeque::new(),
             wallets: HashMap::new(),
         }
@@ -192,6 +197,10 @@ impl Book {
             sniper,
         };
         self.trades.push_front(row.clone());
+        if row.whale {
+            self.whales.push_front(row.clone());
+            self.whales.truncate(MAX_WHALES);
+        }
         self.trades.truncate(MAX_TRADES);
         self.add_candle(t.timestamp, mc, sol);
         row
@@ -253,6 +262,8 @@ pub struct BookSnapshot {
     pub candles: Vec<Candle>,
     pub candle_secs: i64,
     pub supply: f64,
+    /// Trades of 5 SOL or more, newest first (up to MAX_WHALES), however old.
+    pub whales: Vec<TradeRow>,
 }
 
 /// Holders, top traders and the dev wallet, sorted for the trade page tabs.
@@ -300,6 +311,7 @@ impl Books {
             supply: supply.map_or(DEFAULT_SUPPLY as f64 / TOKEN_DECIMALS, |s| s.0),
             unit: supply.map_or(TOKEN_DECIMALS, |s| 10f64.powi(s.1 as i32)),
             price_sol: seed_trades.first().map_or(0.0, |t| t.price_sol),
+            whales: seed_trades.iter().filter(|t| t.whale).take(MAX_WHALES).cloned().collect(),
             trades: seed_trades.into_iter().take(MAX_TRADES).collect(),
             candles: seed_candles.into_iter().collect(),
             wallets: HashMap::new(),
@@ -344,7 +356,13 @@ impl Books {
         let first = b.candles.front().map_or(i64::MAX, |c| c.t);
         for c in old_candles.into_iter().rev().filter(|c| c.t < first) {
             b.candles.push_front(c);
-        }
+        }        // Replayed whales went in front of the live ones: put them back in time order.
+        let mut whales: Vec<TradeRow> = b.whales.drain(..).collect();
+        whales.sort_by(|x, y| y.ts.cmp(&x.ts));
+        let mut seen = std::collections::HashSet::new();
+        whales.retain(|w| seen.insert(w.signature.clone()));
+        whales.truncate(MAX_WHALES);
+        b.whales = whales.into();
     }
 
     /// Adds indexed history that arrived late (the indexer was rate limited when the
@@ -366,6 +384,28 @@ impl Books {
         self.books.get(mint).map(|b| b.supply)
     }
 
+    /// Recent trades by any of `wallets` across live books, newest first.
+    pub fn trades_by(&self, wallets: &std::collections::HashSet<String>, limit: usize) -> Vec<(String, TradeRow)> {
+        let mut out: Vec<(String, TradeRow)> = self
+            .books
+            .iter()
+            .flat_map(|(m, b)| b.trades.iter().filter(|t| wallets.contains(&t.wallet)).map(move |t| (m.clone(), t.clone())))
+            .collect();
+        out.sort_by(|a, b| b.1.ts.cmp(&a.1.ts));
+        out.truncate(limit);
+        out
+    }
+
+    /// Every live book's positions, for smart-money counts.
+    pub fn all_positions(&self) -> impl Iterator<Item = (&str, Vec<&Position>)> {
+        self.books.iter().map(|(m, b)| (m.as_str(), b.wallets.values().collect()))
+    }
+
+    /// One book's positions, read before the book is dropped.
+    pub fn positions_of(&self, mint: &str) -> Vec<Position> {
+        self.books.get(mint).map(|b| b.wallets.values().cloned().collect()).unwrap_or_default()
+    }
+
     pub fn remove(&mut self, mint: &str) {
         self.books.remove(mint);
     }
@@ -381,6 +421,7 @@ impl Books {
             source: b.source.clone(),
             pool: b.pool.clone(),
             trades: b.trades.iter().take(200).cloned().collect(),
+            whales: b.whales.iter().cloned().collect(),
             candles: b.candles.iter().cloned().collect(),
             candle_secs: CANDLE_SECS,
             supply: b.supply,

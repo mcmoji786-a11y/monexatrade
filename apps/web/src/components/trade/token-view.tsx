@@ -12,6 +12,7 @@ import { formatAge, useNow, useRadarFeed } from "@/components/radar/use-radar-fe
 import { Activity } from "./activity";
 import { BigMovesButton } from "./big-moves";
 import { AiButton } from "@/components/token/ai-analysis";
+import { PriceAlertButton } from "@/components/token/price-alerts";
 import { inputFromRow } from "@/lib/ai";
 import { PriceChart } from "./price-chart";
 import { Splitter, useStoredSize } from "./splitter";
@@ -124,6 +125,8 @@ function bareLaunchRow(t: FeedToken): DiscoverRow {
     snipers: t.market?.snipers ?? null,
     sniperPct: t.market?.sniper_pct ?? null,
     verified: false,
+    change24h: null,
+    vol24hUsd: null,
     mintAuthDisabled: null,
     freezeAuthDisabled: null,
     organicScore: null,
@@ -228,6 +231,7 @@ function Header({
         <div className="flex shrink-0 items-center gap-2">
           {risk && <RiskBadge risk={risk} />}
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
+          <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
           <AiButton input={() => inputFromRow(r)} />
         </div>
       </div>

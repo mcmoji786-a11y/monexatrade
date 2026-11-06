@@ -159,6 +159,19 @@ body {
   animation: grow-x 700ms var(--mx-ease) both;
 }
 
+/* Live status dot: a soft ring that widens and fades, once every two seconds. */
+@keyframes live-ring {
+  from {
+    box-shadow: 0 0 0 0 rgb(76 195 138 / 0.45);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgb(76 195 138 / 0);
+  }
+}
+.live-ring {
+  animation: live-ring 2s var(--mx-ease) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal {
     opacity: 1;
@@ -171,6 +184,7 @@ body {
   .grow-x,
   .drawer-in,
   .row-in,
+  .live-ring,
   .radar-sweep {
     animation: none;
   }

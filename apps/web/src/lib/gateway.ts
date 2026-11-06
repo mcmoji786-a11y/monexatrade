@@ -32,6 +32,14 @@ export type Market = {
   holders: number; // approximate, from observed trades
   top10_pct: number;
   dev_pct: number;
+  /** Sells by the creator since launch, and whether it sold all it bought. */
+  dev_sells: number;
+  dev_sold_all: boolean;
+  /** Wallets that bought together in one slot right after launch, and their share. */
+  bundled: number;
+  bundle_pct: number;
+  /** Holders now minus about an hour ago (or launch). */
+  holders_change_1h: number;
   whale_trades_1h: number;
   /** Buys of 5 SOL or more in the last hour. */
   whale_buys_1h: number;
@@ -59,7 +67,11 @@ export type FeedToken = {
   launchpad: string;
   meta: TokenMeta | null;
   market: Market | null;
+  /** The creator's earlier coins since our engine started tracking. */
+  dev_report?: DevReport | null;
 };
+
+export type DevReport = { coins: number; graduated: number; rugged: number; died_fast: number; best_peak_mc_usd: number | null };
 
 /** Established token across Solana, from the gateway's Jupiter provider (ADR 0004). */
 export type MarketToken = {
@@ -93,7 +105,8 @@ export type MarketToken = {
 };
 
 export type FeedEvent =
-  | { type: "snapshot"; sol_usd: number | null; tokens: FeedToken[]; markets?: MarketToken[]; sparks?: Record<string, number[]> }
+  | { type: "snapshot"; sol_usd: number | null; tokens: FeedToken[]; markets?: MarketToken[]; sparks?: Record<string, number[]>; smart?: Record<string, number> }
+  | { type: "smart"; counts: Record<string, number> }
   | { type: "markets"; items: MarketToken[] }
   | { type: "markets_removed"; mints: string[] }
   | { type: "token"; token: FeedToken }
@@ -150,7 +163,8 @@ export type TradeRow = {
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
 
 /** `source`: "curve" (pump.fun bonding curve) or the DEX of the live pool ("pumpswap", "raydium", "orca", "meteora"). */
-export type BookSnapshot = { source: string; pool: string | null; trades: TradeRow[]; candles: Candle[]; candle_secs: number; supply: number };
+/** `whales`: trades of 5 SOL or more, newest first, kept even after they leave `trades`. */
+export type BookSnapshot = { source: string; pool: string | null; trades: TradeRow[]; candles: Candle[]; candle_secs: number; supply: number; whales?: TradeRow[] };
 
 export type Position = {
   wallet: string;

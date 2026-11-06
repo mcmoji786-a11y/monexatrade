@@ -3,6 +3,7 @@
 // `live` marks sections that already work with real data.
 import type { LucideIcon } from "lucide-react";
 import {
+  Brain,
   ChartPie,
   Compass,
   Crosshair,
@@ -30,9 +31,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Tools",
     items: [
-      { slug: "wallets", label: "Wallet Tracker", phase: "Phase 5", icon: Wallet },
-      { slug: "sniper", label: "Sniper", phase: "Product phase 2", icon: Crosshair },
+      { slug: "sniper", label: "Sniper", phase: "Phase 1", icon: Crosshair, live: true },
       { slug: "ai", label: "AI Intelligence", phase: "Product phase 2", icon: ScanSearch },
+      { slug: "smart-money", label: "Smart Money", phase: "Phase 1", icon: Brain, live: true },
+      { slug: "wallets", label: "Wallet Monitor", phase: "Phase 1", icon: Wallet, live: true },
     ],
   },
   {
@@ -40,7 +42,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { slug: "dashboard", label: "Dashboard", phase: "Phase 2", icon: LayoutGrid },
       { slug: "portfolio", label: "Portfolio", phase: "Phase 4", icon: ChartPie },
-      { slug: "rewards", label: "Rewards", phase: "Phase 6", icon: Gift },
+      { slug: "rewards", label: "Rewards", phase: "Phase 1", icon: Gift, live: true },
     ],
   },
   {
@@ -56,4 +58,4 @@ export const NAV_GROUPS: NavGroup[] = [
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Sections that have their own page and must not use the placeholder route. */
-export const BUILT = new Set(["discover", "radar"]);
+export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "sniper", "rewards"]);

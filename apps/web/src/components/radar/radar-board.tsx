@@ -1,63 +1,174 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { usd, type MarketToken } from "@/lib/gateway";
-import { newLaunchFlags } from "@/lib/risk";
+import { newLaunchChecks, type Check } from "@/lib/risk";
+import { useRadarFilters, useWatchlist } from "@/lib/prefs";
+import { FiltersMenu, passesFilters } from "./filters-menu";
+import { SniperMenu } from "@/components/sniper/sniper-menu";
+import { PausableGrid } from "./pausable-grid";
+import { AlertsMenu, useRadarAlerts } from "./alerts";
 import { RadarScope } from "./radar-scope";
 import { TokenCard } from "./token-card";
-import { useNow, useRadarFeed, type FeedStatus, type RadarToken } from "./use-radar-feed";
+import {
+  useNow,
+  useRadarFeed,
+  type FeedStatus,
+  type RadarToken,
+} from "./use-radar-feed";
 
-type FilterCtx = { lowerRisk: Set<string> };
+type FilterCtx = { lowerRisk: Set<string>; watch: string[] };
 const FILTERS = {
   all: { label: "All", test: () => true },
-  "lower-risk": { label: "Lower risk", test: (t: RadarToken, c: FilterCtx) => c.lowerRisk.has(t.mint) },
+  "lower-risk": {
+    label: "Lower risk",
+    test: (t: RadarToken, c: FilterCtx) => c.lowerRisk.has(t.mint),
+  },
+  watch: {
+    label: "Watchlist",
+    test: (t: RadarToken, c: FilterCtx) => c.watch.includes(t.mint),
+  },
   socials: { label: "With socials", test: (t: RadarToken) => hasSocials(t) },
-  traction: { label: "10+ holders", test: (t: RadarToken) => (t.market?.holders ?? 0) >= 10 },
+  traction: {
+    label: "10+ holders",
+    test: (t: RadarToken) => (t.market?.holders ?? 0) >= 10,
+  },
   spread: {
     label: "Low concentration",
-    test: (t: RadarToken) => !!t.market && t.market.top10_pct < 30 && t.market.dev_pct < 10,
+    test: (t: RadarToken) =>
+      !!t.market && t.market.top10_pct < 30 && t.market.dev_pct < 10,
   },
-} as const satisfies Record<string, { label: string; test: (t: RadarToken, c: FilterCtx) => boolean }>;
+} as const satisfies Record<
+  string,
+  { label: string; test: (t: RadarToken, c: FilterCtx) => boolean }
+>;
 
 const symbolKey = (t: RadarToken) => t.symbol.trim().toUpperCase();
 
-/** Mints that pass every new-launch check (risk.ts). */
-function lowerRiskSet(tokens: RadarToken[], markets: Record<string, MarketToken>, counts: Map<string, number>, nowSecs: number) {
-  const out = new Set<string>();
+/** The X account a coin links to, as "handle" (lower case), or null. Links to a single
+ *  post or a community count as that post or community, so reused posts show too. */
+export function xKey(url: string | null | undefined) {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)(x|twitter)\.com$/i.test(u.hostname)) return null;
+    const parts = u.pathname.split("/").filter(Boolean);
+    if (!parts.length) return null;
+    if (parts[0] === "i" && parts[1] === "communities") return `community/${parts[2] ?? ""}`;
+    if (parts[1] === "status") return `post/${parts[2] ?? ""}`;
+    return parts[0].toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Every new-launch check per coin (risk.ts). */
+function checksFor(
+  tokens: RadarToken[],
+  markets: Record<string, MarketToken>,
+  counts: Map<string, number>,
+  firsts: Map<string, Original>,
+  nowSecs: number,
+) {
+  const out = new Map<string, Check[]>();
   for (const t of tokens) {
-    if (!newLaunchFlags(t, markets[t.mint] ?? null, (counts.get(symbolKey(t)) ?? 0) > 1, nowSecs).length) out.add(t.mint);
+    // A copy of another new coin, or of an established coin with the same symbol.
+    const o = firsts.get(symbolKey(t));
+    const copied =
+      (counts.get(symbolKey(t)) ?? 0) > 1 || (!!o && o.mint !== t.mint);
+    out.set(
+      t.mint,
+      newLaunchChecks(t, markets[t.mint] ?? null, copied, nowSecs),
+    );
   }
   return out;
+}
+
+/** A coin we call the original of a symbol only on strong evidence: verified by the
+ *  market provider, or long established (a day old, $50K+ liquidity, 1,000+ holders).
+ *  The oldest new launch is never assumed original: copies often launch first, and
+ *  the real coin is usually days old and not on the radar at all. */
+const ESTABLISHED = {
+  minAgeSecs: 86_400,
+  minLiquidityUsd: 50_000,
+  minHolders: 1_000,
+};
+
+export type Original = {
+  mint: string;
+  symbol: string;
+  createdAt: number | null;
+  verified: boolean;
+};
+
+function originals(markets: Record<string, MarketToken>) {
+  const now = Date.now() / 1000;
+  const out = new Map<string, { o: Original; liq: number }>();
+  for (const t of Object.values(markets)) {
+    const created = t.created_at ? Date.parse(t.created_at) / 1000 : NaN;
+    const established =
+      Number.isFinite(created) &&
+      now - created >= ESTABLISHED.minAgeSecs &&
+      (t.liquidity_usd ?? 0) >= ESTABLISHED.minLiquidityUsd &&
+      (t.holders ?? 0) >= ESTABLISHED.minHolders;
+    if (!t.verified && !established) continue;
+    const k = t.symbol.trim().toUpperCase();
+    const liq = (t.verified ? 1e15 : 0) + (t.liquidity_usd ?? 0);
+    const cur = out.get(k);
+    // Several qualify: verified first, then the deepest liquidity.
+    if (!cur || liq > cur.liq) {
+      out.set(k, {
+        o: {
+          mint: t.mint,
+          symbol: t.symbol,
+          createdAt: Number.isFinite(created) ? created : null,
+          verified: t.verified,
+        },
+        liq,
+      });
+    }
+  }
+  return new Map([...out].map(([k, v]) => [k, v.o]));
 }
 type FilterKey = keyof typeof FILTERS;
 
 const SORTS = {
   newest: { label: "Newest", by: (t: RadarToken) => t.timestamp },
-  volume: { label: "Volume 1h", by: (t: RadarToken) => t.market?.volume_1h_usd ?? -1 },
+  volume: {
+    label: "Volume 1h",
+    by: (t: RadarToken) => t.market?.volume_1h_usd ?? -1,
+  },
   mc: { label: "Market cap", by: (t: RadarToken) => t.market?.mc_usd ?? -1 },
   holders: { label: "Holders", by: (t: RadarToken) => t.market?.holders ?? -1 },
 } as const;
 type SortKey = keyof typeof SORTS;
 
+
 /** Sol Radar: every new Solana token the moment it launches.
  *  Inactive tokens are dropped by the engine, so the grid only holds live coins. */
 export function RadarBoard() {
-  const { tokens, markets, solUsd, status } = useRadarFeed();
-  const now = useNow();
+  // Live data renders at low priority: clicks and navigation always come first.
+  const feed = useDeferredValue(useRadarFeed());
+  const { tokens, markets, solUsd, smart, status } = feed;
+  const watch = useWatchlist().mints;
+  const now = useDeferredValue(useNow());
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("newest");
+  const { filters: adv } = useRadarFilters();
 
   const query = params.get("q") ?? "";
   const setQuery = (q: string) => {
     const next = new URLSearchParams(params);
     if (q) next.set("q", q);
     else next.delete("q");
-    router.replace(next.size ? `${pathname}?${next}` : pathname, { scroll: false });
+    router.replace(next.size ? `${pathname}?${next}` : pathname, {
+      scroll: false,
+    });
   };
 
   const symbolCounts = useMemo(() => {
@@ -70,16 +181,75 @@ export function RadarBoard() {
   }, [tokens]);
 
   // Re-checked every second (useNow) so a coin joins once it is old enough.
-  const lowerRisk = useMemo(() => lowerRiskSet(tokens, markets, symbolCounts, Math.floor(now / 1000)), [tokens, markets, symbolCounts, now]);
+  const firsts = useMemo(() => originals(markets), [markets]);
+  // How many coins on the radar link the same X account or post.
+  const xCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tokens) {
+      const k = xKey(t.meta?.twitter);
+      if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return counts;
+  }, [tokens]);
+  const checks = useMemo(
+    () =>
+      checksFor(tokens, markets, symbolCounts, firsts, Math.floor(now / 1000)),
+    [tokens, markets, symbolCounts, firsts, now],
+  );
+  const lowerRisk = useMemo(
+    () =>
+      new Set(
+        [...checks].filter(([, c]) => c.every((x) => x.ok)).map(([m]) => m),
+      ),
+    [checks],
+  );
+  useRadarAlerts(tokens, lowerRisk);
   const q = query.trim();
   const lower = q.toLowerCase();
   const visible = tokens
-    .filter((t) => !q || t.mint === q || t.symbol.toLowerCase().includes(lower) || t.name.toLowerCase().includes(lower))
-    .filter((t) => FILTERS[filter].test(t, { lowerRisk }))
+    .filter(
+      (t) =>
+        !q ||
+        t.mint === q ||
+        t.symbol.toLowerCase().includes(lower) ||
+        t.name.toLowerCase().includes(lower),
+    )
+    .filter((t) => FILTERS[filter].test(t, { lowerRisk, watch }))
+    .filter((t) =>
+      passesFilters(t, markets[t.mint] ?? null, adv, Math.floor(now / 1000)),
+    )
     .sort((a, b) => SORTS[sort].by(b) - SORTS[sort].by(a));
 
-  const lastMinute = now ? tokens.filter((t) => now / 1000 - t.timestamp <= 60).length : 0;
-  const volume1h = tokens.reduce((s, t) => s + (t.market?.volume_1h_usd ?? 0), 0);
+  const card = (t: RadarToken) => (
+    <TokenCard
+      key={t.mint}
+      token={t}
+      alt={markets[t.mint] ?? null}
+      smart={smart[t.mint] ?? 0}
+      checks={checks.get(t.mint) ?? []}
+      original={(() => {
+        const o = firsts.get(symbolKey(t));
+        return o && o.mint !== t.mint ? o : null;
+      })()}
+      sameSymbol={(symbolCounts.get(symbolKey(t)) ?? 1) - 1}
+      xShare={(() => {
+        const k = xKey(t.meta?.twitter);
+        if (!k) return null;
+        const others = (xCounts.get(k) ?? 1) - 1;
+        return others > 0 ? { others, kind: k.startsWith("post/") || k.startsWith("community/") ? ("post" as const) : ("account" as const) } : null;
+      })()}
+      now={now}
+      repeated={(symbolCounts.get(t.symbol.trim().toUpperCase()) ?? 0) > 1}
+    />
+  );
+
+  const lastMinute = now
+    ? tokens.filter((t) => now / 1000 - t.timestamp <= 60).length
+    : 0;
+  const volume1h = tokens.reduce(
+    (s, t) => s + (t.market?.volume_1h_usd ?? 0),
+    0,
+  );
   const looksLikeMint = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q);
 
   return (
@@ -91,7 +261,9 @@ export function RadarBoard() {
             <h1 className="text-2xl font-medium text-text">Sol Radar</h1>
             <LiveBadge status={status} />
           </div>
-          <p className="mt-1 text-sm text-text-2">New Solana tokens as they launch, priced from on-chain trades</p>
+          <p className="mt-1 text-sm text-text-2">
+            New Solana tokens as they launch, priced from on-chain trades
+          </p>
         </div>
 
         <dl className="flex flex-wrap gap-x-10 gap-y-4">
@@ -122,14 +294,30 @@ export function RadarBoard() {
               }`}
             >
               {FILTERS[k].label}
-              {k === "lower-risk" && <span className="ml-1.5 font-mono text-xs text-muted">{lowerRisk.size}</span>}
+              {k === "lower-risk" && (
+                <span className="ml-1.5 font-mono text-xs text-muted">
+                  {lowerRisk.size}
+                </span>
+              )}
+              {k === "watch" && watch.length > 0 && (
+                <span className="ml-1.5 font-mono text-xs text-muted">
+                  {tokens.filter((t) => watch.includes(t.mint)).length}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-3">
+          <SniperMenu />
+          <FiltersMenu />
+          <AlertsMenu />
           <label className="flex h-8 w-64 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm focus-within:border-emerald/50">
-            <Search size={14} strokeWidth={1.5} className="shrink-0 text-muted" />
+            <Search
+              size={14}
+              strokeWidth={1.5}
+              className="shrink-0 text-muted"
+            />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -139,7 +327,12 @@ export function RadarBoard() {
               spellCheck={false}
             />
             {query && (
-              <button type="button" onClick={() => setQuery("")} aria-label="Clear" className="text-muted hover:text-text">
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear"
+                className="text-muted hover:text-text"
+              >
                 <X size={14} strokeWidth={1.5} />
               </button>
             )}
@@ -164,28 +357,24 @@ export function RadarBoard() {
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Grid: pauses while the pointer is over it */}
       {visible.length > 0 ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-          {visible.map((t) => (
-            <TokenCard
-              key={t.mint}
-              token={t}
-              alt={markets[t.mint] ?? null}
-              lowerRisk={lowerRisk.has(t.mint)}
-              now={now}
-              repeated={(symbolCounts.get(t.symbol.trim().toUpperCase()) ?? 0) > 1}
-            />
-          ))}
-        </div>
+        <PausableGrid tokens={visible} render={card} />
       ) : (
-        <EmptyState status={status} hasTokens={tokens.length > 0} query={q} looksLikeMint={looksLikeMint} lowerRisk={filter === "lower-risk"} />
+        <EmptyState
+          status={status}
+          hasTokens={tokens.length > 0}
+          query={q}
+          looksLikeMint={looksLikeMint}
+          lowerRisk={filter === "lower-risk"}
+        />
       )}
 
       <p className="mt-6 max-w-3xl text-xs leading-5 text-muted">
-        Prices, volume and holders are computed by MONEXA from on-chain trades. Holder counts are
-        approximate. Logos and social links come from token creators and are not verified. A new
-        token is not a recommendation, and most new tokens lose their value.
+        Prices, volume and holders are computed by MONEXA from on-chain trades.
+        Holder counts are approximate. Logos and social links come from token
+        creators and are not verified. A new token is not a recommendation, and
+        most new tokens lose their value.
       </p>
     </section>
   );
@@ -205,10 +394,14 @@ function EmptyState({
   lowerRisk: boolean;
 }) {
   let text = "Connecting to the MONEXA gateway";
-  if (query && looksLikeMint) text = "This token is not on the radar right now. Looking up any Solana token by address comes next";
+  if (query && looksLikeMint)
+    text =
+      "This token is not on the radar right now. Looking up any Solana token by address comes next";
   else if (lowerRisk && hasTokens && !query)
-    text = "No new coin passes every lower-risk check right now. Most launches fail on holders, social links or a copied symbol. Coins join here as soon as they pass";
-  else if (query || hasTokens) text = "No token on the radar matches these filters";
+    text =
+      "No new coin passes every lower-risk check right now. Most launches fail on holders, social links or a copied symbol. Coins join here as soon as they pass";
+  else if (query || hasTokens)
+    text = "No token on the radar matches these filters";
   else if (status === "live") text = "Waiting for the next launch";
   else if (status === "reconnecting") text = "Live feed offline. Reconnecting";
 
@@ -220,14 +413,28 @@ function EmptyState({
 }
 
 function hasSocials(t: RadarToken) {
-  return Boolean(t.meta && (t.meta.twitter || t.meta.telegram || t.meta.website));
+  return Boolean(
+    t.meta && (t.meta.twitter || t.meta.telegram || t.meta.website),
+  );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
   return (
     <div>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`mt-1 font-mono text-xl ${accent ? "text-emerald" : "text-text"}`}>{value}</dd>
+      <dd
+        className={`mt-1 font-mono text-xl ${accent ? "text-emerald" : "text-text"}`}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
@@ -236,7 +443,9 @@ function LiveBadge({ status }: { status: FeedStatus }) {
   const live = status === "live";
   return (
     <span className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-text-2">
-      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald" : "bg-warning"}`} />
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald" : "bg-warning"}`}
+      />
       {live ? "Live" : status === "connecting" ? "Connecting" : "Reconnecting"}
     </span>
   );

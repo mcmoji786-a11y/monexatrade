@@ -2,7 +2,10 @@
 //! Runs the ingest engine in-process: one Helius connection serves all users.
 //! Tracked tokens live only in memory (no database), per ADR 0003.
 
+mod admin;
+mod presence;
 mod book;
+mod devs;
 mod dex;
 mod jupiter;
 mod metadata;
@@ -44,12 +47,18 @@ struct FeedToken {
     token: NewToken,
     meta: Option<TokenMeta>,
     market: Option<MarketSnapshot>,
+    /// The creator's earlier coins, as our engine saw them (devs.rs).
+    dev_report: Option<devs::DevReport>,
 }
 
 /// Events pushed to browsers.
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum FeedEvent {
+    /// Smart wallets holding each coin (devs.rs), refreshed every minute.
+    Smart {
+        counts: HashMap<String, u32>,
+    },
     Token {
         token: FeedToken,
     },
@@ -78,6 +87,8 @@ struct Board {
     tokens: HashMap<String, FeedToken>,
     sol_usd: Option<f64>,
     markets: jupiter::MarketBoard,
+    /// Smart wallets holding each live coin.
+    smart: HashMap<String, u32>,
     /// Recent USD prices per coin for Discover's mini charts, oldest first.
     sparks: HashMap<String, std::collections::VecDeque<(i64, f64)>>,
 }
@@ -119,6 +130,12 @@ struct AppState {
     stats: Arc<IngestStats>,
     started: Instant,
     meta_slots: Semaphore,
+    creators: Mutex<devs::Creators>,
+    smart: Mutex<devs::SmartMoney>,
+    /// Smart-money leaderboard, refreshed every minute.
+    leaders: Mutex<Vec<devs::Leader>>,
+    /// Wallets checked on chain for bot speed: (checked at, looks like a bot).
+    bot_checks: Mutex<HashMap<String, (Instant, bool)>>,
     /// Trade history per tracked launch, for the trade page.
     books: Mutex<book::Books>,
     /// GeckoTerminal candles and trades for tokens outside our decoder.
@@ -173,6 +190,11 @@ async fn main() -> Result<()> {
         stats: stats.clone(),
         started: Instant::now(),
         meta_slots: Semaphore::new(META_CONCURRENCY),
+        creators: Mutex::new(devs::Creators::default()),
+        // Smart-money records survive restarts (data/smart_money.json).
+        smart: Mutex::new(load_smart()),
+        leaders: Mutex::new(Vec::new()),
+        bot_checks: Mutex::new(HashMap::new()),
         books: Mutex::new(book::Books::default()),
         ingest_cmd: cmd_tx,
         watches: Mutex::new(HashMap::new()),
@@ -197,19 +219,39 @@ async fn main() -> Result<()> {
     tokio::spawn(process_events(state.clone(), ingest_rx));
     tokio::spawn(poll_markets(state.clone()));
     tokio::spawn(prune_launches(state.clone()));
+    tokio::spawn(update_smart(state.clone()));
+    tokio::spawn(seed_smart(state.clone()));
 
     let cors = CorsLayer::new()
         .allow_origin(config.allowed_origin.parse::<HeaderValue>()?)
-        .allow_methods([axum::http::Method::GET]);
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT])
+        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::HeaderName::from_static("x-admin-token")]);
+
+    // Rewards settings and creator applications (admin.rs), with their own state.
+    let admin_routes: Router<Arc<AppState>> = Router::new()
+        .route("/rewards/config", get(admin::get_rewards))
+        .route("/features", get(admin::get_features))
+        .route("/admin/features", axum::routing::put(admin::put_features))
+        .route("/creator/apply", axum::routing::post(admin::apply_creator))
+        .route("/admin/check", get(admin::check_admin))
+        .route("/admin/rewards", axum::routing::put(admin::put_rewards))
+        .route("/admin/creator-applications", get(admin::list_applications))
+        .route("/admin/creator-applications/{id}", axum::routing::post(admin::set_application))
+        .with_state(admin::AdminState::load());
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/stats", get(stats_handler))
+        .route("/metrics/public", get(metrics_handler))
         .route("/ws/new-tokens", get(ws_new_tokens))
         .route("/token/{mint}", get(token_handler))
         .route("/token/{mint}/wallets", get(wallets_handler))
         .route("/token/{mint}/dex", get(dex_handler))
+        .route("/smart-money", get(smart_handler))
+        .route("/alerts/status", get(alerts_status))
+        .route("/ws/wallets", get(ws_wallets))
         .route("/ws/token/{mint}", get(ws_token))
+        .merge(admin_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -217,7 +259,8 @@ async fn main() -> Result<()> {
     let port = config.gateway_port;
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     tracing::info!("gateway listening on http://localhost:{port}");
-    axum::serve(listener, app).await?;
+    // Client addresses for the creator-application spam guard.
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
     Ok(())
 }
 
@@ -242,10 +285,16 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 if token.quote_mint.is_none() {
                     state.books.lock().expect("books lock").add(&token);
                 }
+                let dev_report = {
+                    let mut c = state.creators.lock().expect("creators lock");
+                    c.launched(&token.creator, &token.mint, token.timestamp);
+                    Some(c.report(&token.creator, &token.mint))
+                };
                 let item = FeedToken {
                     token: token.clone(),
                     meta: None,
                     market: None,
+                    dev_report,
                 };
                 state
                     .board
@@ -257,10 +306,16 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 spawn_metadata(state.clone(), token);
             }
             IngestEvent::Launched(token) => {
+                let dev_report = {
+                    let mut c = state.creators.lock().expect("creators lock");
+                    c.launched(&token.creator, &token.mint, token.timestamp);
+                    Some(c.report(&token.creator, &token.mint))
+                };
                 let item = FeedToken {
                     token: token.clone(),
                     meta: None,
                     market: None,
+                    dev_report,
                 };
                 state
                     .board
@@ -276,11 +331,13 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                     let mut board = state.board.lock().expect("board lock");
                     board.sol_usd = sol_usd.or(board.sol_usd);
                     let now = now_unix();
+                    let mut creators = state.creators.lock().expect("creators lock");
                     for m in &items {
                         if let Some(t) = board.tokens.get_mut(&m.mint) {
                             t.market = Some(m.clone());
                         }
                         board.sample(&m.mint, m.price_usd, now);
+                        creators.market(&m.mint, m.mc_usd, m.complete, m.dev_sold_all);
                     }
                 }
                 let _ = state.feed.send(FeedEvent::Market { sol_usd, items });
@@ -298,9 +355,15 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                         .collect();
                     let mut board = state.board.lock().expect("board lock");
                     let mut books = state.books.lock().expect("books lock");
+                    let mut creators = state.creators.lock().expect("creators lock");
+                    let mut smart = state.smart.lock().expect("smart lock");
+                    let now = now_unix();
                     for m in &mints {
                         board.tokens.remove(m);
                         board.sparks.remove(m);
+                        board.smart.remove(m);
+                        creators.ended(m, now);
+                        smart.fold(m, books.positions_of(m).iter());
                         // A graduated coin pruned from the launch board keeps its book
                         // while its pool is being watched.
                         if !watched.contains(m) {
@@ -479,8 +542,10 @@ async fn prune_launches(state: Arc<AppState>) {
                 })
                 .map(|(_, (m, _, _))| m.clone())
                 .collect();
+            let mut creators = state.creators.lock().expect("creators lock");
             for m in &gone {
                 board.tokens.remove(m);
+                creators.ended(m, now);
             }
             gone
         };
@@ -512,19 +577,40 @@ fn spawn_metadata(state: Arc<AppState>, token: NewToken) {
     });
 }
 
-async fn ws_new_tokens(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
-    ws.on_upgrade(move |socket| stream_tokens(socket, state))
+async fn ws_new_tokens(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    // Behind a proxy the visitor is the first forwarded address; it only feeds counts.
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(addr.ip());
+    ws.on_upgrade(move |socket| async move {
+        let live = presence::LiveGuard::new(Some(ip));
+        stream_tokens(socket, state, live.0).await
+    })
 }
 
 /// Send the board snapshot (newest first), then every feed event as it happens.
-async fn stream_tokens(mut socket: WebSocket, state: Arc<AppState>) {
+async fn stream_tokens(mut socket: WebSocket, state: Arc<AppState>, session: usize) {
     // Subscribe before taking the snapshot so no event falls in the gap.
     let mut rx = state.feed.subscribe();
     let msg = {
         let board = state.board.lock().expect("board lock");
-        let mut tokens: Vec<&FeedToken> = board.tokens.values().collect();
+        // Creator records grow while a coin is live: report them as of now.
+        let creators = state.creators.lock().expect("creators lock");
+        let mut tokens: Vec<FeedToken> = board
+            .tokens
+            .values()
+            .map(|t| FeedToken { dev_report: Some(creators.report(&t.token.creator, &t.token.mint)), ..t.clone() })
+            .collect();
         tokens.sort_by(|a, b| b.token.timestamp.cmp(&a.token.timestamp));
-        json!({ "type": "snapshot", "sol_usd": board.sol_usd, "tokens": tokens, "markets": board.markets.all(), "sparks": board.spark_series() })
+        json!({ "type": "snapshot", "sol_usd": board.sol_usd, "tokens": tokens, "markets": board.markets.all(), "sparks": board.spark_series(), "smart": board.smart })
             .to_string()
     };
     if socket.send(Message::Text(msg.into())).await.is_err() {
@@ -535,7 +621,17 @@ async fn stream_tokens(mut socket: WebSocket, state: Arc<AppState>) {
         tokio::select! {
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
-                _ => {} // ignore client messages
+                // The page the visitor is on, for the admin's live view: {"type":"page","path":"/radar"}.
+                Some(Ok(Message::Text(t))) if t.len() < 200 => {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) {
+                        if v["type"] == "page" {
+                            if let Some(p) = v["path"].as_str() {
+                                presence::set_page(session, p);
+                            }
+                        }
+                    }
+                }
+                _ => {} // ignore other client messages
             },
             event = rx.recv() => match event {
                 Ok(event) => {
@@ -709,6 +805,7 @@ async fn ws_token(
 /// One token's trade book: a snapshot (recent trades and candles), then each new trade.
 /// Tokens we do not decode get `{"type":"untracked"}` and the socket closes.
 async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String) {
+    let _page = presence::TradeGuard::new();
     let mut rx = state.trades.subscribe();
     let mut refresh = state.refresh.subscribe();
     // Graduated coins (curve complete, or not on our board at all) trade in a PumpSwap
@@ -1217,4 +1314,466 @@ async fn expire_watches(state: Arc<AppState>) {
             tracing::info!(%mint, "stopped watching pool");
         }
     }
+}
+
+/// Every minute: count smart wallets (devs.rs) holding each live coin and push it.
+async fn update_smart(state: Arc<AppState>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(60));
+    loop {
+        tick.tick().await;
+        let (_, candidates) = {
+            let books = state.books.lock().expect("books lock");
+            let smart = state.smart.lock().expect("smart lock");
+            smart.evaluate(books.all_positions(), now_unix())
+        };
+        // Last check on the whole chain: our books only see coins we track, so a bot
+        // can look calm there. More than BOT_TX_PER_MIN transactions a minute across its
+        // latest BOT_SAMPLE is not a person.
+        let mut leaders = Vec::new();
+        for l in candidates {
+            let cached = state.bot_checks.lock().expect("bot lock").get(&l.wallet).filter(|(at, _)| at.elapsed() < BOT_CHECK_TTL).map(|(_, b)| *b);
+            let bot = match cached {
+                Some(b) => b,
+                None => {
+                    let times = rpc::signature_times(&state.http, &state.config.helius_rpc_url(), &l.wallet, BOT_SAMPLE).await;
+                    let Some(times) = times else { continue };
+                    let bot = looks_like_bot(&times);
+                    let mut checks = state.bot_checks.lock().expect("bot lock");
+                    if checks.len() > 10_000 {
+                        checks.retain(|_, (at, _)| at.elapsed() < BOT_CHECK_TTL);
+                    }
+                    checks.insert(l.wallet.clone(), (Instant::now(), bot));
+                    bot
+                }
+            };
+            if !bot {
+                leaders.push(l);
+            }
+        }
+        let mut counts: HashMap<String, u32> = HashMap::new();
+        for l in &leaders {
+            for m in &l.holding {
+                *counts.entry(m.clone()).or_default() += 1;
+            }
+        }
+        *state.leaders.lock().expect("leaders lock") = leaders;
+        state.board.lock().expect("board lock").smart = counts.clone();
+        let _ = state.feed.send(FeedEvent::Smart { counts });
+    }
+}
+
+/// `GET /smart-money`: the leaderboard of smart wallets (devs.rs), with the age of the
+/// record so the page can say how long the gateway has been watching.
+async fn smart_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let leaders = state.leaders.lock().expect("leaders lock").clone();
+    let symbols: HashMap<String, String> = {
+        let board = state.board.lock().expect("board lock");
+        leaders.iter().flat_map(|l| l.holding.iter()).filter_map(|m| board.tokens.get(m).map(|t| (m.clone(), t.token.symbol.clone()))).collect()
+    };
+    Json(json!({ "tracking_secs": state.started.elapsed().as_secs(), "leaders": leaders, "symbols": symbols }))
+}
+
+/// `GET /alerts/status`: which outside delivery channels are set up on this gateway.
+/// Telegram needs MONEXA's bot token in the environment; Discord uses each user's own
+/// webhook, delivered by the gateway once alerts are stored per account.
+async fn alerts_status() -> Json<serde_json::Value> {
+    let telegram = std::env::var("TELEGRAM_BOT_TOKEN").is_ok_and(|t| !t.trim().is_empty());
+    Json(json!({ "telegram": telegram, "discord": false, "server_delivery": false }))
+}
+
+/// Wallets one connection may watch, so a page cannot ask for the whole chain.
+const MAX_WATCHED_WALLETS: usize = 50;
+
+#[derive(serde::Deserialize)]
+struct WalletsQuery {
+    w: String,
+}
+
+async fn ws_wallets(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>, Query(q): Query<WalletsQuery>) -> Response {
+    let wallets: std::collections::HashSet<String> = q.w.split(',').map(str::trim).filter(|w| is_mint(w)).take(MAX_WATCHED_WALLETS).map(String::from).collect();
+    ws.on_upgrade(move |socket| stream_wallets(socket, state, wallets))
+}
+
+/// Trades by the given wallets on every coin our engine decodes: recent history first,
+/// then each new trade as it is decoded. No extra RPC calls: it reads the trade books.
+async fn stream_wallets(mut socket: WebSocket, state: Arc<AppState>, wallets: std::collections::HashSet<String>) {
+    let mut rx = state.trades.subscribe();
+    let symbol = |state: &AppState, mint: &str| state.board.lock().expect("board lock").tokens.get(mint).map(|t| t.token.symbol.clone());
+    let history: Vec<serde_json::Value> = state
+        .books
+        .lock()
+        .expect("books lock")
+        .trades_by(&wallets, 200)
+        .into_iter()
+        .map(|(mint, row)| json!({ "mint": mint, "symbol": symbol(&state, &mint), "trade": row }))
+        .collect();
+    let first = json!({ "type": "history", "trades": history, "sol_usd": state.board.lock().expect("board lock").sol_usd });
+    if socket.send(Message::Text(first.to_string().into())).await.is_err() {
+        return;
+    }
+    loop {
+        tokio::select! {
+            incoming = socket.recv() => match incoming {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                _ => {}
+            },
+            event = rx.recv() => match event {
+                Ok((mint, row)) if wallets.contains(&row.wallet) => {
+                    let msg = json!({ "type": "trade", "mint": mint, "symbol": symbol(&state, &mint), "trade": row, "sol_usd": state.board.lock().expect("board lock").sol_usd });
+                    if socket.send(Message::Text(msg.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => return,
+            },
+        }
+    }
+}
+
+const BOT_SAMPLE: usize = 100;
+const BOT_TX_PER_MIN: f64 = 4.0;
+const BOT_CHECK_TTL: Duration = Duration::from_secs(30 * 60);
+
+/// `times`: block times, newest first. A full sample packed into a short span means
+/// machine speed; a short sample (a quiet wallet) is never called a bot.
+fn looks_like_bot(times: &[i64]) -> bool {
+    if times.len() < BOT_SAMPLE {
+        return false;
+    }
+    let span_min = ((times[0] - times[times.len() - 1]).max(1) as f64) / 60.0;
+    times.len() as f64 / span_min > BOT_TX_PER_MIN
+}
+
+#[cfg(test)]
+mod bot_tests {
+    use super::*;
+
+    #[test]
+    fn machine_speed_is_a_bot() {
+        // 100 transactions in 14 minutes (the wallet caught on 2026-11-06).
+        let fast: Vec<i64> = (0..100).map(|i| 10_000 - i * 8).collect();
+        assert!(looks_like_bot(&fast));
+        // 100 transactions over two days.
+        let slow: Vec<i64> = (0..100).map(|i| 200_000 - i * 1_800).collect();
+        assert!(!looks_like_bot(&slow));
+        assert!(!looks_like_bot(&[5, 4, 3]));
+    }
+}
+
+/// Where smart-money records are kept between restarts (gitignored).
+const SMART_FILE: &str = "data/smart_money.json";
+
+fn load_smart() -> devs::SmartMoney {
+    match std::fs::read(SMART_FILE).map(|b| serde_json::from_slice::<devs::SmartMoney>(&b)) {
+        Ok(Ok(s)) => {
+            tracing::info!(wallets = s.wallets(), "smart money records loaded");
+            s
+        }
+        _ => devs::SmartMoney::default(),
+    }
+}
+
+fn save_smart(state: &AppState) {
+    let json = {
+        let mut smart = state.smart.lock().expect("smart lock");
+        smart.prune(now_unix());
+        serde_json::to_vec(&*smart)
+    };
+    let Ok(json) = json else { return };
+    let tmp = format!("{SMART_FILE}.tmp");
+    let ok = std::fs::create_dir_all("data").and_then(|_| std::fs::write(&tmp, json)).and_then(|_| std::fs::rename(&tmp, SMART_FILE));
+    if let Err(err) = ok {
+        tracing::warn!(%err, "could not save smart money records");
+    }
+}
+
+/// How often the top coins are read back from the chain, how many, and how many recent
+/// swaps each. Free-plan budget: 10 coins x 300 transactions every 6 hours is about
+/// 12,000 Helius calls a day. Raise with the paid plan.
+const SEED_EVERY: Duration = Duration::from_secs(6 * 3600);
+const SEED_COINS: usize = 10;
+const SEED_TXS: usize = 300;
+/// Coins busy enough to matter but not so busy that 300 swaps cover only seconds
+/// (then only bots both buy and sell inside the window): trades in the last hour.
+const SEED_MIN_TRADES_1H: u64 = 100;
+const SEED_MAX_TRADES_1H: u64 = 1_500;
+const SAVE_EVERY: Duration = Duration::from_secs(300);
+
+/// Smart money from the start: read the latest swaps of the most traded memecoins on
+/// chain (our own decoder), find who bought and sold, and record their results. The
+/// same rules then decide who is listed. Saved every few minutes.
+async fn seed_smart(state: Arc<AppState>) {
+    // Let the board fill with market data first.
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    // A recent seed saved on disk counts: a restart does not spend the budget again.
+    let since = now_unix() - state.smart.lock().expect("smart lock").seeded_at;
+    let mut last_seed: Option<Instant> = (since >= 0 && (since as u64) < SEED_EVERY.as_secs())
+        .then(|| Instant::now().checked_sub(Duration::from_secs(since as u64)))
+        .flatten();
+    let mut save = tokio::time::interval(SAVE_EVERY);
+    loop {
+        if last_seed.is_none_or(|t| t.elapsed() >= SEED_EVERY) {
+            let coins = seed_coins(&state);
+            if coins.is_empty() {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                continue;
+            }
+            tracing::info!(coins = coins.len(), "seeding smart money from top coins");
+            let mut seeded: Vec<book::Position> = Vec::new();
+            for mint in coins {
+                if let Some(positions) = seed_coin(&state, &mint).await {
+                    let n = positions.len();
+                    seeded.extend(positions.iter().cloned());
+                    state.smart.lock().expect("smart lock").fold(&mint, positions.iter());
+                    tracing::info!(mint, traders = n, "smart money: coin read");
+                }
+            }
+            // Then each promising wallet's own recent history, across every coin.
+            for wallet in seed_wallets(&state, &seeded) {
+                if let Some(results) = wallet_history(&state, &wallet).await {
+                    let mut smart = state.smart.lock().expect("smart lock");
+                    for (mint, p) in &results {
+                        smart.fold(mint, std::iter::once(p));
+                    }
+                }
+            }
+            last_seed = Some(Instant::now());
+            state.smart.lock().expect("smart lock").seeded_at = now_unix();
+            save_smart(&state);
+        }
+        save.tick().await;
+        save_smart(&state);
+    }
+}
+
+/// The most traded memecoins on Discover in the last 24 hours, at a trade pace a
+/// 300-swap window can cover.
+fn seed_coins(state: &AppState) -> Vec<String> {
+    let board = state.board.lock().expect("board lock");
+    let mut all = board.markets.all();
+    all.sort_by(|a, b| b.volume_24h_usd.unwrap_or(0.0).total_cmp(&a.volume_24h_usd.unwrap_or(0.0)));
+    all.into_iter()
+        .filter(|t| {
+            let trades = t.buys_1h.unwrap_or(0) + t.sells_1h.unwrap_or(0);
+            t.volume_24h_usd.unwrap_or(0.0) > 0.0 && (SEED_MIN_TRADES_1H..=SEED_MAX_TRADES_1H).contains(&trades)
+        })
+        .take(SEED_COINS)
+        .map(|t| t.mint)
+        .collect()
+}
+
+/// Every trader's result on one coin from its pool's latest swaps (SOL-quoted pools).
+async fn seed_coin(state: &Arc<AppState>, mint: &str) -> Option<Vec<book::Position>> {
+    let rpc_url = state.config.helius_rpc_url();
+    let wsol = monexa_ingest::pumpswap::WSOL;
+    let amm = monexa_ingest::pumpswap::PROGRAM_ID;
+    let canonical = match monexa_ingest::pumpswap::canonical_pool(mint) {
+        Some(p) if rpc::account_owner(&state.http, &rpc_url, &p).await.as_deref() == Some(amm) => Some(p),
+        _ => None,
+    };
+    let pool = match canonical {
+        Some(p) => p,
+        None => state.pools.pairs(&state.http, mint).await.into_iter().find(|p| SUPPORTED_DEXES.contains(&p.dex.as_str()) && p.quote == wsol)?.address,
+    };
+    let (_, data) = rpc::account_data(&state.http, &rpc_url, &pool).await?;
+    let spec = txdecode::PoolSpec { data, coin: mint.to_string(), quote: wsol.to_string() };
+    let sigs = rpc::recent_signatures(&state.http, &rpc_url, &pool, SEED_TXS).await;
+    let mut swaps = Vec::new();
+    for chunk in sigs.chunks(TX_BATCH) {
+        for tx in rpc::transactions(&state.http, &rpc_url, chunk).await.into_iter().flatten() {
+            swaps.extend(txdecode::decode(&tx, &spec));
+        }
+        tokio::time::sleep(TX_BATCH_GAP).await;
+    }
+    Some(positions_from_swaps(swaps))
+}
+
+/// Per-wallet results from swaps (quote amounts in lamports). Only wallets that both
+/// bought and sold in the window have a known cost, so only they count.
+fn positions_from_swaps(mut swaps: Vec<txdecode::Swap>) -> Vec<book::Position> {
+    swaps.sort_by_key(|s| s.timestamp);
+    let mut by: HashMap<String, book::Position> = HashMap::new();
+    for s in swaps {
+        let sol = s.quote_amount as f64 / 1e9;
+        let tokens = s.coin_amount as f64;
+        let p = by.entry(s.wallet.clone()).or_insert_with(|| book::Position { wallet: s.wallet.clone(), first_ts: s.timestamp, ..Default::default() });
+        p.last_ts = p.last_ts.max(s.timestamp);
+        if s.is_buy {
+            p.buys += 1;
+            p.bought_sol += sol;
+            p.bought_tokens += tokens;
+            p.balance += tokens;
+        } else if p.bought_tokens > 0.0 {
+            let avg = p.bought_sol / p.bought_tokens;
+            let sold = tokens.min(p.balance.max(0.0));
+            p.sells += 1;
+            p.sold_sol += sol;
+            p.sold_tokens += tokens;
+            p.realized_sol += sol - avg * sold;
+            p.balance = (p.balance - tokens).max(0.0);
+        }
+    }
+    by.into_values().filter(|p| p.buys > 0 && p.sells > 0).collect()
+}
+
+#[cfg(test)]
+mod seed_tests {
+    use super::*;
+
+    fn swap(w: &str, buy: bool, sol: f64, tokens: u64, ts: i64) -> txdecode::Swap {
+        txdecode::Swap { wallet: w.into(), is_buy: buy, coin_amount: tokens, quote_amount: (sol * 1e9) as u64, timestamp: ts }
+    }
+
+    #[test]
+    fn round_trips_give_realised_profit() {
+        let p = positions_from_swaps(vec![
+            swap("a", true, 1.0, 1_000, 10),
+            swap("a", false, 1.5, 500, 200), // half sold for 1.5 SOL: cost 0.5, profit 1.0
+            swap("b", false, 3.0, 100, 50),  // a sell with no buy seen: unknown cost, left out
+            swap("c", true, 2.0, 100, 60),   // only bought
+        ]);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].wallet, "a");
+        assert!((p[0].realized_sol - 1.0).abs() < 1e-9);
+        assert_eq!((p[0].first_ts, p[0].last_ts), (10, 200));
+    }
+}
+
+/// Wallets whose own history is worth reading: profitable on a seeded coin or on a
+/// live coin right now, best first.
+const SEED_WALLETS: usize = 40;
+const WALLET_HISTORY_TXS: usize = 100;
+const STABLES: [&str; 2] = ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"];
+
+fn seed_wallets(state: &AppState, seeded: &[book::Position]) -> Vec<String> {
+    let mut best: HashMap<String, f64> = HashMap::new();
+    for p in seeded.iter().filter(|p| p.realized_sol > 0.0) {
+        *best.entry(p.wallet.clone()).or_default() += p.realized_sol;
+    }
+    {
+        let books = state.books.lock().expect("books lock");
+        for (_, ps) in books.all_positions() {
+            for p in ps.into_iter().filter(|p| p.realized_sol > 0.2 && !p.wallet.is_empty()) {
+                *best.entry(p.wallet.clone()).or_default() += p.realized_sol;
+            }
+        }
+    }
+    let mut v: Vec<(String, f64)> = best.into_iter().collect();
+    v.sort_by(|a, b| b.1.total_cmp(&a.1));
+    v.into_iter().take(SEED_WALLETS).map(|(w, _)| w).collect()
+}
+
+/// A wallet's results per coin over its latest transactions, read on chain. Bots are
+/// skipped after one call (their speed shows in the signature list).
+async fn wallet_history(state: &Arc<AppState>, wallet: &str) -> Option<Vec<(String, book::Position)>> {
+    let rpc_url = state.config.helius_rpc_url();
+    let (sigs, times) = rpc::signatures_with_times(&state.http, &rpc_url, wallet, WALLET_HISTORY_TXS).await?;
+    let bot = looks_like_bot(&times);
+    state.bot_checks.lock().expect("bot lock").insert(wallet.to_string(), (Instant::now(), bot));
+    if bot {
+        return None;
+    }
+    let mut per_coin: HashMap<String, Vec<txdecode::Swap>> = HashMap::new();
+    for chunk in sigs.chunks(TX_BATCH) {
+        for tx in rpc::transactions(&state.http, &rpc_url, chunk).await.into_iter().flatten() {
+            if let Some((mint, swap)) = wallet_swap(&tx, wallet) {
+                per_coin.entry(mint).or_default().push(swap);
+            }
+        }
+        tokio::time::sleep(TX_BATCH_GAP).await;
+    }
+    let out: Vec<(String, book::Position)> = per_coin
+        .into_iter()
+        .flat_map(|(mint, swaps)| positions_from_swaps(swaps).into_iter().map(move |p| (mint.clone(), p)))
+        .collect();
+    tracing::info!(wallet, coins = out.len(), "smart money: wallet read");
+    Some(out)
+}
+
+/// One wallet's swap in a transaction, from its own balance changes: exactly one coin
+/// in or out, paid or received in SOL (native or wrapped). Works on every DEX.
+fn wallet_swap(tx: &serde_json::Value, wallet: &str) -> Option<(String, txdecode::Swap)> {
+    let meta = &tx["meta"];
+    if !meta["err"].is_null() {
+        return None;
+    }
+    let keys = tx["transaction"]["message"]["accountKeys"].as_array()?;
+    let idx = keys.iter().position(|k| k.as_str() == Some(wallet))?;
+    let lamports = meta["postBalances"][idx].as_i64()? - meta["preBalances"][idx].as_i64()?;
+    let wsol = monexa_ingest::pumpswap::WSOL;
+    let amount = |b: &serde_json::Value| b["uiTokenAmount"]["amount"].as_str().and_then(|a| a.parse::<i128>().ok()).unwrap_or(0);
+    let mut deltas: HashMap<String, i128> = HashMap::new();
+    for (list, sign) in [(&meta["postTokenBalances"], 1i128), (&meta["preTokenBalances"], -1i128)] {
+        for b in list.as_array().into_iter().flatten().filter(|b| b["owner"].as_str() == Some(wallet)) {
+            if let Some(m) = b["mint"].as_str() {
+                *deltas.entry(m.to_string()).or_default() += sign * amount(b);
+            }
+        }
+    }
+    let sol = lamports as i128 + deltas.remove(wsol).unwrap_or(0);
+    let coins: Vec<(String, i128)> = deltas.into_iter().filter(|(m, d)| *d != 0 && !STABLES.contains(&m.as_str())).collect();
+    let [(mint, coin)] = coins.as_slice() else { return None };
+    let is_buy = *coin > 0;
+    // A buy spends SOL, a sell receives it; anything else is a transfer or airdrop.
+    if (is_buy && sol >= 0) || (!is_buy && sol <= 0) {
+        return None;
+    }
+    let ts = tx["blockTime"].as_i64()?;
+    Some((
+        mint.clone(),
+        txdecode::Swap { wallet: wallet.to_string(), is_buy, coin_amount: coin.unsigned_abs() as u64, quote_amount: sol.unsigned_abs() as u64, timestamp: ts },
+    ))
+}
+
+#[cfg(test)]
+mod wallet_swap_tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_buy_from_balance_changes() {
+        let tx = json!({
+            "blockTime": 100,
+            "transaction": { "message": { "accountKeys": ["W", "X"] } },
+            "meta": {
+                "err": null,
+                "preBalances": [5_000_000_000i64, 0], "postBalances": [4_000_000_000i64, 0],
+                "preTokenBalances": [],
+                "postTokenBalances": [{ "owner": "W", "mint": "COIN", "uiTokenAmount": { "amount": "1000" } }]
+            }
+        });
+        let (mint, s) = wallet_swap(&tx, "W").expect("swap");
+        assert_eq!(mint, "COIN");
+        assert!(s.is_buy);
+        assert_eq!((s.coin_amount, s.quote_amount), (1000, 1_000_000_000));
+        // A transfer in (no SOL spent) is not a buy.
+        let mut gift = tx.clone();
+        gift["meta"]["postBalances"][0] = json!(5_000_000_000i64);
+        assert!(wallet_swap(&gift, "W").is_none());
+    }
+}
+
+/// `GET /metrics/public`: live users, visitors and engine activity, no personal data.
+/// Business figures (traders, volume, fees, revenue) join once trading exists.
+async fn metrics_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let p = presence::snapshot();
+    let s = state.stats.snapshot();
+    let (launches_on_radar, coins_on_discover) = {
+        let b = state.board.lock().expect("board lock");
+        (b.tokens.len(), b.markets.all().len())
+    };
+    let smart_wallets = state.leaders.lock().expect("leaders lock").len();
+    Json(json!({
+        "presence": p,
+        "engine": {
+            "uptime_secs": state.started.elapsed().as_secs(),
+            "launches_detected": s.tokens_detected,
+            "trades_decoded": s.trades_decoded,
+            "launches_on_radar": launches_on_radar,
+            "coins_on_discover": coins_on_discover,
+            "smart_wallets": smart_wallets,
+            "stream_connected": s.connected,
+        },
+        "business": { "trading_live": false, "traders": 0, "volume_usd": 0, "fees_usd": 0, "revenue_usd": 0 },
+    }))
 }
