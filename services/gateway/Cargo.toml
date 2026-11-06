@@ -6,6 +6,8 @@ publish.workspace = true
 
 [dependencies]
 bs58 = "0.5"
+ed25519-dalek = "2"
+sha2 = "0.10"
 base64 = "0.22"
 monexa-common = { path = "../common" }
 monexa-ingest = { path = "../ingest" }

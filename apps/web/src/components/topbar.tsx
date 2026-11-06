@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Menu, Search, X } from "lucide-react";
 import { GatewayStatus } from "./gateway-status";
 import { Logo, NavList } from "./sidebar";
+import { AccountMenu } from "./account/account-menu";
 
 /** App top bar: mobile menu, global token search, live connection status. */
 export function Topbar() {
@@ -34,8 +35,11 @@ export function Topbar() {
           <Logo />
         </div>
         <GlobalSearch key={pathname} />
-        <div className="ml-auto hidden sm:block">
-          <GatewayStatus />
+        <div className="ml-auto flex items-center gap-3">
+          <div className="hidden sm:block">
+            <GatewayStatus />
+          </div>
+          <AccountMenu />
         </div>
       </header>
 

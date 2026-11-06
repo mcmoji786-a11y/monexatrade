@@ -125,6 +125,8 @@ pub struct FeatureFlags {
     pub ai_analysis: bool,
     pub rewards: bool,
     pub safety_score: bool,
+    /// Sign-in and accounts (Google, Phantom, email).
+    pub accounts: bool,
 }
 
 impl Default for FeatureFlags {
@@ -144,6 +146,7 @@ impl Default for FeatureFlags {
             ai_analysis: true,
             rewards: true,
             safety_score: true,
+            accounts: true,
         }
     }
 }

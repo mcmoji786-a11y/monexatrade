@@ -22,6 +22,7 @@ export type Features = {
   ai_analysis: boolean;
   rewards: boolean;
   safety_score: boolean;
+  accounts: boolean;
 };
 
 export const ALL_ON: Features = {
@@ -39,6 +40,7 @@ export const ALL_ON: Features = {
   ai_analysis: true,
   rewards: true,
   safety_score: true,
+  accounts: true,
 };
 
 /** Admin labels for every switch, in the order the admin shows them. */
@@ -53,6 +55,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "smart_money", label: "Smart Money", hint: "Leaderboard of profitable wallets" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
+  { key: "accounts", label: "Accounts", hint: "Sign in with Google, Phantom or email" },
 ];
 
 const REFRESH_MS = 60_000;

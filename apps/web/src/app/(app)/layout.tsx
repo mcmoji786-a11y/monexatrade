@@ -4,6 +4,7 @@ import { Topbar } from "@/components/topbar";
 import { PriceAlertWatcher } from "@/components/token/price-alerts";
 import { SniperEngine } from "@/components/sniper/sniper-engine";
 import { Toaster } from "@/components/toaster";
+import { WalletGate } from "@/components/account/wallet-gate";
 import { PageReporter } from "@/components/page-reporter";
 import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
 
@@ -14,6 +15,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PriceAlertWatcher />
       <SniperEngine />
       <Toaster />
+      <WalletGate />
       <Suspense fallback={null}>
         <PageReporter />
       </Suspense>

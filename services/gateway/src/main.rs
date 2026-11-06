@@ -2,6 +2,7 @@
 //! Runs the ingest engine in-process: one Helius connection serves all users.
 //! Tracked tokens live only in memory (no database), per ADR 0003.
 
+mod account;
 mod admin;
 mod presence;
 mod book;
@@ -225,7 +226,7 @@ async fn main() -> Result<()> {
     let cors = CorsLayer::new()
         .allow_origin(config.allowed_origin.parse::<HeaderValue>()?)
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT])
-        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::HeaderName::from_static("x-admin-token")]);
+        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION, axum::http::HeaderName::from_static("x-admin-token")]);
 
     // Rewards settings and creator applications (admin.rs), with their own state.
     let admin_routes: Router<Arc<AppState>> = Router::new()
@@ -238,6 +239,14 @@ async fn main() -> Result<()> {
         .route("/admin/creator-applications", get(admin::list_applications))
         .route("/admin/creator-applications/{id}", axum::routing::post(admin::set_application))
         .with_state(admin::AdminState::load());
+
+    // Accounts: profile sync and wallet linking (account.rs).
+    let account_routes: Router<Arc<AppState>> = Router::new()
+        .route("/account/sync", axum::routing::post(account::sync))
+        .route("/account/me", get(account::me_handler))
+        .route("/account/link-nonce", axum::routing::post(account::link_nonce))
+        .route("/account/link-wallet", axum::routing::post(account::link_wallet))
+        .with_state(account::AccountState::new(state.http.clone(), &config.supabase_url, &config.supabase_anon_key, &config.supabase_service_role_key));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -252,6 +261,7 @@ async fn main() -> Result<()> {
         .route("/ws/wallets", get(ws_wallets))
         .route("/ws/token/{mint}", get(ws_token))
         .merge(admin_routes)
+        .merge(account_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
