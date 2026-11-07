@@ -1,34 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-type Health = {
-  status: string;
-  supabase: boolean;
-  helius: boolean;
-  solana_slot: number | null;
-};
-
 import { GATEWAY_HTTP as GATEWAY } from "@/lib/gateway";
 
-// Polls the Rust gateway's /health endpoint. Shows real status only, no mock data.
-export function GatewayStatus() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState(false);
+/** Silent while the live connection works. When the gateway stops answering (two
+ *  checks in a row, so a single slow reply does not flash it), a small notice says the
+ *  data is paused and comes back on its own. */
+export function ConnectionNotice() {
+  const [fails, setFails] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const res = await fetch(`${GATEWAY}/health`, { cache: "no-store" });
-        if (!res.ok) throw new Error(String(res.status));
-        const data: Health = await res.json();
-        if (!cancelled) {
-          setHealth(data);
-          setError(false);
-        }
+        const ok = res.ok && (await res.json()).status === "ok";
+        if (!cancelled) setFails((n) => (ok ? 0 : n + 1));
       } catch {
-        if (!cancelled) setError(true);
+        if (!cancelled) setFails((n) => n + 1);
       }
     };
     load();
@@ -39,24 +28,11 @@ export function GatewayStatus() {
     };
   }, []);
 
-  const dot = (ok: boolean) => (
-    <span className={`inline-block h-2 w-2 rounded-full ${ok ? "bg-emerald" : "bg-negative"}`} />
-  );
-
-  if (error || !health) {
-    return (
-      <div className="flex items-center gap-2 text-xs text-muted">
-        {dot(false)} Gateway {error ? "offline" : "connecting…"}
-      </div>
-    );
-  }
-
+  if (fails < 2) return null;
   return (
-    <div className="flex items-center gap-4 font-mono text-xs text-muted">
-      <span className="flex items-center gap-1.5">{dot(health.status === "ok")} Gateway</span>
-      <span className="flex items-center gap-1.5">{dot(health.supabase)} Supabase</span>
-      <span className="flex items-center gap-1.5">{dot(health.helius)} Solana</span>
-      {health.solana_slot !== null && <span>slot {health.solana_slot.toLocaleString()}</span>}
-    </div>
+    <span role="status" className="hidden items-center gap-2 rounded-lg border border-warning/30 px-2.5 py-1 text-xs text-warning sm:flex">
+      <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+      Reconnecting, live data paused
+    </span>
   );
 }

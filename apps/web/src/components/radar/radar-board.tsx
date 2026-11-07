@@ -4,7 +4,8 @@ import { useDeferredValue, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { usd, type MarketToken } from "@/lib/gateway";
-import { newLaunchChecks, type Check } from "@/lib/risk";
+import { dangerFound, lowerRiskNow, newLaunchChecks, type Check } from "@/lib/risk";
+import { launchSignals, safetyScore } from "@/lib/safety";
 import { useRadarFilters, useWatchlist } from "@/lib/prefs";
 import { FiltersMenu, passesFilters } from "./filters-menu";
 import { SniperMenu } from "@/components/sniper/sniper-menu";
@@ -26,10 +27,6 @@ const FILTERS = {
     label: "Lower risk",
     test: (t: RadarToken, c: FilterCtx) => c.lowerRisk.has(t.mint),
   },
-  watch: {
-    label: "Watchlist",
-    test: (t: RadarToken, c: FilterCtx) => c.watch.includes(t.mint),
-  },
   socials: { label: "With socials", test: (t: RadarToken) => hasSocials(t) },
   traction: {
     label: "10+ holders",
@@ -39,6 +36,10 @@ const FILTERS = {
     label: "Low concentration",
     test: (t: RadarToken) =>
       !!t.market && t.market.top10_pct < 30 && t.market.dev_pct < 10,
+  },
+  watch: {
+    label: "Watchlist",
+    test: (t: RadarToken, c: FilterCtx) => c.watch.includes(t.mint),
   },
 } as const satisfies Record<
   string,
@@ -196,13 +197,37 @@ export function RadarBoard() {
       checksFor(tokens, markets, symbolCounts, firsts, Math.floor(now / 1000)),
     [tokens, markets, symbolCounts, firsts, now],
   );
-  const lowerRisk = useMemo(
-    () =>
-      new Set(
-        [...checks].filter(([, c]) => c.every((x) => x.ok)).map(([m]) => m),
-      ),
-    [checks],
-  );
+  // What each card is given (and so what its safety ring is computed from).
+  const ctxOf = (t: RadarToken) => {
+    const o = firsts.get(symbolKey(t));
+    const original = o && o.mint !== t.mint ? o : null;
+    const k = xKey(t.meta?.twitter);
+    const others = k ? (xCounts.get(k) ?? 1) - 1 : 0;
+    const xShare = k && others > 0 ? { others, kind: k.startsWith("post/") || k.startsWith("community/") ? ("post" as const) : ("account" as const) } : null;
+    const repeated = (symbolCounts.get(symbolKey(t)) ?? 0) > 1;
+    return { original, xShare, repeated };
+  };
+  // Lower risk = the card's safety score is 80+ with no danger check (risk.ts). Joins
+  // at once, stays at least 3 minutes, leaves early only on a danger check.
+  const lowerRisk = useMemo(() => {
+    const all = new Map<string, { score: number; danger: boolean }>();
+    for (const t of tokens) {
+      const { original, xShare, repeated } = ctxOf(t);
+      const score = safetyScore(
+        launchSignals(t, markets[t.mint] ?? null, {
+          copyOfReal: !!original,
+          sameSymbol: repeated && !original,
+          sameXAccount: xShare?.kind === "account",
+          smart: smart[t.mint] ?? 0,
+          nowSecs: now / 1000,
+        }),
+      ).score;
+      all.set(t.mint, { score, danger: dangerFound(checks.get(t.mint) ?? []) });
+    }
+    return lowerRiskNow(all, Math.floor(now / 1000));
+    // ctxOf reads firsts, xCounts and symbolCounts, listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokens, markets, smart, checks, firsts, xCounts, symbolCounts, now]);
   useRadarAlerts(tokens, lowerRisk);
   const q = query.trim();
   const lower = q.toLowerCase();
@@ -227,19 +252,12 @@ export function RadarBoard() {
       alt={markets[t.mint] ?? null}
       smart={smart[t.mint] ?? 0}
       checks={checks.get(t.mint) ?? []}
-      original={(() => {
-        const o = firsts.get(symbolKey(t));
-        return o && o.mint !== t.mint ? o : null;
-      })()}
+      lowerRisk={lowerRisk.has(t.mint)}
+      original={ctxOf(t).original}
       sameSymbol={(symbolCounts.get(symbolKey(t)) ?? 1) - 1}
-      xShare={(() => {
-        const k = xKey(t.meta?.twitter);
-        if (!k) return null;
-        const others = (xCounts.get(k) ?? 1) - 1;
-        return others > 0 ? { others, kind: k.startsWith("post/") || k.startsWith("community/") ? ("post" as const) : ("account" as const) } : null;
-      })()}
+      xShare={ctxOf(t).xShare}
       now={now}
-      repeated={(symbolCounts.get(t.symbol.trim().toUpperCase()) ?? 0) > 1}
+      repeated={ctxOf(t).repeated}
     />
   );
 
@@ -399,7 +417,7 @@ function EmptyState({
       "This token is not on the radar right now. Looking up any Solana token by address comes next";
   else if (lowerRisk && hasTokens && !query)
     text =
-      "No new coin passes every lower-risk check right now. Most launches fail on holders, social links or a copied symbol. Coins join here as soon as they pass";
+      "No new coin has a safety score of 80 or more right now. A coin joins the moment it reaches 80 and stays at least 3 minutes";
   else if (query || hasTokens)
     text = "No token on the radar matches these filters";
   else if (status === "live") text = "Waiting for the next launch";

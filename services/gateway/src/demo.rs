@@ -82,6 +82,34 @@ impl Quote {
         })
     }
 
+    /// The market as it stands with the user's own position in it. The live price comes
+    /// from real trades only, so it never contains the demo user's buys; on chain, those
+    /// buys would have pushed the price up, and selling would walk it back down. Pricing
+    /// the user's position, sales and further buys on this state makes a buy-then-sell
+    /// cost what it costs on chain (two fees), instead of paying the price impact twice.
+    pub fn held(&self, tokens: f64) -> Quote {
+        if tokens <= 0.0 {
+            return self.clone();
+        }
+        match self.depth {
+            Depth::Curve { v_tok, .. } if tokens < v_tok * 0.9 => {
+                let v_tok2 = v_tok - tokens;
+                let v_sol2 = PUMP_K / v_tok2;
+                Quote { price_usd: v_sol2 / v_tok2 * self.sol_usd, depth: Depth::Curve { v_sol: v_sol2, v_tok: v_tok2 }, ..self.clone() }
+            }
+            Depth::Pool { reserve_usd } => {
+                let t = reserve_usd / self.price_usd;
+                if tokens >= t * 0.9 {
+                    return self.clone();
+                }
+                let t2 = t - tokens;
+                let q2 = reserve_usd * t / t2;
+                Quote { price_usd: q2 / t2, depth: Depth::Pool { reserve_usd: q2 }, ..self.clone() }
+            }
+            _ => self.clone(),
+        }
+    }
+
     /// Buy with `usd` cash. Fees come off first, the rest moves the price.
     pub fn buy(&self, usd: f64) -> Option<Fill> {
         let fee = usd * FEE + NETWORK_SOL * self.sol_usd;
@@ -214,7 +242,13 @@ pub struct Position {
     pub tokens: f64,
     pub cost_usd: f64,
     pub price_usd: Option<f64>,
+    /// Tokens x the live market price, as every trading platform marks an open position.
+    /// The 1% fee and price impact of selling are paid only when the user sells.
     pub value_usd: Option<f64>,
+    /// What selling everything now would bring, after price impact and fees.
+    pub exit_usd: Option<f64>,
+    /// The live market price these figures were computed at (scales them between refreshes).
+    pub market_usd: Option<f64>,
     pub opened_at: String,
 }
 
@@ -239,6 +273,11 @@ async fn account_rows(c: &DemoCtx, user: &str) -> Result<(f64, f64, i64, Vec<Val
     Ok((cash, start, round, pos.as_array().cloned().unwrap_or_default()))
 }
 
+/// An open position at the live market price.
+pub fn mark_value(tokens: f64, q: &Quote) -> f64 {
+    tokens * q.price_usd
+}
+
 /// Postgres numerics arrive as numbers or strings.
 fn num(v: &Value) -> f64 {
     v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0)
@@ -252,16 +291,22 @@ pub async fn get_account(State(c): State<DemoCtx>, headers: HeaderMap) -> Result
     for p in rows {
         let mint = p["mint"].as_str().unwrap_or("").to_string();
         let tokens = num(&p["tokens"]);
-        // What the position would sell for now, after impact and fees: honest equity.
+        // Marked at the live price (the industry standard): selling costs are not taken
+        // before the user sells. `exit_usd` shows what selling now would actually bring.
+        // A coin with no price any more (rugged, delisted) is worth nothing.
         let q = quote(&c.app, &mint).await.ok();
-        let value = q.as_ref().and_then(|q| q.sell(tokens)).map(|f| f.usd).or(Some(0.0).filter(|_| q.is_none()));
+        let held = q.as_ref().map(|q| q.held(tokens));
+        let value = Some(held.as_ref().map_or(0.0, |h| mark_value(tokens, h)));
+        let exit = Some(held.as_ref().and_then(|h| h.sell(tokens)).map_or(0.0, |f| f.usd));
         positions.push(Position {
             symbol: p["symbol"].as_str().filter(|s| !s.is_empty()).map(String::from).or_else(|| q.as_ref().map(|q| q.symbol.clone())).unwrap_or_default(),
             mint,
             tokens,
             cost_usd: num(&p["cost_usd"]),
-            price_usd: q.as_ref().map(|q| q.price_usd),
+            price_usd: held.as_ref().map(|h| h.price_usd),
             value_usd: value,
+            exit_usd: exit,
+            market_usd: q.as_ref().map(|q| q.price_usd),
             opened_at: p["opened_at"].as_str().unwrap_or("").to_string(),
         });
     }
@@ -303,7 +348,7 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
     if !o.preview {
         tokio::time::sleep(LATENCY).await;
     }
-    let q = quote(&c.app, &o.mint).await?;
+    let q = quote(&c.app, &o.mint).await?.held(held);
     let fill = match o.side.as_str() {
         "buy" => {
             let usd = o.usd.filter(|v| v.is_finite()).ok_or((StatusCode::BAD_REQUEST, "enter an amount".into()))?;
@@ -569,7 +614,7 @@ async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction
             return Err(e);
         }
     };
-    let Some(fill) = q.sell(held * fraction) else {
+    let Some(fill) = q.held(held).sell(held * fraction) else {
         mark(c, id, "cancelled", "nothing to sell".into()).await;
         return Ok(());
     };
@@ -653,6 +698,34 @@ mod tests {
         // A rugged coin (almost no liquidity) sells for almost nothing.
         let rug = Quote { depth: Depth::Pool { reserve_usd: 5.0 }, ..thin };
         assert!(rug.sell(1_000_000.0).expect("rug").usd < 5.0);
+    }
+
+    #[test]
+    fn buying_then_selling_costs_two_fees_like_on_chain() {
+        for (name, q) in [
+            ("thin curve", Quote::from_curve("T".into(), 4e-8, 150.0).expect("curve")),
+            ("deep pool", Quote { symbol: "D".into(), price_usd: 1.0, sol_usd: 150.0, depth: Depth::Pool { reserve_usd: 5_000_000.0 } }),
+            ("thin pool", Quote { symbol: "P".into(), price_usd: 1.0, sol_usd: 150.0, depth: Depth::Pool { reserve_usd: 4_000.0 } }),
+        ] {
+            let buy = q.buy(100.0).expect("buy");
+            let back = q.held(buy.tokens).sell(buy.tokens).expect("sell");
+            let round_trip = (back.usd / 100.0 - 1.0) * 100.0;
+            assert!(round_trip > -2.2 && round_trip < -1.8, "{name}: round trip {round_trip:.2}% should be about two 1% fees");
+        }
+    }
+
+    #[test]
+    fn a_fresh_buy_only_shows_its_entry_costs() {
+        // $100 into a deep pool: right after buying, the position is marked at the market
+        // price, so the only loss shown is the buy's fee and impact (about 1%), not the
+        // fee of a sale that has not happened.
+        let q = Quote { symbol: "X".into(), price_usd: 1.0, sol_usd: 150.0, depth: Depth::Pool { reserve_usd: 5_000_000.0 } };
+        let buy = q.buy(100.0).expect("buy");
+        let marked = mark_value(buy.tokens, &q);
+        let shown = (marked - 100.0) / 100.0 * 100.0;
+        assert!(shown > -1.2 && shown < -0.9, "shown loss {shown:.2}% is the entry cost only");
+        let exit = q.sell(buy.tokens).expect("sell").usd;
+        assert!(exit < marked, "selling now still costs the sale's fee and impact");
     }
 
     #[test]

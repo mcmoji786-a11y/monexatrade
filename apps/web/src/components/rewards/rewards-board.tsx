@@ -252,8 +252,8 @@ function reffBody(cfg: RewardsConfig, tiers: Tier[]) {
             <div>
               <p className="text-sm font-medium text-text">Your invite link</p>
               <p className="mt-0.5 text-xs text-text-2">
-                Friends who join with it pay {cfg.invitee_discount_pct}% less in
-                fees, and you earn a share of every trade they make
+                When real trading opens, friends who join with it pay {cfg.invitee_discount_pct}% less
+                in fees, and you earn a share of every trade they make
               </p>
             </div>
           </div>
@@ -268,7 +268,7 @@ function reffBody(cfg: RewardsConfig, tiers: Tier[]) {
             },
             {
               title: "They trade",
-              body: `They save ${cfg.invitee_discount_pct}% on fees from their first trade`,
+              body: `When real trading opens, they save ${cfg.invitee_discount_pct}% on fees`,
             },
             {
               title: "You earn",

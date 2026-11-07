@@ -40,7 +40,7 @@ const DEAD_AFTER_SECS: i64 = 600;
 /// Completed curves stay visible this long (until migration tracking exists).
 const KEEP_COMPLETE_SECS: i64 = 600;
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct MarketSnapshot {
     pub mint: String,
     /// false when the curve trades against another currency (e.g. USDC). The SOL and
@@ -379,6 +379,11 @@ impl Tracker {
                 tr.initial_real_tokens = total;
             }
         }
+    }
+
+    /// Whether this coin is tracked.
+    pub fn contains(&self, mint: &str) -> bool {
+        self.tokens.contains_key(mint)
     }
 
     pub fn len(&self) -> usize {

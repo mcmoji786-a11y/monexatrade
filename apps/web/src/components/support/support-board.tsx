@@ -35,7 +35,7 @@ export function SupportBoard() {
 /* ---------------- Status ---------------- */
 
 function SystemStatus() {
-  const [h, setH] = useState<{ status: string; supabase: boolean; helius: boolean; stream_connected: boolean } | null>(null);
+  const [h, setH] = useState<{ status: string; supabase: boolean; helius: boolean; stream_connected: boolean; primary?: boolean } | null>(null);
   const [down, setDown] = useState(false);
   const cfg = useTradeConfig();
   useEffect(() => {
@@ -64,7 +64,7 @@ function SystemStatus() {
         <div key={k} className="flex items-center gap-1.5 text-xs">
           <span className={`h-1.5 w-1.5 rounded-full ${ok == null ? "bg-muted" : ok ? "bg-emerald" : k === "Real trading" ? "bg-muted" : "bg-negative"}`} />
           <dt className="text-text-2">{k}</dt>
-          <dd className="text-muted">{ok == null ? "checking" : ok ? (k === "Real trading" ? "on" : "working") : k === "Real trading" ? "off" : "down"}</dd>
+          <dd className="text-muted">{ok == null ? "checking" : ok ? (k === "Real trading" ? "on" : k === "Solana data" && h?.primary === false ? "working on backup" : "working") : k === "Real trading" ? "off" : "down"}</dd>
         </div>
       ))}
     </dl>

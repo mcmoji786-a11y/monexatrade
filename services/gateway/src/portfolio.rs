@@ -41,8 +41,67 @@ pub async fn holdings(http: &reqwest::Client, rpc_url: &str, wallet: &str) -> Op
         "params": { "ownerAddress": wallet, "tokenType": "fungible", "limit": 1000,
                     "displayOptions": { "showNativeBalance": true, "showZeroBalance": false } }
     });
-    let v: Value = http.post(rpc_url).json(&body).timeout(Duration::from_secs(12)).send().await.ok()?.json().await.ok()?;
-    Some(parse_assets(&v["result"]))
+    let das = async {
+        let v: Value = http.post(rpc_url).json(&body).timeout(Duration::from_secs(12)).send().await.ok()?.json().await.ok()?;
+        v.get("result").filter(|r| r.is_object()).map(parse_assets)
+    };
+    match das.await {
+        Some(h) => Some(h),
+        // Without Helius (searchAssets is a Helius method): read the wallet's SOL and token
+        // accounts with standard calls; names, logos and prices come from Jupiter later.
+        None => onchain_holdings(http, rpc_url, wallet).await,
+    }
+}
+
+const TOKEN_PROGRAMS: [&str; 2] = ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"];
+
+async fn onchain_holdings(http: &reqwest::Client, rpc_url: &str, wallet: &str) -> Option<(f64, Option<f64>, Vec<Holding>)> {
+    let call = |method: &str, params: Value| {
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
+        async move {
+            let v: Value = http.post(rpc_url).json(&body).timeout(Duration::from_secs(12)).send().await.ok()?.json().await.ok()?;
+            v.get("result").cloned()
+        }
+    };
+    let sol = call("getBalance", json!([wallet, { "commitment": "confirmed" }])).await?["value"].as_u64().unwrap_or(0) as f64 / 1e9;
+    let mut tokens = Vec::new();
+    for program in TOKEN_PROGRAMS {
+        let Some(r) = call("getTokenAccountsByOwner", json!([wallet, { "programId": program }, { "encoding": "jsonParsed", "commitment": "confirmed" }])).await else { continue };
+        tokens.extend(parse_token_accounts(&r));
+    }
+    Some((sol, None, tokens))
+}
+
+/// Holdings from jsonParsed token accounts (empty ones skipped, same mint summed).
+pub fn parse_token_accounts(r: &Value) -> Vec<Holding> {
+    let mut by: HashMap<String, Holding> = HashMap::new();
+    for a in r["value"].as_array().into_iter().flatten() {
+        let info = &a["account"]["data"]["parsed"]["info"];
+        let (Some(mint), Some(raw), Some(decimals)) = (info["mint"].as_str(), info["tokenAmount"]["amount"].as_str(), info["tokenAmount"]["decimals"].as_u64()) else { continue };
+        let Ok(units) = raw.parse::<u128>() else { continue };
+        if units == 0 {
+            continue;
+        }
+        let h = by.entry(mint.to_string()).or_insert_with(|| Holding {
+            mint: mint.to_string(),
+            symbol: String::new(),
+            name: String::new(),
+            image: None,
+            decimals: decimals as u32,
+            amount: 0.0,
+            raw: "0".into(),
+            price_usd: None,
+            value_usd: None,
+            change_24h: None,
+            mcap: None,
+            liquidity: None,
+            verified: false,
+        });
+        let total = h.raw.parse::<u128>().unwrap_or(0) + units;
+        h.raw = total.to_string();
+        h.amount = total as f64 / 10f64.powi(decimals as i32);
+    }
+    by.into_values().collect()
 }
 
 pub fn parse_assets(r: &Value) -> (f64, Option<f64>, Vec<Holding>) {
@@ -172,6 +231,46 @@ pub struct Page {
 pub const PAGE: usize = 100;
 
 pub async fn history_page(http: &reqwest::Client, api_key: &str, wallet: &str, before: Option<&str>) -> Option<Page> {
+    if monexa_common::primary_up() {
+        if let Some(p) = helius_history_page(http, api_key, wallet, before).await {
+            return Some(p);
+        }
+    }
+    // Without Helius: the same page from standard calls and our own swap decoder.
+    let rpc_url = monexa_common::rpc_route()?;
+    onchain_history_page(http, &rpc_url, wallet, before).await
+}
+
+/// Transactions read per page without Helius: Solana's public node allows about 40
+/// getTransaction calls per 10 seconds, so pages are smaller and paced.
+pub const ONCHAIN_PAGE: usize = 50;
+
+async fn onchain_history_page(http: &reqwest::Client, rpc_url: &str, wallet: &str, before: Option<&str>) -> Option<Page> {
+    let mut opts = json!({ "limit": ONCHAIN_PAGE, "commitment": "confirmed" });
+    if let Some(b) = before {
+        opts["before"] = json!(b);
+    }
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress", "params": [wallet, opts] });
+    let v: Value = http.post(rpc_url).json(&body).timeout(Duration::from_secs(12)).send().await.ok()?.json().await.ok()?;
+    let list = v["result"].as_array()?.clone();
+    let signatures: Vec<String> = list.iter().filter_map(|s| s["signature"].as_str().map(String::from)).collect();
+    let oldest = list.iter().filter_map(|s| s["blockTime"].as_i64()).min();
+    // Failed transactions are not trades: skip them before reading anything.
+    let ok: Vec<String> = list.iter().filter(|s| s["err"].is_null()).filter_map(|s| s["signature"].as_str().map(String::from)).collect();
+    let mut trades = Vec::new();
+    for chunk in ok.chunks(4) {
+        for (sig, tx) in chunk.iter().zip(crate::rpc::transactions(http, rpc_url, chunk).await) {
+            let Some(tx) = tx else { continue };
+            if let Some((mint, s)) = crate::wallet_swap(&tx, wallet) {
+                trades.push(Trade { mint, buy: s.is_buy, sol: s.quote_amount as f64 / 1e9, raw: s.coin_amount.to_string(), time: s.timestamp, sig: sig.clone(), symbol: String::new() });
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(1_000)).await;
+    }
+    Some(Page { trades, full: signatures.len() >= ONCHAIN_PAGE, signatures, oldest })
+}
+
+async fn helius_history_page(http: &reqwest::Client, api_key: &str, wallet: &str, before: Option<&str>) -> Option<Page> {
     let mut url = format!("https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}&limit={PAGE}");
     if let Some(b) = before {
         url.push_str("&before=");
@@ -252,6 +351,19 @@ pub fn swap_of(t: &Value, wallet: &str) -> Option<Trade> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_token_accounts_without_helius() {
+        let r = json!({ "value": [
+            { "account": { "data": { "parsed": { "info": { "mint": "M1", "tokenAmount": { "amount": "1500000", "decimals": 6 } } } } } },
+            { "account": { "data": { "parsed": { "info": { "mint": "M1", "tokenAmount": { "amount": "500000", "decimals": 6 } } } } } },
+            { "account": { "data": { "parsed": { "info": { "mint": "M2", "tokenAmount": { "amount": "0", "decimals": 9 } } } } } }
+        ] });
+        let h = parse_token_accounts(&r);
+        assert_eq!(h.len(), 1, "empty accounts skipped");
+        assert_eq!(h[0].raw, "2000000");
+        assert!((h[0].amount - 2.0).abs() < 1e-9, "same mint summed");
+    }
 
     #[test]
     fn reads_das_holdings_and_skips_empty() {

@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Search, X } from "lucide-react";
-import { GatewayStatus } from "./gateway-status";
+import { Menu, Newspaper, Search, X } from "lucide-react";
+import { toggleNews, useNews } from "@/lib/news";
+import { useFeatures } from "@/lib/features";
+import { ConnectionNotice } from "./gateway-status";
 import { Logo, NavList } from "./sidebar";
 import { AccountMenu } from "./account/account-menu";
 
-/** App top bar: mobile menu, global token search, live connection status. */
+/** App top bar: mobile menu, global token search and the account controls. A notice
+ *  appears only when the live connection is lost. */
 export function Topbar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -40,9 +43,8 @@ export function Topbar() {
         </div>
         <GlobalSearch key={pathname} />
         <div className="ml-auto flex items-center gap-3">
-          <div className="hidden sm:block">
-            <GatewayStatus />
-          </div>
+          <ConnectionNotice />
+          <NewsButton />
           <AccountMenu />
         </div>
       </header>
@@ -99,20 +101,27 @@ function GlobalSearch() {
   return (
     <form
       role="search"
-      className="hidden min-w-0 flex-1 sm:block sm:max-w-md"
+      className="hidden min-w-0 flex-1 sm:block lg:max-w-2xl"
       onSubmit={(e) => {
         e.preventDefault();
         const q = value.trim();
+        // A pasted contract address goes straight to its trade page.
+        if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q)) {
+          setValue("");
+          input.current?.blur();
+          router.push(`/token/${q}`);
+          return;
+        }
         router.push(q ? `/radar?q=${encodeURIComponent(q)}` : "/radar");
       }}
     >
-      <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm transition-colors focus-within:border-emerald/50">
+      <label className="flex h-10 items-center gap-2.5 rounded-xl border border-border bg-surface px-3.5 text-sm transition-colors hover:border-text/15 focus-within:border-emerald/50 focus-within:bg-surface-2">
         <Search size={16} strokeWidth={1.5} className="shrink-0 text-muted" />
         <input
           ref={input}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Search token or contract address"
+          placeholder="Search by name, symbol or paste a contract address"
           aria-label="Search token or contract address"
           className="w-full min-w-0 bg-transparent text-text outline-none placeholder:text-muted"
           spellCheck={false}
@@ -120,5 +129,25 @@ function GlobalSearch() {
         <kbd className="hidden rounded border border-border bg-surface-2 px-1.5 font-mono text-[11px] text-muted lg:block">/</kbd>
       </label>
     </form>
+  );
+}
+
+/** Opens the news panel; a dot shows when stories arrived while it was closed. */
+function NewsButton() {
+  const f = useFeatures();
+  const news = useNews(f.news);
+  if (!f.news) return null;
+  return (
+    <button
+      type="button"
+      onClick={toggleNews}
+      aria-pressed={news.open}
+      aria-label={news.unread > 0 && !news.open ? `News, ${news.unread} new stories` : "News"}
+      title="News  N"
+      className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${news.open ? "border-emerald/40 bg-surface-3 text-text" : "border-border bg-surface text-text-2 hover:bg-surface-2 hover:text-text"}`}
+    >
+      <Newspaper size={16} strokeWidth={1.5} />
+      {news.unread > 0 && !news.open && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald" />}
+    </button>
   );
 }

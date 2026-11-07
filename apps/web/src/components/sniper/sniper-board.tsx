@@ -4,16 +4,21 @@ import Link from "next/link";
 import { Crosshair, RotateCcw, X } from "lucide-react";
 import { sol } from "@/lib/gateway";
 import { tokenHref } from "@/lib/open-token";
-import { activePreset, DEFAULT_SNIPER, pnl, PRESETS, useSniper, type SniperSettings, type SnipePosition } from "@/lib/sniper";
+import { activePreset, DEFAULT_SNIPER, pnl, PRESETS, useSniper, useSniperScan, type SniperSettings, type SnipePosition } from "@/lib/sniper";
+import { useMode } from "@/lib/demo";
+import { useAccount } from "@/lib/account";
 import { formatAge, useNow, useRadarFeed } from "@/components/radar/use-radar-feed";
 import { Tick } from "@/components/token/tick";
 import { TradeLink } from "@/components/token/trade-link";
 import { AmountField, Field, Switch } from "./sniper-menu";
 
 /** Sniper page: dashboard (P&L, win rate, equity curve), open and closed snipes, and
- *  every rule. Paper mode: real execution needs approval and a security review. */
+ *  every rule. In demo mode it trades the demo account; otherwise it is on paper. */
 export function SniperBoard() {
   const sn = useSniper();
+  const mode = useMode();
+  const account = useAccount();
+  const onDemo = mode === "demo" && account.status === "signed-in";
   const { tokens, solUsd } = useRadarFeed();
   const now = useNow();
   const s = sn.settings;
@@ -36,11 +41,17 @@ export function SniperBoard() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-medium text-text">Sniper</h1>
-            <span className="rounded-md border border-warning/30 px-2 py-0.5 text-xs text-warning">Paper mode</span>
+            {onDemo ? (
+              <span className="rounded-md border border-cyan/30 px-2 py-0.5 text-xs text-cyan">Demo account</span>
+            ) : (
+              <span className="rounded-md border border-warning/30 px-2 py-0.5 text-xs text-warning">Paper mode</span>
+            )}
           </div>
           <p className="mt-1 max-w-2xl text-sm text-text-2">
-            Buys new launches that pass your rules the moment they qualify, and sells on your take profit, stop loss or time limit. Prices are real;
-            buys are simulated until real trading is approved
+            Buys new launches that pass your rules the moment they qualify, and sells on your take profit, stop loss or time limit.{" "}
+            {onDemo
+              ? "Every buy and sell is an order on your demo account, filled at live prices with fees. It runs while Kixo is open in this browser"
+              : "Prices are real; buys are simulated until real trading is approved. Switch to Demo to trade the sniper on your demo balance"}
           </p>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
@@ -69,7 +80,7 @@ export function SniperBoard() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex flex-col gap-6">
-          <Positions title="Open snipes" list={open} price={price} now={now} solUsd={solUsd} onClose={(p) => sn.close(p.id, price(p.mint) ?? p.entryPrice)} empty={s.enabled ? "Waiting for a launch that passes your rules" : "Turn the sniper on to start"} />
+          <Positions title="Open snipes" list={open} price={price} now={now} solUsd={solUsd} onClose={(p) => sn.close(p.id, price(p.mint) ?? p.entryPrice)} empty={s.enabled ? <ScanStatus /> : "Turn the sniper on to start"} />
           <Positions title="History" list={closed} price={price} now={now} solUsd={solUsd} empty="No closed snipes yet" action={closed.length ? <button type="button" onClick={sn.clearHistory} className="text-xs text-muted hover:text-text">Clear</button> : null} />
         </div>
         <Settings s={s} update={sn.update} reset={sn.reset} solUsd={solUsd} />
@@ -94,7 +105,7 @@ function Positions({
   now: number;
   solUsd: number | null;
   onClose?: (p: SnipePosition) => void;
-  empty: string;
+  empty: React.ReactNode;
   action?: React.ReactNode;
 }) {
   return (
@@ -339,4 +350,22 @@ function dollars(solAmount: number, solUsd: number | null) {
   if (!solUsd) return undefined;
   const v = solAmount * solUsd;
   return `${v >= 0 ? "+" : "−"}$${Math.abs(v).toFixed(2)}`;
+}
+
+/** While nothing passes: how many launches the sniper checked and why it skipped them. */
+function ScanStatus() {
+  const scan = useSniperScan();
+  if (!scan.checked) return <>Waiting for a launch that passes your rules</>;
+  return (
+    <span className="flex flex-col items-center gap-1">
+      <span>
+        Checked {scan.checked} new launch{scan.checked === 1 ? "" : "es"} in the last 10 minutes. None passes your rules right now
+      </span>
+      {scan.top.length > 0 && (
+        <span className="text-xs text-muted">
+          Most were skipped for: {scan.top.map(([r, n]) => `${r} (${n})`).join(", ")}. The Aggressive preset or looser rules buy more often
+        </span>
+      )}
+    </span>
+  );
 }

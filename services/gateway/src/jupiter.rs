@@ -57,7 +57,7 @@ fn is_memecoin(tags: &[String], launchpad: Option<&str>) -> bool {
     tags.iter().any(|t| t == "meme") || launchpad.is_some_and(|l| MEME_LAUNCHPADS.contains(&l))
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct MarketToken {
     pub mint: String,
     pub symbol: String,

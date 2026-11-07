@@ -35,6 +35,7 @@ export type Features = {
   settings: boolean;
   support: boolean;
   live_chat: boolean;
+  news: boolean;
 };
 
 export const ALL_ON: Features = {
@@ -65,6 +66,7 @@ export const ALL_ON: Features = {
   settings: true,
   support: true,
   live_chat: true,
+  news: true,
 };
 
 /** Admin labels for every switch, in the order the admin shows them. */
@@ -87,6 +89,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "referrals", label: "Referral links", hint: "Personal invite links and share-card links" },
   { key: "settings", label: "Settings", hint: "Trading defaults, notifications, data export and account deletion" },
   { key: "support", label: "Support", hint: "Transaction Doctor, help center and tickets" },
+  { key: "news", label: "News", hint: "Live Solana and memecoin news panel, from news sites, Reddit, X and Kixo on-chain events" },
   { key: "live_chat", label: "Live chat", hint: "Chat button on every page; online only while an agent is active in the inbox" },
   { key: "real_trading", label: "Real trading", hint: "Real SOL trades signed in Phantom. Turn on only after the security review" },
   { key: "accounts", label: "Accounts", hint: "Sign in with Google, Phantom or email" },
@@ -136,4 +139,5 @@ export const PAGE_FLAG: Record<string, keyof Features> = {
   competition: "competition",
   settings: "settings",
   support: "support",
+  news: "news",
 };

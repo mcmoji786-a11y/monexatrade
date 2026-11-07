@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     let (tx, mut rx) = broadcast::channel(1024);
     let stats = Arc::new(IngestStats::default());
     let (_commands, commands_rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(monexa_ingest::run_forever(config.helius_ws_url(), config.helius_rpc_url(), tx, stats, commands_rx));
+    tokio::spawn(monexa_ingest::run_forever(config.ws_urls(), config.helius_rpc_url(), tx, stats, commands_rx));
 
     while let Ok(event) = rx.recv().await {
         match event {

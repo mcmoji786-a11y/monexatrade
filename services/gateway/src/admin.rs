@@ -149,6 +149,8 @@ pub struct FeatureFlags {
     pub support: bool,
     /// Live chat with the support team (shown online only while an agent is active).
     pub live_chat: bool,
+    /// Kixo News: the live news feed and its side panel.
+    pub news: bool,
 }
 
 impl Default for FeatureFlags {
@@ -180,6 +182,7 @@ impl Default for FeatureFlags {
             settings: true,
             support: true,
             live_chat: true,
+            news: true,
         }
     }
 }
@@ -278,6 +281,11 @@ impl AdminState {
     /// Whether real-money trading is switched on in the admin.
     pub fn real_trading(&self) -> bool {
         self.features.lock().expect("features lock").real_trading
+    }
+
+    /// Whether the news feed is switched on in the admin.
+    pub fn news(&self) -> bool {
+        self.features.lock().expect("features lock").news
     }
 
     /// Whether live chat is switched on in the admin.

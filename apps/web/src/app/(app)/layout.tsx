@@ -10,6 +10,7 @@ import { DemoBanner } from "@/components/account/demo-banner";
 import { PageReporter } from "@/components/page-reporter";
 import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
 import { LiveChat } from "@/components/support/live-chat";
+import { NewsDock } from "@/components/news/news-panel";
 
 /** App shell: sidebar navigation, top bar and the page content. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </Suspense>
         </main>
       </div>
+      {/* Live news: a panel on the right, the page narrows beside it. */}
+      <Suspense fallback={null}>
+        <NewsDock />
+      </Suspense>
     </div>
   );
 }

@@ -16,8 +16,9 @@ import { PriceAlertButton } from "@/components/token/price-alerts";
 import { inputFromRow } from "@/lib/ai";
 import { PriceChart } from "./price-chart";
 import { Splitter, useStoredSize } from "./splitter";
-import { useTokenBook, useWallets, type BookState } from "./use-token-book";
-import { riskOf, type Risk } from "@/lib/risk";
+import { useTokenBook, type BookState } from "./use-token-book";
+import { launchSignals, rowSignals, safetyScore, type Safety } from "@/lib/safety";
+import { SafetyBadge } from "@/components/token/safety-badge";
 import { TradePanel, money, signed } from "./trade-panel";
 import { ExitOrders } from "./exit-orders";
 import { useDemo } from "@/lib/demo";
@@ -52,11 +53,16 @@ export function TokenView() {
   }, [baseRow, lastTrade, feed.solUsd]);
   const [chartH, setChartH] = useStoredSize("mx.trade.chartH", 620, 320, 1100);
   const [sideW, setSideW] = useStoredSize("mx.trade.sideW", 380, 320, 600);
-  const wallets = useWallets(mint, book.status === "live", null);
-  const risk = useMemo(
-    () => (row ? riskOf(row, launch?.market ?? null, market, wallets?.dev ?? null) : null),
-    [row, launch, market, wallets],
-  );
+  // The same safety score as the coin's card on Radar and Discover: one number everywhere.
+  const safety = useMemo(() => {
+    if (!row || !now) return null;
+    const smart = feed.smart[mint] ?? 0;
+    return safetyScore(
+      launch
+        ? launchSignals(launch, market, { copyOfReal: false, sameSymbol: false, sameXAccount: false, smart, nowSecs: now / 1000 })
+        : rowSignals(row, null, smart, now / 1000),
+    );
+  }, [row, launch, market, feed.smart, mint, now]);
 
   if (!row) {
     return <Missing mint={mint} loading={!direct.settled} />;
@@ -64,7 +70,7 @@ export function TokenView() {
 
   return (
     <div className="terminal flex flex-col">
-      <Header row={row} launch={launch} market={market} now={now} book={book} solUsd={feed.solUsd} risk={risk} />
+      <Header row={row} launch={launch} market={market} now={now} book={book} solUsd={feed.solUsd} safety={safety} />
 
       <div className="flex flex-col lg:flex-row">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -179,7 +185,7 @@ function Header({
   now,
   book,
   solUsd,
-  risk,
+  safety,
 }: {
   row: DiscoverRow;
   launch: FeedToken | null;
@@ -187,7 +193,7 @@ function Header({
   now: number;
   book: BookState;
   solUsd: number | null;
-  risk: Risk | null;
+  safety: Safety | null;
 }) {
   // All-time high market cap since we started tracking (only our own launches).
   const athSol = book.status === "live" && book.candles.length ? Math.max(...book.candles.map((c) => c.h)) : null;
@@ -232,10 +238,10 @@ function Header({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {risk && <RiskBadge risk={risk} />}
+          {safety && <SafetyBadge safety={safety} size="md" />}
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
           <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
-          <AiButton input={() => inputFromRow(r)} />
+          <AiButton input={() => inputFromRow(r)} safety={safety} />
         </div>
       </div>
 
@@ -448,23 +454,27 @@ function TokenInfo({ row: r, launch }: { row: DiscoverRow; launch: FeedToken | n
   );
 }
 
-/** Bought, sold, holding and PnL for the connected wallet; empty until wallet connect. */
-/** Your position in this coin: the demo account in demo mode. */
-/** The demo position in this coin. Holding and P&L move with every trade on the chart:
- *  the gateway's sell-now value (after price impact and fees) is scaled by the live price
- *  between its refreshes, so the figure is both instant and honest. */
+/** The demo position in this coin. Holding and P&L are marked at the live price, as on
+ *  every trading platform, and move with every trade on the chart. The costs are shown
+ *  plainly under them: what entering cost, the move needed to break even after the sale's
+ *  fee, and what selling now would bring. */
 function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | null }) {
   const { mode, trades, account } = useDemo();
   const mine = mode === "demo" ? (trades ?? []).filter((t) => t.mint === mint && t.round === (account?.round ?? 0)) : [];
   const bought = mine.filter((t) => t.side === "buy").reduce((a, t) => a + Number(t.usd), 0);
   const sold = mine.filter((t) => t.side === "sell").reduce((a, t) => a + Number(t.usd), 0);
   const pos = mode === "demo" ? account?.positions.find((p) => p.mint === mint) : undefined;
-  const holding = !pos
-    ? 0
-    : pos.value_usd != null && pos.price_usd && livePrice
-      ? pos.value_usd * (livePrice / pos.price_usd)
-      : (pos.value_usd ?? 0);
+  // Gateway figures move with the live price between refreshes.
+  const scale = pos?.market_usd && livePrice ? livePrice / pos.market_usd : 1;
+  const holding = pos ? (pos.value_usd ?? 0) * scale : 0;
   const pnl = mine.length ? sold + holding - bought : null;
+  // Costs of the open position: the buys' fee and impact (impact_pct includes the fee),
+  // the move needed to break even after the 1% sale fee, and the sell-now value.
+  const since = pos ? Date.parse(pos.opened_at) : 0;
+  const entryCost = mine.filter((t) => t.side === "buy" && Date.parse(t.ts) >= since - 1000).reduce((a, t) => a + (Number(t.usd) * Number(t.impact_pct)) / (100 + Number(t.impact_pct)), 0);
+  const sellNow = pos?.exit_usd != null ? pos.exit_usd * scale : null;
+  // The price move that would make selling now return what the position cost.
+  const breakEven = pos && sellNow && sellNow > 0 ? (pos.cost_usd / sellNow - 1) * 100 : null;
   const pct = pnl != null && bought > 0 ? (pnl / bought) * 100 : null;
   const tone = pnl == null || Math.abs(pnl) < 0.005 ? "text-text-2" : pnl > 0 ? "text-positive" : "text-negative";
   const cells: [string, React.ReactNode][] = [
@@ -484,13 +494,26 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
     ],
   ];
   return (
-    <section className="grid grid-cols-4 border-b border-border text-center">
-      {cells.map(([k, v], i) => (
-        <div key={k} className={`py-3 ${i ? "border-l border-border" : ""}`}>
-          <div className="text-[11px] text-muted">{k}</div>
-          <div className="mt-1 font-mono text-xs tabular-nums">{v}</div>
-        </div>
-      ))}
+    <section className="border-b border-border">
+      <div className="grid grid-cols-4 text-center">
+        {cells.map(([k, v], i) => (
+          <div key={k} className={`py-3 ${i ? "border-l border-border" : ""}`}>
+            <div className="text-[11px] text-muted">{k}</div>
+            <div className="mt-1 font-mono text-xs tabular-nums">{v}</div>
+          </div>
+        ))}
+      </div>
+      {pos && (
+        <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-t border-border px-3 py-2 text-[11px] text-muted" title="P&L is marked at the live price. Entry cost is the 1% fee and price impact you paid when buying; break-even also counts the 1% fee of selling.">
+          {entryCost > 0.005 && <span>Entry cost <span className="font-mono text-text-2">{money(entryCost)}</span></span>}
+          {breakEven != null && (
+            <span>
+              Break-even <span className={`font-mono ${breakEven <= 0 ? "text-positive" : "text-text-2"}`}>{breakEven <= 0 ? "reached" : `+${breakEven.toFixed(1)}%`}</span>
+            </span>
+          )}
+          {sellNow != null && <span>Sell now <span className="font-mono text-text-2">{money(sellNow)}</span></span>}
+        </p>
+      )}
     </section>
   );
 }
@@ -555,41 +578,4 @@ function FlowStrip({ row: r, book, solUsd, now }: { row: DiscoverRow; book: Book
   );
 }
 
-const RISK_TONE = {
-  low: "text-positive border-positive/30",
-  medium: "text-warning border-warning/30",
-  high: "text-negative border-negative/30",
-} as const;
-
-/** Score with its reasons on hover and keyboard focus. */
-function RiskBadge({ risk }: { risk: Risk }) {
-  return (
-    <div className="group relative">
-      <button
-        type="button"
-        aria-describedby="risk-reasons"
-        className={`flex h-9 items-center gap-2 rounded-lg border px-3 font-mono text-xs focus-visible:outline-2 focus-visible:outline-emerald ${RISK_TONE[risk.level]}`}
-      >
-        <span className="text-sm">{risk.score}</span>
-        <span className="font-sans capitalize">{risk.level} risk</span>
-      </button>
-      <div
-        id="risk-reasons"
-        role="tooltip"
-        className="invisible absolute top-full left-0 z-30 mt-2 w-72 rounded-lg border border-border bg-surface-2 p-3 opacity-0 shadow-lg transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
-      >
-        <div className="text-xs text-muted">Why this score</div>
-        <ul className="mt-2 flex flex-col gap-1.5 text-xs text-text-2">
-          {risk.reasons.map((x) => (
-            <li key={x} className="flex gap-2">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current" />
-              {x}
-            </li>
-          ))}
-        </ul>
-        <div className="mt-3 border-t border-border pt-2 text-[11px] text-muted">Facts from on-chain data, not advice</div>
-      </div>
-    </div>
-  );
-}
 

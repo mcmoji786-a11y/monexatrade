@@ -265,7 +265,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
           ) : null}
           {demo && (
             <p className="mt-2 text-center text-[11px] text-muted">
-              Filled at the live price with real fees and price impact
+              Live price, 1% fee each way and real price impact, exactly as real trading would cost
             </p>
           )}
         </>

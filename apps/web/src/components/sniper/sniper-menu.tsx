@@ -7,6 +7,8 @@ import { Crosshair } from "lucide-react";
 import { sol } from "@/lib/gateway";
 import { activePreset, pnl, PRESETS, useSniper, type SniperSettings } from "@/lib/sniper";
 import { tokenHref } from "@/lib/open-token";
+import { useMode } from "@/lib/demo";
+import { useAccount } from "@/lib/account";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 
 /** Sniper button in the Sol Radar toolbar: on/off, a preset, the settings people change
@@ -15,6 +17,9 @@ function SniperMenuInner() {
   const { settings: s, positions, update } = useSniper();
   const { tokens, solUsd } = useRadarFeed();
   const [open, setOpen] = useState(false);
+  const mode = useMode();
+  const account = useAccount();
+  const onDemo = mode === "demo" && account.status === "signed-in";
   const live = positions.filter((p) => !p.exitTs);
   const price = (mint: string) => tokens.find((t) => t.mint === mint)?.market?.price_sol ?? null;
   const total = positions.reduce((sum, p) => sum + (pnl(p, p.exitTs ? null : price(p.mint)).sol ?? 0), 0);
@@ -52,7 +57,11 @@ function SniperMenuInner() {
           <div className="flex items-center justify-between">
             <span>
               <p className="text-sm font-medium text-text">Sniper</p>
-              <p className="text-[11px] text-warning">Paper mode: real prices, simulated buys</p>
+              {onDemo ? (
+                <p className="text-[11px] text-cyan">Trades your demo account at live prices</p>
+              ) : (
+                <p className="text-[11px] text-warning">Paper mode: real prices, simulated buys</p>
+              )}
             </span>
             <Switch on={s.enabled} onChange={() => update({ enabled: !s.enabled })} label="Sniper on" />
           </div>

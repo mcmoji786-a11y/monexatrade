@@ -25,7 +25,8 @@ pub const MOONSHOT: &str = "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG";
 /// Programs the engine subscribes to for non-pump.fun creates.
 pub const SOURCES: [&str; 4] = [METAPLEX, LAUNCHLAB, METEORA_DBC, MOONSHOT];
 
-const TOKEN_2022: &str = "TokenzQdBNbLqP5VEhdkAS5EN5kb3XjBBAnBAYYj4jC5";
+/// The Token-2022 program.
+const TOKEN_2022: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
 /// Cheap log check before any RPC call: a new mint, and not a pump.fun create
 /// (those arrive decoded on their own subscription).
@@ -121,10 +122,19 @@ pub async fn resolve(http: &reqwest::Client, rpc_url: &str, signature: &str, log
     if decimals == 0 {
         return None;
     }
-    let asset = call(http, rpc_url, "getAsset", json!({ "id": mint })).await?;
-    let meta = &asset["content"]["metadata"];
-    let name = meta["name"].as_str().unwrap_or("").trim().to_string();
-    let symbol = meta["symbol"].as_str().unwrap_or("").trim().to_string();
+    // Helius' getAsset first; our own reader of the on-chain metadata when it is not
+    // available (Helius down, or a fallback node without that method).
+    let (name, symbol, uri) = match call(http, rpc_url, "getAsset", json!({ "id": mint })).await {
+        Some(asset) => {
+            let meta = &asset["content"]["metadata"];
+            (
+                meta["name"].as_str().unwrap_or("").trim().to_string(),
+                meta["symbol"].as_str().unwrap_or("").trim().to_string(),
+                asset["content"]["json_uri"].as_str().unwrap_or("").to_string(),
+            )
+        }
+        None => onchain_metadata(http, rpc_url, &mint).await?,
+    };
     if name.is_empty() && symbol.is_empty() {
         return None;
     }
@@ -139,7 +149,7 @@ pub async fn resolve(http: &reqwest::Client, rpc_url: &str, signature: &str, log
         signature: signature.to_string(),
         name,
         symbol,
-        uri: asset["content"]["json_uri"].as_str().unwrap_or("").to_string(),
+        uri,
         mint,
         bonding_curve,
         creator,
@@ -151,9 +161,109 @@ pub async fn resolve(http: &reqwest::Client, rpc_url: &str, signature: &str, log
     })
 }
 
+/* ---------------- On-chain metadata (no Helius needed) ---------------- */
+
+/// Token-2022 extension type of on-mint token metadata.
+const TOKEN_METADATA_EXT: u16 = 19;
+
+/// A Borsh string (u32 length, then bytes), with padding NULs and spaces trimmed.
+fn borsh_string(data: &[u8], at: &mut usize) -> Option<String> {
+    let len = u32::from_le_bytes(data.get(*at..*at + 4)?.try_into().ok()?) as usize;
+    *at += 4;
+    let bytes = data.get(*at..*at + len)?;
+    *at += len;
+    Some(String::from_utf8_lossy(bytes).trim_matches(char::from(0)).trim().to_string())
+}
+
+/// Name, symbol and URI from a Token-2022 mint's metadata extension.
+pub fn token2022_metadata(data: &[u8]) -> Option<(String, String, String)> {
+    // Base mint (82 bytes) padded to 165, the account type byte, then TLV entries.
+    let mut at = 166;
+    while at + 4 <= data.len() {
+        let kind = u16::from_le_bytes([data[at], data[at + 1]]);
+        let len = u16::from_le_bytes([data[at + 2], data[at + 3]]) as usize;
+        let body = data.get(at + 4..at + 4 + len)?;
+        if kind == TOKEN_METADATA_EXT {
+            let mut p = 64; // update authority + mint
+            return Some((borsh_string(body, &mut p)?, borsh_string(body, &mut p)?, borsh_string(body, &mut p)?));
+        }
+        if kind == 0 {
+            break;
+        }
+        at += 4 + len;
+    }
+    None
+}
+
+/// Name, symbol and URI from a Metaplex metadata account.
+pub fn metaplex_metadata(data: &[u8]) -> Option<(String, String, String)> {
+    let mut p = 1 + 32 + 32; // key, update authority, mint
+    Some((borsh_string(data, &mut p)?, borsh_string(data, &mut p)?, borsh_string(data, &mut p)?))
+}
+
+async fn account_data(http: &reqwest::Client, rpc_url: &str, address: &str) -> Option<(String, Vec<u8>)> {
+    use base64::Engine;
+    let v = call(http, rpc_url, "getAccountInfo", json!([address, { "encoding": "base64", "commitment": "confirmed" }])).await?;
+    let owner = v["value"]["owner"].as_str()?.to_string();
+    let data = base64::engine::general_purpose::STANDARD.decode(v["value"]["data"][0].as_str()?).ok()?;
+    Some((owner, data))
+}
+
+/// Reads a coin's name, symbol and URI straight from the chain: the Token-2022
+/// metadata extension when the mint has one, otherwise its Metaplex account.
+async fn onchain_metadata(http: &reqwest::Client, rpc_url: &str, mint: &str) -> Option<(String, String, String)> {
+    let (owner, data) = account_data(http, rpc_url, mint).await?;
+    if owner == TOKEN_2022 {
+        if let Some(m) = token2022_metadata(&data) {
+            return Some(m);
+        }
+    }
+    let program = bs58::decode(METAPLEX).into_vec().ok()?;
+    let mint_bytes = bs58::decode(mint).into_vec().ok()?;
+    let pda = crate::pumpswap::find_pda(&[b"metadata", &program, &mint_bytes], &program)?;
+    let (_, meta) = account_data(http, rpc_url, &bs58::encode(pda).into_string()).await?;
+    metaplex_metadata(&meta)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn borsh(s: &str, pad: usize) -> Vec<u8> {
+        let mut b = (s.len().max(pad) as u32).to_le_bytes().to_vec();
+        b.extend(s.as_bytes());
+        b.extend(std::iter::repeat_n(0u8, pad.saturating_sub(s.len())));
+        b
+    }
+
+    #[test]
+    fn metadata_is_read_from_both_layouts() {
+        // Metaplex: key, update authority, mint, then NUL-padded strings.
+        let mut m = vec![4u8];
+        m.extend([1u8; 32]);
+        m.extend([2u8; 32]);
+        m.extend(borsh("Bonk", 32));
+        m.extend(borsh("BONK", 10));
+        m.extend(borsh("https://arweave.net/x", 200));
+        assert_eq!(metaplex_metadata(&m), Some(("Bonk".into(), "BONK".into(), "https://arweave.net/x".into())));
+
+        // Token-2022: mint padded to 165, account type, then a pointer and the metadata TLV.
+        let mut t = vec![0u8; 165];
+        t.push(1);
+        t.extend(18u16.to_le_bytes());
+        t.extend(64u16.to_le_bytes());
+        t.extend([0u8; 64]);
+        let mut body = vec![3u8; 64];
+        body.extend(borsh("Cat Coin", 0));
+        body.extend(borsh("CAT", 0));
+        body.extend(borsh("https://ipfs.io/ipfs/abc", 0));
+        body.extend(0u32.to_le_bytes());
+        t.extend(TOKEN_METADATA_EXT.to_le_bytes());
+        t.extend((body.len() as u16).to_le_bytes());
+        t.extend(body);
+        assert_eq!(token2022_metadata(&t), Some(("Cat Coin".into(), "CAT".into(), "https://ipfs.io/ipfs/abc".into())));
+        assert_eq!(token2022_metadata(&[0u8; 170]), None);
+    }
 
     fn logs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
@@ -187,7 +297,7 @@ mod tests {
                 "instructions": [{ "programId": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN", "data": "x" }]
             }},
             "meta": { "innerInstructions": [{ "index": 0, "instructions": [
-                { "programId": "TokenzQdBNbLqP5VEhdkAS5EN5kb3XjBBAnBAYYj4jC5",
+                { "programId": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
                   "parsed": { "type": "initializeMint2", "info": { "mint": "EnVhn58ZKoP4nnQSribgbSF2GqrggmNhbs9rbFwS8oKt", "decimals": 6 } } }
             ]}]}
         });

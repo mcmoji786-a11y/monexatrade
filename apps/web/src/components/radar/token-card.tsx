@@ -40,6 +40,7 @@ function TokenCardView({
   now,
   repeated,
   checks,
+  lowerRisk,
   original,
   sameSymbol,
   smart,
@@ -51,6 +52,8 @@ function TokenCardView({
   repeated: boolean;
   /** Every lower-risk check with its result (risk.ts). */
   checks: Check[];
+  /** On the lower-risk list now, including the 3-minute hold (risk.ts lowerRiskNow). */
+  lowerRisk: boolean;
   /** An established or verified coin with the same symbol (radar-board.tsx). */
   original: Original | null;
   /** Other new coins on the radar with the same symbol. */
@@ -60,7 +63,6 @@ function TokenCardView({
   /** Other coins on the radar linking the same X account, or the same post/community. */
   xShare: { others: number; kind: "account" | "post" } | null;
 }) {
-  const lowerRisk = checks.length > 0 && checks.every((c) => c.ok);
   const { blockDev } = useRadarFilters();
   const open = useOpenToken();
   const age = now / 1000 - token.timestamp;
@@ -252,12 +254,12 @@ function TokenCardView({
 
       {/* Footer, pinned to the bottom of every card */}
       <div className="mt-auto flex items-center gap-2 border-t border-border pt-2.5">
-        {checks.length > 0 && <ChecksChip checks={checks} />}
+        {checks.length > 0 && <ChecksChip checks={checks} listed={lowerRisk} score={safety.score} />}
         <span className="text-[11px]">
           <CopyMint mint={token.mint} />
         </span>
         <span className="ml-auto flex items-center gap-1.5">
-          <AiButton input={() => inputFromLaunch(token)} compact />
+          <AiButton input={() => inputFromLaunch(token)} safety={safety} compact />
           <TradeLink mint={token.mint} />
         </span>
       </div>
@@ -368,6 +370,7 @@ function sameCard(a: CardProps, b: CardProps) {
     a.token === b.token &&
     a.alt === b.alt &&
     a.repeated === b.repeated &&
+    a.lowerRisk === b.lowerRisk &&
     a.smart === b.smart &&
     a.sameSymbol === b.sameSymbol &&
     a.original?.mint === b.original?.mint &&

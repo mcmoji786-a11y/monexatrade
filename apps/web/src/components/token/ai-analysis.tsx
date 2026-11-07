@@ -5,9 +5,10 @@ import { useEffect, useState } from "react";
 import { Sparkle, X } from "lucide-react";
 import { analyze, type AnalysisInput, type AnalysisResult } from "@/lib/ai";
 import { TokenLogo } from "./token-bits";
+import type { Safety } from "@/lib/safety";
 
 /** "AI" button on a coin. `compact` is the small table version. */
-function AiButtonInner({ input, compact = false }: { input: () => AnalysisInput; compact?: boolean }) {
+function AiButtonInner({ input, compact = false, safety }: { input: () => AnalysisInput; compact?: boolean; safety?: Safety | null }) {
   const [open, setOpen] = useState<AnalysisInput | null>(null);
   return (
     <>
@@ -15,7 +16,7 @@ function AiButtonInner({ input, compact = false }: { input: () => AnalysisInput;
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          setOpen(input());
+          setOpen({ ...input(), safety });
         }}
         title="AI analysis"
         className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-cyan/30 text-xs text-cyan transition-colors hover:bg-cyan/10 focus-visible:outline-2 focus-visible:outline-emerald ${
@@ -67,7 +68,7 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
           <div className="min-w-0 flex-1">
             <h2 id="ai-title" className="flex items-center gap-2 text-base font-medium text-text">
               <Sparkle size={15} strokeWidth={1.5} className="text-cyan" />
-              AI analysis
+              {result?.status === "ok" && result.source === "rules" ? "Quick read" : "AI analysis"}
             </h2>
             <p className="truncate text-sm text-text-2">
               {input.symbol} · {input.name}
@@ -81,6 +82,11 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {result?.status === "ok" ? (
             <div className="flex flex-col gap-4 text-sm">
+              {result.source === "rules" && (
+                <p className="rounded-lg border border-border bg-bg/60 px-3 py-2 text-xs text-text-2">
+                  Built from Kixo&apos;s on-chain checks, the same ones behind the safety score. The AI explanation is coming soon
+                </p>
+              )}
               <p className="leading-6 text-text">{result.summary}</p>
               <Section title="Strengths" tone="text-positive" items={result.strengths} />
               <Section title="Risks" tone="text-negative" items={result.risks} />
@@ -132,7 +138,7 @@ function Section({ title, tone, items }: { title: string; tone: string; items: s
 }
 
 /** Hidden when the admin switches "ai_analysis" off (lib/features.ts). */
-export function AiButton(props: { input: () => AnalysisInput; compact?: boolean }) {
+export function AiButton(props: { input: () => AnalysisInput; compact?: boolean; safety?: Safety | null }) {
   const f = useFeatures();
   return f.ai_analysis ? <AiButtonInner {...props} /> : null;
 }

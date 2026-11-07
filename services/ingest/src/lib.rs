@@ -43,6 +43,8 @@ const FLUSH_EVERY: Duration = Duration::from_secs(1);
 const PRUNE_EVERY: Duration = Duration::from_secs(15);
 const DEDUP_CAPACITY: usize = 100_000;
 const CREATES_REQUEST_ID: u64 = 1;
+/// On fallback nodes: one subscription to every pump.fun trade (see `program_wide`).
+const PUMP_TRADES_REQUEST_ID: u64 = 1_000_000;
 /// Request ids 2.. subscribe to the other launchpads (launches::SOURCES).
 const LAUNCH_REQUEST_ID: u64 = 2;
 /// Parallel transaction reads for new non-pump.fun coins (2 Helius calls each).
@@ -127,8 +129,12 @@ impl IngestStats {
 
 /// Run the engine forever, reconnecting with exponential backoff.
 /// Tracked tokens survive reconnects and are re-subscribed.
+///
+/// `ws_urls` lists the live-stream nodes in order of preference (Helius first, then our
+/// fallbacks). When a node cannot be reached the next one is used; while on a fallback,
+/// the engine returns to the first node as soon as Helius answers again.
 pub async fn run_forever(
-    ws_url: String,
+    ws_urls: Vec<String>,
     rpc_url: String,
     out: broadcast::Sender<IngestEvent>,
     stats: Arc<IngestStats>,
@@ -151,23 +157,43 @@ pub async fn run_forever(
         launched_rx,
         lab_pools: HashMap::new(),
         moon_curves: HashMap::new(),
+        program_wide: false,
     };
     let mut backoff = Duration::from_secs(1);
+    let nodes = ws_urls.len().max(1);
+    let mut idx = 0usize;
     loop {
         let mut subscribed = false;
-        let result = engine.run_once(&ws_url, &out, &stats, &mut subscribed, &mut commands).await;
+        let on_fallback = idx % nodes != 0;
+        let url = ws_urls.get(idx % nodes).cloned().unwrap_or_default();
+        if on_fallback {
+            tracing::warn!(node = idx % nodes, "live stream on a fallback node");
+        }
+        let started = std::time::Instant::now();
+        let result = engine.run_once(&url, on_fallback, &out, &stats, &mut subscribed, &mut commands).await;
         stats.connected.store(false, Ordering::Relaxed);
         stats.reconnects.fetch_add(1, Ordering::Relaxed);
         engine.tracker.clear_subs();
         for w in engine.pools.values_mut() {
             w.sub_id = None;
         }
-        if subscribed {
+        // Only a connection that held for a while counts as healthy: one the node closes
+        // right after subscribing must back off, or we would hammer it (and get banned).
+        if subscribed && started.elapsed() > Duration::from_secs(30) {
             backoff = Duration::from_secs(1);
         }
         match result {
             Ok(()) => tracing::warn!(?backoff, "stream ended, reconnecting"),
             Err(err) => tracing::error!(error = %err, ?backoff, "stream error, reconnecting"),
+        }
+        if on_fallback && monexa_common::primary_up() {
+            // Helius answers again: go back to it.
+            idx = 0;
+            backoff = Duration::from_secs(1);
+        } else if !subscribed && nodes > 1 {
+            // This node could not be reached: try the next one right away.
+            idx += 1;
+            backoff = Duration::from_secs(1);
         }
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF);
@@ -191,6 +217,10 @@ struct Engine {
     lab_pools: HashMap<String, String>,
     /// Moonshot curve -> coin.
     moon_curves: HashMap<String, String>,
+    /// On a fallback node: one subscription to the whole pump.fun program instead of one
+    /// per coin (Solana's public node closes a connection after 100 subscriptions), with
+    /// trades kept only for the coins we track.
+    program_wide: bool,
 }
 
 struct PoolWatch {
@@ -236,6 +266,7 @@ impl Engine {
     async fn run_once(
         &mut self,
         url: &str,
+        on_fallback: bool,
         out: &broadcast::Sender<IngestEvent>,
         stats: &IngestStats,
         subscribed: &mut bool,
@@ -249,11 +280,22 @@ impl Engine {
             send_logs_subscribe(&mut tx, LAUNCH_REQUEST_ID + i as u64, program).await?;
         }
         let mut subs = Subs { next_id: LAUNCH_REQUEST_ID + launches::SOURCES.len() as u64, pending: HashMap::new() };
-        for (mint, curve) in self.tracker.targets() {
-            subs.subscribe(&mut tx, mint, &curve).await?;
+        // Fallback nodes limit subscriptions: one program-wide stream there, one per coin
+        // on Helius.
+        self.program_wide = on_fallback;
+        let gap = if on_fallback { Some(Duration::from_millis(250)) } else { None };
+        if on_fallback {
+            send_logs_subscribe(&mut tx, PUMP_TRADES_REQUEST_ID, pumpfun::PROGRAM_ID).await?;
+        } else {
+            for (mint, curve) in self.tracker.targets() {
+                subs.subscribe(&mut tx, mint, &curve).await?;
+            }
         }
         for pool in self.pools.keys() {
             subs.subscribe(&mut tx, format!("{POOL_KEY}{pool}"), pool).await?;
+            if let Some(g) = gap {
+                tokio::time::sleep(g).await;
+            }
         }
         tracing::info!(resubscribed = self.tracker.len(), "subscribed to pump.fun creates");
         *subscribed = true;
@@ -262,10 +304,20 @@ impl Engine {
         let mut ping = tokio::time::interval(PING_EVERY);
         let mut flush = tokio::time::interval(FLUSH_EVERY);
         let mut prune = tokio::time::interval(PRUNE_EVERY);
+        let mut primary_check = tokio::time::interval(Duration::from_secs(60));
+        primary_check.tick().await;
 
         loop {
             tokio::select! {
                 _ = ping.tick() => tx.send(Message::Ping(Vec::new().into())).await?,
+
+                // On a fallback node, hand back to Helius once it answers again.
+                _ = primary_check.tick(), if on_fallback => {
+                    if monexa_common::primary_up() {
+                        tracing::info!("Helius is back: moving the live stream to it");
+                        return Ok(());
+                    }
+                },
 
                 Some(cmd) = commands.recv() => match cmd {
                     IngestCommand::WatchPool { pool, mint, decode_logs } => {
@@ -413,10 +465,14 @@ impl Engine {
                 Event::Create(token) => {
                     stats.tokens_detected.fetch_add(1, Ordering::Relaxed);
                     if self.tracker.add(token.clone()) {
-                        subs.subscribe(tx, token.mint.clone(), &token.bonding_curve).await?;
+                        if !self.program_wide {
+                            subs.subscribe(tx, token.mint.clone(), &token.bonding_curve).await?;
+                        }
                         let _ = out.send(IngestEvent::Created(token));
                     }
                 }
+                // The program-wide stream carries every pump.fun trade: keep tracked coins.
+                Event::Trade(trade) if self.program_wide && !self.tracker.contains(&trade.mint) => {}
                 Event::Trade(trade) => {
                     stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
                     self.tracker.apply_trade_in_slot(&trade, slot);

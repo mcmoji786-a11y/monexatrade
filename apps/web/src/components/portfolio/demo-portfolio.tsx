@@ -128,7 +128,7 @@ export function DemoPortfolio() {
                       </td>
                       <td className="px-3 py-2.5 text-right text-text">{compact(p.tokens)}</td>
                       <td className="px-3 py-2.5 text-right text-text-2">{tinyPrice(p.cost_usd / p.tokens)}</td>
-                      <td className="px-3 py-2.5 text-right text-text-2">{p.price_usd != null ? tinyPrice(p.price_usd) : "No price"}</td>
+                      <td className="px-3 py-2.5 text-right text-text-2">{(p.market_usd ?? p.price_usd) != null ? tinyPrice((p.market_usd ?? p.price_usd)!) : "No price"}</td>
                       <td className="px-3 py-2.5 text-right text-text-2">{money(p.cost_usd)}</td>
                       <td className="px-3 py-2.5 text-right text-text">{p.value_usd != null ? money(p.value_usd) : "—"}</td>
                       <td className={`px-3 py-2.5 text-right ${tone(pnl)}`}>

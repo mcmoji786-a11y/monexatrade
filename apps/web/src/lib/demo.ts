@@ -19,7 +19,12 @@ export type DemoPosition = {
   tokens: number;
   cost_usd: number;
   price_usd: number | null;
+  /** Tokens x the live price, as trading platforms mark open positions. */
   value_usd: number | null;
+  /** What selling everything now would bring, after price impact and fees. */
+  exit_usd: number | null;
+  /** The live market price the figures were computed at. */
+  market_usd: number | null;
   opened_at: string;
 };
 export type DemoAccount = { cash_usd: number; start_usd: number; round: number; positions: DemoPosition[]; equity_usd: number };

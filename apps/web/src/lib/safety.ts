@@ -78,11 +78,14 @@ export function safetyScore(s: Signals): Safety {
 
   // Market behaviour.
   if (s.hasSocials === false) hit(-8, "No social links");
+  else if (s.hasSocials == null) hit(-4, "Social links unknown");
   const flow = (s.buys1h ?? 0) + (s.sells1h ?? 0);
   if (flow >= 20 && (s.sells1h ?? 0) > (s.buys1h ?? 0) * 1.5) hit(-8, "Sells far outnumber buys", `${s.buys1h} buys / ${s.sells1h} sells`);
   if (s.change5m != null && s.change5m <= -30) hit(-10, "Price crashed in 5 minutes", `${s.change5m.toFixed(0)}%`);
   if (s.liquidityUsd != null && s.liquidityUsd < 5_000) hit(-10, "Liquidity under $5K");
   if (s.holders == null) hit(-5, "Holder count unknown");
+  // Almost nobody holds it: everyone who bought has sold, or nobody came.
+  else if (s.holders < 5) hit(-30, "Almost nobody holds it", String(s.holders));
   else if (s.holders < 25) hit(-12, "Fewer than 25 holders", String(s.holders));
   else if (s.holders < 100) hit(-4, "Fewer than 100 holders", String(s.holders));
   // Young coins: most rugs happen in the first hours, and there is little to judge by.

@@ -14,9 +14,11 @@ mod settings;
 mod support;
 mod jupiter;
 mod metadata;
+mod news;
 mod pools;
 mod portfolio;
 mod rpc;
+mod rpc_router;
 mod safe_fetch;
 mod pumpfun_tx;
 mod pumpswap_tx;
@@ -136,6 +138,8 @@ fn now_unix() -> i64 {
 
 struct AppState {
     config: Config,
+    /// Our Solana RPC router (rpc_router.rs): which node serves, for /health.
+    router: rpc_router::RouterState,
     http: reqwest::Client,
     /// For URLs that come from outside (token logos and metadata): public https hosts only.
     outside: reqwest::Client,
@@ -177,9 +181,14 @@ struct AppState {
 struct Health {
     status: &'static str,
     supabase: bool,
+    /// Solana is reachable (through Helius or a fallback node).
     helius: bool,
     solana_slot: Option<u64>,
     stream_connected: bool,
+    /// Helius itself answers; false while Kixo runs on its fallback nodes.
+    primary: bool,
+    /// Which Solana node serves now and why others are skipped (rpc_router.rs).
+    rpc: serde_json::Value,
 }
 
 #[tokio::main]
@@ -193,6 +202,10 @@ async fn main() -> Result<()> {
         .timeout(Duration::from_secs(5))
         .user_agent("monexa-gateway/0.1")
         .build()?;
+
+    // Every RPC call goes through our router: Helius first, our fallback nodes behind it.
+    let (route, router) = rpc_router::start(&config).await?;
+    monexa_common::set_rpc_route(route);
 
     let (ingest_tx, ingest_rx) = broadcast::channel(8192);
     let (feed, _) = broadcast::channel(1024);
@@ -223,10 +236,11 @@ async fn main() -> Result<()> {
         trades: broadcast::channel(4096).0,
         token_cache: Mutex::new(HashMap::new()),
         config: config.clone(),
+        router,
     });
 
     tokio::spawn(monexa_ingest::run_forever(
-        config.helius_ws_url(),
+        config.ws_urls(),
         config.helius_rpc_url(),
         ingest_tx,
         stats,
@@ -281,6 +295,12 @@ async fn main() -> Result<()> {
         .with_state(trade_ctx.clone());
     tokio::spawn(trade::warm_loop(trade_ctx));
 
+    let news_ctx = news::NewsCtx { app: state.clone(), admin: admin_state.clone(), news: news::News::new() };
+    tokio::spawn(news::run(news_ctx.clone()));
+    let news_routes: Router<Arc<AppState>> = Router::new()
+        .route("/news", get(news::list))
+        .route("/ws/news", get(news::ws))
+        .with_state(news_ctx);
     let support_ctx = support::SupportCtx { app: state.clone(), acct: acct.clone(), admin: admin_state.clone(), live: support::Live::new() };
     tokio::spawn(support::presence_loop(support_ctx.clone()));
     let support_routes: Router<Arc<AppState>> = Router::new()
@@ -335,6 +355,7 @@ async fn main() -> Result<()> {
         .merge(trade_routes)
         .merge(activity_routes)
         .merge(support_routes)
+        .merge(news_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -762,6 +783,8 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
             .stats
             .connected
             .load(std::sync::atomic::Ordering::Relaxed),
+        primary: monexa_common::primary_up(),
+        rpc: rpc_router::status(&state.router),
     })
 }
 
@@ -2133,7 +2156,8 @@ async fn activity_handler(State(c): State<ActivityCtx>, Path(address): Path<Stri
             let mut have: Vec<portfolio::Trade> = rows.iter().filter_map(trade_of_row).collect();
             let known: std::collections::HashSet<String> = have.iter().map(|t| t.sig.clone()).collect();
             let first_visit = have.is_empty();
-            let pages = if first_visit && backfill_allowed() { BACKFILL_PAGES } else { UPDATE_PAGES };
+            // Without Helius every page costs dozens of paced calls on the fallback node.
+            let pages = if !monexa_common::primary_up() { 1 } else if first_visit && backfill_allowed() { BACKFILL_PAGES } else { UPDATE_PAGES };
             let mut fresh: Vec<portfolio::Trade> = Vec::new();
             let mut before: Option<String> = None;
             for _ in 0..pages {
@@ -2148,7 +2172,7 @@ async fn activity_handler(State(c): State<ActivityCtx>, Path(address): Path<Stri
             }
             // Older side: a very active wallet needs more than one visit to reach 30 days
             // back. Each visit reads a little further back from the oldest stored swap.
-            if !first_visit {
+            if !first_visit && monexa_common::primary_up() {
                 if let Some(oldest) = have.iter().min_by_key(|t| t.time).filter(|t| t.time > since + 3600) {
                     let mut before = Some(oldest.sig.clone());
                     for _ in 0..OLDER_PAGES {

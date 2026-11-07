@@ -2,11 +2,14 @@
 
 import { useSyncExternalStore } from "react";
 import type { FeedToken } from "./gateway";
+import { currentUserId } from "./account";
 
-/* Sniper, paper mode. It watches every new launch in the live feed, "buys" the ones
-   that match the user's rules at the real on-chain price, and "sells" on take profit,
-   stop loss or time. No wallet and no real money: real execution needs the founder's
-   approval and a security review. Everything stays in this browser. */
+/* Sniper. It watches every new launch in the live feed, buys the ones that match the
+   user's rules at the real on-chain price, and sells on take profit, stop loss or
+   time. In demo mode every buy and sell is also an order on the user's demo account
+   (sniper-engine.tsx); otherwise it is on paper. No real money: real execution needs
+   the founder's approval and a security review. Rules and snipes are kept in this
+   browser, separately for each signed-in account. */
 
 export type SniperSettings = {
   enabled: boolean;
@@ -93,22 +96,38 @@ export type SnipePosition = {
 };
 
 type State = { settings: SniperSettings; positions: SnipePosition[] };
-const KEY = "mx.sniper";
+/** Older versions kept one sniper per browser under this key. */
+const OLD_KEY = "mx.sniper";
 const MAX_HISTORY = 300;
 
 let state: State = { settings: DEFAULT_SNIPER, positions: [] };
-let loaded = false;
+/** Whose sniper is loaded: each account has its own rules and snipes, so one account's
+ *  positions never turn into orders on another account's demo balance. */
+let loadedFor: string | null | undefined;
 const listeners = new Set<() => void>();
 const FALLBACK: State = { settings: DEFAULT_SNIPER, positions: [] };
+const keyFor = (user: string | null) => `mx.sniper.${user ?? "signed-out"}`;
 
 function load() {
-  if (loaded) return;
-  loaded = true;
+  const user = currentUserId();
+  if (loadedFor === user) return;
+  loadedFor = user;
+  state = { settings: DEFAULT_SNIPER, positions: [] };
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(keyFor(user));
     if (raw) {
       const s = JSON.parse(raw) as Partial<State>;
       state = { settings: { ...DEFAULT_SNIPER, ...s.settings }, positions: s.positions ?? [] };
+    } else if (user) {
+      // First visit with per-account storage: keep the rules from the old shared
+      // sniper (switched off), never its positions, which may belong to someone else.
+      const old = localStorage.getItem(OLD_KEY);
+      if (old) {
+        const s = JSON.parse(old) as Partial<State>;
+        state = { settings: { ...DEFAULT_SNIPER, ...s.settings, enabled: false }, positions: [] };
+        localStorage.setItem(keyFor(user), JSON.stringify(state));
+        localStorage.removeItem(OLD_KEY);
+      }
     }
   } catch {
     // Storage blocked: defaults for this visit.
@@ -117,7 +136,7 @@ function load() {
 function set(next: State) {
   state = next;
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    localStorage.setItem(keyFor(loadedFor ?? null), JSON.stringify(next));
   } catch {
     // Not persisted.
   }
@@ -204,6 +223,39 @@ export function activePreset(s: SniperSettings) {
 
 export type SniperEvent = { kind: "buy" | "sell"; position: SnipePosition };
 
+/* What the sniper looked at recently: every launch it checked while the launch was young
+   enough for the rules, with why it was skipped (empty = bought). Shown on the Sniper
+   page so it is clear the sniper is working even when nothing passes. */
+const SCAN_WINDOW_SECS = 600;
+const scanned = new Map<string, { ts: number; reasons: string[] }>();
+let scanView: { checked: number; bought: number; top: [string, number][] } = { checked: 0, bought: 0, top: [] };
+const scanListeners = new Set<() => void>();
+
+function publishScan(now: number) {
+  for (const [m, v] of scanned) if (now - v.ts > SCAN_WINDOW_SECS) scanned.delete(m);
+  const counts = new Map<string, number>();
+  let bought = 0;
+  for (const v of scanned.values()) {
+    if (!v.reasons.length) bought++;
+    for (const r of v.reasons) counts.set(r, (counts.get(r) ?? 0) + 1);
+  }
+  const top = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const next = { checked: scanned.size, bought, top };
+  if (JSON.stringify(next) !== JSON.stringify(scanView)) {
+    scanView = next;
+    scanListeners.forEach((l) => l());
+  }
+}
+
+/** Launches checked in the last 10 minutes and the most common reasons they were skipped. */
+export function useSniperScan() {
+  return useSyncExternalStore(
+    (l) => (scanListeners.add(l), () => scanListeners.delete(l)),
+    () => scanView,
+    () => scanView,
+  );
+}
+
 /** One engine step over the live feed: exits first, then new entries. Returns what
  *  it bought and sold, for notifications. `safetyOf` scores a coin (safety.ts). */
 export function sniperStep(tokens: FeedToken[], copied: (t: FeedToken) => boolean, solUsd: number | null, safetyOf: (t: FeedToken) => number): SniperEvent[] {
@@ -258,10 +310,24 @@ export function sniperStep(tokens: FeedToken[], copied: (t: FeedToken) => boolea
     const held = new Set(positions.map((x) => x.mint));
     let room = Math.min(s.maxOpen - open, s.maxPerHour - lastHour);
     for (const t of tokens) {
-      if (room <= 0) break;
-      if (held.has(t.mint) || entryBlocks(t, s, now, copied(t)).length) continue;
+      if (held.has(t.mint)) continue;
+      const blocks = entryBlocks(t, s, now, copied(t));
+      // Only launches still young enough for the rules, with a price, count as checked.
+      const young = !blocks.includes("too old") && !blocks.includes("no SOL price yet");
+      if (blocks.length) {
+        if (young) scanned.set(t.mint, { ts: now, reasons: blocks });
+        continue;
+      }
       const safety = safetyOf(t);
-      if (s.minSafety > 0 && safety < s.minSafety) continue;
+      if (s.minSafety > 0 && safety < s.minSafety) {
+        scanned.set(t.mint, { ts: now, reasons: ["safety score too low"] });
+        continue;
+      }
+      if (room <= 0) {
+        scanned.set(t.mint, { ts: now, reasons: ["open or hourly limit reached"] });
+        continue;
+      }
+      scanned.set(t.mint, { ts: now, reasons: [] });
       const m = t.market!;
       positions = [
         {
@@ -283,6 +349,7 @@ export function sniperStep(tokens: FeedToken[], copied: (t: FeedToken) => boolea
     }
   }
 
+  publishScan(now);
   if (changed) set({ ...cur, positions: positions.slice(0, MAX_HISTORY) });
   return events;
 }

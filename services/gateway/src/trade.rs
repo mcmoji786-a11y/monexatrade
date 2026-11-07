@@ -291,15 +291,45 @@ async fn priority_estimate(c: &TradeCtx, level: &str) -> u64 {
             return m.get(level).copied().unwrap_or(0);
         }
     }
-    let v = rpc(&c.r(), "getPriorityFeeEstimate", json!([{ "accountKeys": [JUPITER_PROGRAM, "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"], "options": { "includeAllPriorityFeeLevels": true } }])).await;
-    let m: HashMap<String, u64> = v
+    let accounts = [JUPITER_PROGRAM, "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"];
+    let v = rpc(&c.r(), "getPriorityFeeEstimate", json!([{ "accountKeys": accounts, "options": { "includeAllPriorityFeeLevels": true } }])).await;
+    let mut m: HashMap<String, u64> = v
         .ok()
         .and_then(|v| v["priorityFeeLevels"].as_object().cloned())
         .map(|o| o.into_iter().filter_map(|(k, v)| v.as_f64().map(|f| (k, f as u64))).collect())
         .unwrap_or_default();
+    // Without Helius: our own estimate from the fees recently paid on the same programs
+    // (a standard method every Solana node has).
+    // The method reports the lowest fee that landed per slot for transactions locking
+    // every listed account, so each program is asked on its own and the highest value
+    // per slot is kept. Each speed's floor still applies on top.
+    if m.is_empty() {
+        let mut per_slot: HashMap<u64, u64> = HashMap::new();
+        for account in [JUPITER_PROGRAM, "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"] {
+            if let Ok(v) = rpc(&c.r(), "getRecentPrioritizationFees", json!([[account]])).await {
+                for f in v.as_array().into_iter().flatten() {
+                    if let (Some(slot), Some(fee)) = (f["slot"].as_u64(), f["prioritizationFee"].as_u64()) {
+                        let e = per_slot.entry(slot).or_default();
+                        *e = (*e).max(fee);
+                    }
+                }
+            }
+        }
+        m = fee_levels(per_slot.into_values().collect());
+    }
     let out = m.get(level).copied().unwrap_or(0);
     *c.t.fees.lock().expect("fee lock") = Some((Instant::now(), m));
     out
+}
+
+/// Helius-style fee levels from recent per-slot fees: the share of slots that paid less.
+pub fn fee_levels(mut fees: Vec<u64>) -> HashMap<String, u64> {
+    if fees.is_empty() {
+        return HashMap::new();
+    }
+    fees.sort_unstable();
+    let at = |p: f64| fees[(((fees.len() - 1) as f64) * p).round() as usize];
+    [("min", 0.0), ("low", 0.25), ("medium", 0.5), ("high", 0.75), ("veryHigh", 0.95), ("unsafeMax", 1.0)].into_iter().map(|(k, p)| (k.to_string(), at(p))).collect()
 }
 
 async fn token_balance(c: &TradeCtx, wallet: &str, mint: &str) -> Result<(u128, u8), String> {
@@ -1228,8 +1258,12 @@ pub async fn send(State(c): State<TradeCtx>, headers: HeaderMap, Json(s): Json<S
     Ok(Json(json!({ "signature": signature })))
 }
 
-/// Sends through Helius Sender (fast path) and the Helius RPC (backup) at once. True
-/// when either accepted it.
+/// Jito's block engine: a second fast path that needs no account. It forwards the
+/// transaction to the current leader like any RPC.
+const JITO_SEND: &str = "https://mainnet.block-engine.jito.wtf/api/v1/transactions";
+
+/// Sends through Helius Sender (fast path), Jito's block engine (second fast path) and
+/// our RPC router (Helius, or a fallback node) at once. True when any accepted it.
 async fn broadcast(c: &TradeCtx, raw: &str, sp: Speed, mev: bool) -> bool {
     let mut sender = format!("https://sender.helius-rpc.com/fast?api-key={}", c.app.config.helius_api_key);
     if sp.swqos_only {
@@ -1242,7 +1276,12 @@ async fn broadcast(c: &TradeCtx, raw: &str, sp: Speed, mev: bool) -> bool {
     let fast = c.app.http.post(&sender).json(&body).timeout(Duration::from_secs(5)).send();
     let r = c.r();
     let backup = rpc(&r, "sendTransaction", json!([raw, { "encoding": "base64", "skipPreflight": true, "maxRetries": 0 }]));
-    let (a, b) = tokio::join!(fast, backup);
+    let jito = c.app.http.post(JITO_SEND).json(&body).timeout(Duration::from_secs(5)).send();
+    let (a, b, j) = tokio::join!(fast, backup, jito);
+    let j_ok = match j {
+        Ok(r) => r.json::<Value>().await.ok().is_some_and(|v| v["result"].is_string()),
+        Err(_) => false,
+    };
     let a_ok = match a {
         Ok(r) => {
             let v: Value = r.json().await.unwrap_or(Value::Null);
@@ -1256,7 +1295,7 @@ async fn broadcast(c: &TradeCtx, raw: &str, sp: Speed, mev: bool) -> bool {
             false
         }
     };
-    a_ok || b.is_ok()
+    a_ok || b.is_ok() || j_ok
 }
 
 /// Follows a sent trade until it lands, fails or its blockhash expires, re-sending it
@@ -1411,6 +1450,17 @@ mod tests {
         assert_eq!(diagnose(&serde_json::json!({}), &none).0, "no_tokens");
     }
     use super::*;
+
+    #[test]
+    fn fee_levels_from_recent_fees() {
+        let m = fee_levels((0..=100).collect());
+        assert_eq!(m["min"], 0);
+        assert_eq!(m["medium"], 50);
+        assert_eq!(m["high"], 75);
+        assert_eq!(m["veryHigh"], 95);
+        assert_eq!(m["unsafeMax"], 100);
+        assert!(fee_levels(vec![]).is_empty());
+    }
 
     #[test]
     fn fees_and_limits() {

@@ -5,6 +5,7 @@
 
 import { pct, price, usd, type FeedToken } from "./gateway";
 import type { DiscoverRow } from "./categories";
+import type { Safety } from "./safety";
 
 /** One on-chain fact sent to the engine and shown to the user. */
 export type Fact = { label: string; value: string };
@@ -16,16 +17,51 @@ export type AnalysisInput = {
   name: string;
   image: string | null;
   facts: Fact[];
+  /** The coin's safety score and its reasons (safety.ts), the same as on its card. */
+  safety?: Safety | null;
 };
 
 export type AnalysisResult =
   | { status: "not_ready" }
-  | { status: "ok"; summary: string; strengths: string[]; risks: string[]; watch: string[] }
+  | { status: "ok"; summary: string; strengths: string[]; risks: string[]; watch: string[]; source?: "ai" | "rules" }
   | { status: "error"; message: string };
 
 export async function analyze(input: AnalysisInput): Promise<AnalysisResult> {
-  void input; // sent to the engine once one is connected
-  return { status: "not_ready" };
+  // No AI engine is connected yet. Until it is, a quick read built from the same
+  // on-chain checks as the coin's safety score, labelled as such.
+  return quickRead(input) ?? { status: "not_ready" };
+}
+
+/** A plain-words read of a coin from Kixo's on-chain checks (no AI): what looks good,
+ *  what looks risky and what to watch. Every line comes from a real measured signal. */
+export function quickRead(input: AnalysisInput): AnalysisResult | null {
+  const s = input.safety;
+  if (!s) return null;
+  const has = (label: string) => s.factors.some((f) => f.label.startsWith(label));
+  const line = (f: { label: string; detail?: string }) => (f.detail ? `${f.label} (${f.detail})` : f.label);
+  const strengths = [
+    ...s.factors.filter((f) => f.points > 0).map(line),
+    ...(!has("Mint authority") ? ["Mint authority revoked: no new tokens can be created"] : []),
+    ...(!has("Freeze authority") ? ["Freeze authority revoked: wallets cannot be frozen"] : []),
+    ...(!has("Top 10 wallets") && !has("Top 10 share") ? ["Holdings are spread out: the top 10 wallets hold a small share"] : []),
+    ...(!has("Dev holds") && !has("Dev share") && !has("Dev sold") && !has("Dev is selling") ? ["The dev holds little and has not sold"] : []),
+  ];
+  const risks = s.factors.filter((f) => f.points < 0).slice(0, 6).map(line);
+  const watch: string[] = [];
+  if (has("Under 2 minutes") || has("Under 30 minutes")) watch.push("It is very new: most rugs happen in the first hour");
+  if (!has("Dev sold everything")) watch.push("The dev wallet: a dev sale often comes before a drop");
+  if (has("Top 10 wallets")) watch.push("The top 10 wallets: if they start selling, the price can fall fast");
+  if (has("Liquidity under")) watch.push("Liquidity: a large sell can move the price a lot");
+  if (has("Sells far outnumber buys")) watch.push("Order flow: sellers are leading right now");
+  const level = s.level === "higher" ? "fewer red flags than most new coins" : s.level === "medium" ? "some warning signs worth checking" : "several red flags";
+  return {
+    status: "ok",
+    source: "rules",
+    summary: `Safety score ${s.score} of 100: ${level}. ${risks.length ? `The biggest concern: ${risks[0].charAt(0).toLowerCase()}${risks[0].slice(1)}.` : "No red flags in holders, dev or authorities so far."}`,
+    strengths: strengths.slice(0, 5),
+    risks,
+    watch: watch.slice(0, 4),
+  };
 }
 
 const n = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString());

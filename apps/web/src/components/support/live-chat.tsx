@@ -7,6 +7,7 @@ import { Loader2, MessageCircle, Stethoscope, X } from "lucide-react";
 import { activeWallet, useAccount } from "@/lib/account";
 import { useMode } from "@/lib/demo";
 import { useFeatures } from "@/lib/features";
+import { useNews } from "@/lib/news";
 import { diagnose, isSecretRefusal, liveCurrent, replyTicket, sendTyping, startChat, ticketContext, useSupportEvents, type Diagnosis, type LiveState } from "@/lib/support";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -19,6 +20,9 @@ export function LiveChat() {
   const enabled = features.support && features.live_chat;
   const mode = useMode();
   const pathname = usePathname();
+  // Beside the news panel when it is open (desktop), not on top of it.
+  const newsOpen = useNews(false).open && features.news && pathname !== "/news";
+  const right = newsOpen ? "right-4 lg:right-99" : "right-4";
 
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<LiveState | null>(null);
@@ -117,7 +121,7 @@ export function LiveChat() {
         aria-expanded={open}
         aria-label={open ? "Close support chat" : `Chat with support${unread ? ", new reply" : ""}`}
         title={compact ? (online ? "Support: online now" : "Support") : undefined}
-        className={`fixed right-4 bottom-4 z-40 flex h-10 items-center gap-2 rounded-full border border-border bg-surface-2 text-sm text-text shadow-lg shadow-black/30 transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-emerald ${compact ? "w-10 justify-center" : "pr-4 pl-3"}`}
+        className={`fixed ${right} bottom-4 z-40 flex h-10 items-center gap-2 rounded-full border border-border bg-surface-2 text-sm text-text shadow-lg shadow-black/30 transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-emerald ${compact ? "w-10 justify-center" : "pr-4 pl-3"}`}
       >
         <span className="relative">
           <MessageCircle size={16} strokeWidth={1.5} className="text-text-2" />
@@ -135,7 +139,7 @@ export function LiveChat() {
         <section
           role="dialog"
           aria-label="Support chat"
-          className={`fade-up fixed right-4 bottom-18 left-4 z-40 flex max-h-[calc(100dvh-140px)] flex-col rounded-2xl border border-border bg-surface shadow-2xl shadow-black/50 sm:left-auto sm:w-95 ${chat || sending ? "h-[min(560px,calc(100dvh-140px))]" : ""}`}
+          className={`fade-up fixed ${right} bottom-18 left-4 z-40 flex max-h-[calc(100dvh-140px)] flex-col rounded-2xl border border-border bg-surface shadow-2xl shadow-black/50 sm:left-auto sm:w-95 ${chat || sending ? "h-[min(560px,calc(100dvh-140px))]" : ""}`}
         >
           <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
             <div>

@@ -22,7 +22,7 @@ export const REFERRAL = {
   inviteeDiscountPct: 10,
   rules: [
     "Earn on every trade your invites make, with no end date",
-    "Invites get a fee discount for using your link",
+    "Invites will get a fee discount for using your link once real trading opens",
     "Paid in SOL to your wallet, claimable any time above 0.05 SOL",
     "Self-referrals and fake accounts are removed and not paid",
   ],

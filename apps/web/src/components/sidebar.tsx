@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NAV_GROUPS } from "@/lib/nav";
 import { useSupportUnread } from "@/lib/support";
+import { toggleNews, useNews } from "@/lib/news";
 
 /* Collapsed or full sidebar, remembered per browser (a convenience only). */
 const KEY = "mx.sidebar";
@@ -38,6 +39,7 @@ function useCollapsed() {
 export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void; rail?: boolean }) {
   const pathname = usePathname();
   const unread = useSupportUnread();
+  const news = useNews(false);
   return (
     <nav className={`flex flex-col py-4 ${rail ? "gap-3 px-2" : "gap-6 px-3"}`} aria-label="Main">
       {NAV_GROUPS.map((group, gi) => (
@@ -50,13 +52,22 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
           <ul className="flex flex-col gap-0.5">
             {group.items.map((item) => {
               const href = `/${item.slug}`;
-              const active = pathname === href || pathname.startsWith(`${href}/`);
+              // On desktop News is a panel beside the page, not a page of its own.
+              const panel = item.slug === "news" && !onNavigate;
+              const active = panel ? news.open : pathname === href || pathname.startsWith(`${href}/`);
               const Icon = item.icon;
               return (
                 <li key={item.slug}>
                   <Link
                     href={href}
-                    onClick={onNavigate}
+                    onClick={(e) => {
+                      if (panel) {
+                        e.preventDefault();
+                        toggleNews();
+                      }
+                      onNavigate?.();
+                    }}
+                    aria-pressed={panel ? news.open : undefined}
                     title={rail ? `${item.label}${item.live ? "" : " (soon)"}` : undefined}
                     aria-current={active ? "page" : undefined}
                     className={`relative flex h-9 items-center rounded-lg text-sm transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "justify-center" : "gap-2.5 px-3"} ${
@@ -75,6 +86,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                     {!rail && (
                       <>
                         <span className="flex-1 truncate">{item.label}</span>
+                        {panel && news.unread > 0 && !news.open && <span className="rounded-full bg-surface-3 px-1.5 font-mono text-[10px] leading-4 text-text-2" aria-label={`${news.unread} new stories`}>{news.unread > 99 ? "99+" : news.unread}</span>}
                         {item.slug === "support" && unread > 0 && <span className="rounded-full bg-emerald px-1.5 font-mono text-[10px] leading-4 text-bg" aria-label={`${unread} new replies`}>{unread}</span>}
                         {/* Built sections need no badge; only the ones still coming say so. */}
                         {!item.live && <span className="rounded border border-border px-1.5 py-px text-[10px] leading-4 text-muted">Soon</span>}

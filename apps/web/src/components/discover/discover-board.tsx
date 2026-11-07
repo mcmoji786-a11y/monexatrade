@@ -383,7 +383,7 @@ function Spotlight({
 
       <div className="mt-auto flex items-center gap-2">
         <Socials twitter={r.twitter} telegram={r.telegram} website={r.website} />
-        <AiButton input={() => inputFromRow(r)} />
+        <AiButton input={() => inputFromRow(r)} safety={safety} />
         <div className="flex-1">
           <TradeLink mint={r.mint} full />
         </div>

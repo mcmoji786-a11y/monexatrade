@@ -167,6 +167,8 @@ export function TokenTable({
     setSort((s) => (s?.key !== key ? { key, desc: true } : s.desc ? { key, desc: false } : null));
   // Early buyers only matter for new launches: shown on the Sniped ranking.
   const cols = COLUMNS.filter((c) => c.key !== "snipers" || metric === "snipers");
+  // The same safety score the badge shows, also handed to the analysis popup.
+  const safetyOf = (r: DiscoverRow) => safetyScore(rowSignals(r, launches?.get(r.mint) ?? null, smart?.[r.mint] ?? 0, now / 1000));
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-240 text-sm whitespace-nowrap">
@@ -220,7 +222,7 @@ export function TokenTable({
                 </div>
               </td>
               <td className="pr-3">
-                <SafetyBadge safety={safetyScore(rowSignals(r, launches?.get(r.mint) ?? null, smart?.[r.mint] ?? 0, now / 1000))} />
+                <SafetyBadge safety={safetyOf(r)} />
               </td>
               <td className="pr-2">
                 <Sparkline points={sparks?.[r.mint]} width={60} />
@@ -232,7 +234,7 @@ export function TokenTable({
               ))}
               <td className="pr-4 pl-4 text-right">
                 <span className="inline-flex items-center gap-1.5">
-                  <AiButton input={() => inputFromRow(r)} compact />
+                  <AiButton input={() => inputFromRow(r)} safety={safetyOf(r)} compact />
                   <TradeLink mint={r.mint} />
                 </span>
               </td>

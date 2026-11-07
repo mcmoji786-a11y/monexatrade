@@ -17,7 +17,7 @@ export function useRadarAlerts(tokens: RadarToken[], lowerRisk: Set<string>) {
     const events: { key: string; title: string; body: string }[] = [];
     for (const t of tokens) {
       const m = t.market;
-      if (prefs.lowerRisk && lowerRisk.has(t.mint)) events.push({ key: `lr:${t.mint}`, title: `${t.symbol} passed every lower-risk check`, body: t.name });
+      if (prefs.lowerRisk && lowerRisk.has(t.mint)) events.push({ key: `lr:${t.mint}`, title: `${t.symbol} is on the lower-risk list`, body: t.name });
       if (prefs.curve80 && m && !m.complete && m.curve_progress >= 80)
         events.push({ key: `c80:${t.mint}`, title: `${t.symbol} curve at ${m.curve_progress.toFixed(0)}%`, body: "Close to graduating" });
       if (prefs.devSells && m && m.dev_sells > 0 && watched.includes(t.mint))
