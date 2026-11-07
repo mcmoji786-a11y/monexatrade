@@ -38,7 +38,7 @@ function PriceAlertButtonInner({ mint, symbol, mcUsd }: { mint: string; symbol: 
       {open && (
         <div className="absolute right-0 z-30 mt-2 w-72 rounded-lg border border-border bg-surface-2 p-3 shadow-lg">
           <p className="text-sm font-medium text-text">Market cap alert</p>
-          <p className="mt-0.5 text-xs text-muted">Now {usd(mcUsd)}. Fires once while MONEXA is open in this browser</p>
+          <p className="mt-0.5 text-xs text-muted">Now {usd(mcUsd)}. Fires once while Kixo is open in this browser</p>
           <div className="mt-3 flex gap-1 rounded-lg border border-border p-0.5">
             {[true, false].map((a) => (
               <button
@@ -103,7 +103,7 @@ export function PriceAlertWatcher() {
       if (a.above ? mc >= a.mcUsd : mc <= a.mcUsd) {
         remove(a.id);
         const text = `${a.symbol} market cap ${a.above ? "above" : "below"} ${usd(a.mcUsd)} (now ${usd(mc)})`;
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("MONEXA price alert", { body: text, tag: a.id });
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Kixo price alert", { body: text, tag: a.id });
         else window.alert(text);
       }
     }

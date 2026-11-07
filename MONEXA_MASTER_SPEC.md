@@ -1,6 +1,6 @@
-# MONEXA — COMPLETE V3 MASTER FEATURE SPECIFICATION
+# Kixo — COMPLETE V3 MASTER FEATURE SPECIFICATION
 
-**Product:** MONEXA  
+**Product:** Kixo  
 **Domain:** monexa.trade  
 **Category:** AI-Powered Solana Trading & Market Intelligence Platform  
 **Version:** V3  
@@ -291,7 +291,7 @@ Every token listing should display:
 
 # 4. AI INTELLIGENCE ENGINE — OWN AI MODEL
 
-MONEXA will develop its own specialized AI intelligence system instead of depending entirely on external AI APIs.
+Kixo will develop its own specialized AI intelligence system instead of depending entirely on external AI APIs.
 
 ### AI Research Agents
 
@@ -521,7 +521,7 @@ The goal is to reduce dependence on any single third-party market data provider.
 
 # 9. SOLANA RPC MANAGEMENT SYSTEM
 
-Use high-quality market RPC providers and develop MONEXA's own RPC orchestration layer.
+Use high-quality market RPC providers and develop Kixo's own RPC orchestration layer.
 
 ### RPC Features
 - Multiple RPC providers
@@ -674,7 +674,7 @@ A complete customer assistance system.
 
 # 16. BUG REPORTING SYSTEM
 
-Users can report technical problems directly inside MONEXA.
+Users can report technical problems directly inside Kixo.
 
 ### Bug Submission
 - Bug title
@@ -914,7 +914,7 @@ No real-money launch until critical and high-severity issues have been resolved 
 
 # FINAL PRODUCT VISION
 
-MONEXA should combine five major capabilities:
+Kixo should combine five major capabilities:
 
 1. **Trading:** Fast and reliable Solana execution.
 2. **Sniper:** Advanced automated trading strategies.

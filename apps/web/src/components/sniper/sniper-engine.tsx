@@ -13,7 +13,7 @@ import { tokenHref } from "@/lib/open-token";
 const STEP_MS = 2_000;
 
 /** Mounted once in the app shell: runs the paper sniper on the live feed while
- *  MONEXA is open, whatever page the user is on, and announces every buy and sell. */
+ *  Kixo is open, whatever page the user is on, and announces every buy and sell. */
 function SniperEngineInner() {
   const { settings, positions } = useSniper();
   const feed = useRadarFeed();
@@ -72,9 +72,9 @@ function announce(events: SniperEvent[], s: { notifyToast: boolean; notifySound:
       body = `${win ? "+" : "−"}${Math.abs(r.sol ?? 0).toFixed(3)} SOL${usd(r.sol ?? 0)} · ${r.pct != null ? `${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(0)}%` : ""}`;
       tone = win ? "good" : "bad";
     }
-    if (s.notifyToast) pushToast({ tone, title, body, href: tokenHref(p.mint) });
+    if (s.notifyToast) pushToast({ kind: "sniper", tone, title, body, href: tokenHref(p.mint) });
     if (s.notifyDesktop && typeof Notification !== "undefined" && Notification.permission === "granted") {
-      const n = new Notification(`MONEXA · ${title}`, { body: `${body} (paper)`, tag: `${p.id}:${e.kind}` });
+      const n = new Notification(`Kixo · ${title}`, { body: `${body} (paper)`, tag: `${p.id}:${e.kind}` });
       n.onclick = () => {
         window.focus();
         window.location.assign(tokenHref(p.mint));

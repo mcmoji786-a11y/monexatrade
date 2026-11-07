@@ -19,6 +19,7 @@ import { Splitter, useStoredSize } from "./splitter";
 import { useTokenBook, useWallets, type BookState } from "./use-token-book";
 import { riskOf, type Risk } from "@/lib/risk";
 import { TradePanel, money, signed } from "./trade-panel";
+import { ExitOrders } from "./exit-orders";
 import { useDemo } from "@/lib/demo";
 
 /** Concentration above these levels is flagged. Facts, not advice. */
@@ -85,7 +86,8 @@ export function TokenView() {
         <aside className="flex flex-col lg:w-(--side-w) lg:shrink-0" style={{ "--side-w": `${sideW}px` } as React.CSSProperties}>
           <FlowStrip row={row} book={book} solUsd={feed.solUsd} now={now} />
           <TradePanel symbol={row.symbol} mint={mint} />
-          <MyPosition mint={mint} />
+          <MyPosition mint={mint} livePrice={row.priceUsd} />
+          <ExitOrders mint={mint} livePrice={row.priceUsd} />
           <TokenInfo row={row} launch={launch} />
           <Safety row={row} launch={launch} market={market} />
           {launch?.meta?.description && (
@@ -358,7 +360,7 @@ function Missing({ mint, loading }: { mint: string; loading: boolean }) {
       <p className="mt-2 text-sm text-text-2">
         {loading
           ? "Connecting to the live feed"
-          : "MONEXA shows Solana memecoins only. Stablecoins, wrapped majors, stocks and DeFi tokens are not listed, and inactive memecoins drop off the board"}
+          : "Kixo shows Solana memecoins only. Stablecoins, wrapped majors, stocks and DeFi tokens are not listed, and inactive memecoins drop off the board"}
       </p>
       <p className="mt-4 font-mono text-xs break-all text-muted">{mint}</p>
       <Link href="/discover" className="mt-6 inline-flex h-9 items-center rounded-lg bg-surface-3 px-4 text-sm text-text hover:bg-surface-2">
@@ -448,26 +450,45 @@ function TokenInfo({ row: r, launch }: { row: DiscoverRow; launch: FeedToken | n
 
 /** Bought, sold, holding and PnL for the connected wallet; empty until wallet connect. */
 /** Your position in this coin: the demo account in demo mode. */
-function MyPosition({ mint }: { mint: string }) {
+/** The demo position in this coin. Holding and P&L move with every trade on the chart:
+ *  the gateway's sell-now value (after price impact and fees) is scaled by the live price
+ *  between its refreshes, so the figure is both instant and honest. */
+function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | null }) {
   const { mode, trades, account } = useDemo();
   const mine = mode === "demo" ? (trades ?? []).filter((t) => t.mint === mint && t.round === (account?.round ?? 0)) : [];
-  const bought = mine.filter((t) => t.side === "buy").reduce((a, t) => a + t.usd, 0);
-  const sold = mine.filter((t) => t.side === "sell").reduce((a, t) => a + t.usd, 0);
-  const pos = account?.positions.find((p) => p.mint === mint);
-  const holding = pos?.value_usd ?? 0;
+  const bought = mine.filter((t) => t.side === "buy").reduce((a, t) => a + Number(t.usd), 0);
+  const sold = mine.filter((t) => t.side === "sell").reduce((a, t) => a + Number(t.usd), 0);
+  const pos = mode === "demo" ? account?.positions.find((p) => p.mint === mint) : undefined;
+  const holding = !pos
+    ? 0
+    : pos.value_usd != null && pos.price_usd && livePrice
+      ? pos.value_usd * (livePrice / pos.price_usd)
+      : (pos.value_usd ?? 0);
   const pnl = mine.length ? sold + holding - bought : null;
-  const cells: [string, string, string][] = [
-    ["Bought", mine.length ? money(bought) : "—", "text-text-2"],
-    ["Sold", mine.length ? money(sold) : "—", "text-text-2"],
-    ["Holding", pos ? money(holding) : "—", "text-text-2"],
-    ["PnL", pnl == null ? "—" : signed(pnl), pnl == null || pnl === 0 ? "text-text-2" : pnl > 0 ? "text-positive" : "text-negative"],
+  const pct = pnl != null && bought > 0 ? (pnl / bought) * 100 : null;
+  const tone = pnl == null || Math.abs(pnl) < 0.005 ? "text-text-2" : pnl > 0 ? "text-positive" : "text-negative";
+  const cells: [string, React.ReactNode][] = [
+    ["Bought", <span key="b" className="text-text-2">{mine.length ? money(bought) : "—"}</span>],
+    ["Sold", <span key="s" className="text-text-2">{mine.length ? money(sold) : "—"}</span>],
+    ["Holding", pos ? <Tick key="h" value={holding} className="text-text">{money(holding)}</Tick> : <span key="h" className="text-text-2">—</span>],
+    [
+      "PnL",
+      pnl == null ? (
+        <span key="p" className="text-text-2">—</span>
+      ) : (
+        <Tick key="p" value={pnl} className={tone}>
+          {signed(pnl)}
+          {pct != null && <span className="block text-[11px] opacity-80">{`${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`}</span>}
+        </Tick>
+      ),
+    ],
   ];
   return (
     <section className="grid grid-cols-4 border-b border-border text-center">
-      {cells.map(([k, v, c], i) => (
+      {cells.map(([k, v], i) => (
         <div key={k} className={`py-3 ${i ? "border-l border-border" : ""}`}>
           <div className="text-[11px] text-muted">{k}</div>
-          <div className={`mt-1 font-mono text-xs tabular-nums ${c}`}>{v}</div>
+          <div className="mt-1 font-mono text-xs tabular-nums">{v}</div>
         </div>
       ))}
     </section>

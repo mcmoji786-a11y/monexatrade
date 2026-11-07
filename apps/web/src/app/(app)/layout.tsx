@@ -9,6 +9,7 @@ import { TermsGate } from "@/components/account/terms-gate";
 import { DemoBanner } from "@/components/account/demo-banner";
 import { PageReporter } from "@/components/page-reporter";
 import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
+import { LiveChat } from "@/components/support/live-chat";
 
 /** App shell: sidebar navigation, top bar and the page content. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -17,6 +18,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PriceAlertWatcher />
       <SniperEngine />
       <Toaster />
+      <Suspense fallback={null}>
+        <LiveChat />
+      </Suspense>
       <TermsGate />
       <Suspense fallback={null}>
         <PageReporter />

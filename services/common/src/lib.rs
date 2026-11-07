@@ -1,4 +1,4 @@
-//! Shared code for all MONEXA Rust services: configuration and logging.
+//! Shared code for all Kixo Rust services: configuration and logging.
 
 use anyhow::{Context, Result};
 use std::fmt;
@@ -35,8 +35,13 @@ impl Config {
         })
     }
 
+    /// HELIUS_RPC_URL in the environment (a paid or dedicated endpoint) wins over the
+    /// standard shared one.
     pub fn helius_rpc_url(&self) -> String {
-        format!("https://mainnet.helius-rpc.com/?api-key={}", self.helius_api_key)
+        match std::env::var("HELIUS_RPC_URL") {
+            Ok(u) if u.starts_with("https://") => u,
+            _ => format!("https://mainnet.helius-rpc.com/?api-key={}", self.helius_api_key),
+        }
     }
 
     pub fn helius_ws_url(&self) -> String {

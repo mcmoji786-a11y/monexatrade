@@ -1,4 +1,4 @@
-# MONEXA roadmap (V1)
+# Kixo roadmap (V1)
 
 | Phase | Scope | Real money | Status |
 |---|---|---|---|

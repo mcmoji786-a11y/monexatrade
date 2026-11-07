@@ -154,14 +154,41 @@ const STABLES: [&str; 2] = ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9
 /// The wallet's swaps among its latest 100 transactions, from Helius' parsed history
 /// (one request). A swap is one coin in or out against SOL out or in.
 pub async fn history(http: &reqwest::Client, api_key: &str, wallet: &str) -> Option<Vec<Trade>> {
-    let url = format!("https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}&limit=100");
+    history_page(http, api_key, wallet, None).await.map(|p| p.trades)
+}
+
+/// One page (up to 100 transactions) of a wallet's history, newest first, starting
+/// before `before` when given.
+pub struct Page {
+    pub trades: Vec<Trade>,
+    /// Signatures of every transaction on the page, swaps or not.
+    pub signatures: Vec<String>,
+    /// Time of the oldest transaction on the page (unix seconds).
+    pub oldest: Option<i64>,
+    /// The page was full, so older transactions may follow.
+    pub full: bool,
+}
+
+pub const PAGE: usize = 100;
+
+pub async fn history_page(http: &reqwest::Client, api_key: &str, wallet: &str, before: Option<&str>) -> Option<Page> {
+    let mut url = format!("https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={api_key}&limit={PAGE}");
+    if let Some(b) = before {
+        url.push_str("&before=");
+        url.push_str(b);
+    }
     let res = http.get(&url).timeout(Duration::from_secs(15)).send().await.ok()?;
     if !res.status().is_success() {
         tracing::warn!(status = %res.status(), "wallet history failed");
         return None;
     }
     let list: Vec<Value> = res.json().await.ok()?;
-    Some(list.iter().filter_map(|t| swap_of(t, wallet)).collect())
+    Some(Page {
+        trades: list.iter().filter_map(|t| swap_of(t, wallet)).collect(),
+        signatures: list.iter().filter_map(|t| t["signature"].as_str().map(String::from)).collect(),
+        oldest: list.iter().filter_map(|t| t["timestamp"].as_i64()).min(),
+        full: list.len() >= PAGE,
+    })
 }
 
 /// Tickers for the traded coins (up to 100), so coins no longer held still read by name.

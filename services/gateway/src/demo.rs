@@ -11,7 +11,7 @@
 
 use crate::account::AccountState;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub const START_USD: f64 = 10_000.0;
@@ -151,16 +151,46 @@ pub async fn quote(app: &crate::AppState, mint: &str) -> Result<Quote, (StatusCo
     }
     let (symbol, price, liquidity) = match market {
         Some(m) => (m.symbol, m.price_usd, m.liquidity_usd),
-        None => {
-            let url = format!("https://lite-api.jup.ag/tokens/v2/search?query={mint}");
-            let list: Vec<Value> = app.http.get(&url).timeout(Duration::from_secs(8)).send().await.ok().and_then(|r| r.error_for_status().ok()).ok_or((StatusCode::BAD_GATEWAY, "price service busy, try again".into()))?.json().await.unwrap_or_default();
-            let t = list.into_iter().find(|t| t["id"].as_str() == Some(mint)).ok_or((StatusCode::NOT_FOUND, "no live market for this coin".into()))?;
-            (t["symbol"].as_str().unwrap_or("").to_string(), t["usdPrice"].as_f64(), t["liquidity"].as_f64())
-        }
+        None => jupiter_market(app, mint).await?,
+    };
+    // A coin whose pool we stream trades at the price on its chart: use the latest
+    // decoded trade (under a minute old) so fills match what the user sees.
+    let live = app.books.lock().expect("books lock").last_pool_price(mint);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    let price = match live {
+        Some((p_sol, ts)) if now - ts <= LIVE_PRICE_MAX_AGE => Some(p_sol * sol_usd),
+        _ => price,
     };
     let price_usd = price.filter(|p| *p > 0.0).ok_or((StatusCode::NOT_FOUND, "no live price for this coin".into()))?;
     let reserve_usd = liquidity.filter(|l| *l > 0.0).map(|l| l / 2.0).ok_or((StatusCode::NOT_FOUND, "this coin has no liquidity to trade".into()))?;
     Ok(Quote { symbol, price_usd, sol_usd, depth: Depth::Pool { reserve_usd } })
+}
+
+/// A streamed trade older than this no longer stands for the market price.
+const LIVE_PRICE_MAX_AGE: i64 = 60;
+/// Jupiter lookups are shared for a few seconds: demo accounts refresh every 3 s.
+const JUP_TTL: Duration = Duration::from_secs(5);
+type JupEntry = (Instant, (String, Option<f64>, Option<f64>));
+static JUP_CACHE: Mutex<Option<HashMap<String, JupEntry>>> = Mutex::new(None);
+
+/// Symbol, USD price and liquidity of a coin not on our board, from Jupiter (cached).
+async fn jupiter_market(app: &crate::AppState, mint: &str) -> Result<(String, Option<f64>, Option<f64>), (StatusCode, String)> {
+    if let Some((at, v)) = JUP_CACHE.lock().expect("jup cache").as_ref().and_then(|m| m.get(mint).cloned()) {
+        if at.elapsed() < JUP_TTL {
+            return Ok(v);
+        }
+    }
+    let url = format!("https://lite-api.jup.ag/tokens/v2/search?query={mint}");
+    let list: Vec<Value> = app.http.get(&url).timeout(Duration::from_secs(8)).send().await.ok().and_then(|r| r.error_for_status().ok()).ok_or((StatusCode::BAD_GATEWAY, "price service busy, try again".into()))?.json().await.unwrap_or_default();
+    let t = list.into_iter().find(|t| t["id"].as_str() == Some(mint)).ok_or((StatusCode::NOT_FOUND, "no live market for this coin".into()))?;
+    let v = (t["symbol"].as_str().unwrap_or("").to_string(), t["usdPrice"].as_f64(), t["liquidity"].as_f64());
+    let mut cache = JUP_CACHE.lock().expect("jup cache");
+    let map = cache.get_or_insert_with(HashMap::new);
+    if map.len() > 2000 {
+        map.retain(|_, (at, _)| at.elapsed() < JUP_TTL);
+    }
+    map.insert(mint.to_string(), (Instant::now(), v.clone()));
+    Ok(v)
 }
 
 /* ---------------- Per-user order lock ---------------- */
@@ -309,6 +339,9 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
             })),
         )
         .await?;
+    if fill.side == "sell" && o.fraction.unwrap_or(0.0) >= 0.999 {
+        cancel_open(&c, &u.id, Some(&o.mint), "position closed").await;
+    }
     Ok(Json(json!({ "fill": fill, "symbol": q.symbol, "cash_usd": num(&res["cash_usd"]), "realized_usd": res["realized_usd"] })))
 }
 
@@ -318,6 +351,7 @@ pub async fn reset(State(c): State<DemoCtx>, headers: HeaderMap) -> Result<Json<
     let lock = user_lock(&u.id);
     let _guard = lock.lock().await;
     c.acct.rest(reqwest::Method::POST, "rpc/demo_reset", Some(json!({ "p_user": u.id, "p_start": START_USD }))).await?;
+    cancel_open(&c, &u.id, None, "account reset").await;
     Ok(Json(json!({ "cash_usd": START_USD })))
 }
 
@@ -339,6 +373,234 @@ pub async fn trades(State(c): State<DemoCtx>, headers: HeaderMap, Query(q): Quer
         )
         .await?;
     Ok(Json(v))
+}
+
+/* ---------------- Take profit / stop loss ---------------- */
+
+/// Open orders per account.
+const MAX_OPEN_ORDERS: usize = 20;
+/// How often the gateway checks open orders against live prices.
+const ORDER_CHECK: Duration = Duration::from_secs(2);
+
+#[derive(Deserialize)]
+pub struct OrderRuleIn {
+    mint: String,
+    /// "tp" or "sl".
+    kind: String,
+    /// Move from the average entry price in %: +1 to +10000 for tp, -1 to -95 for sl.
+    pct: f64,
+    /// Share of the position to sell, 0 to 1 (default all).
+    fraction: Option<f64>,
+}
+
+/// Checks a take-profit / stop-loss request; returns (kind, pct, fraction).
+pub fn check_rule(kind: &str, pct: f64, fraction: Option<f64>) -> Result<(&'static str, f64, f64), String> {
+    let f = fraction.unwrap_or(1.0);
+    if !(f > 0.0 && f <= 1.0) {
+        return Err("choose how much to sell".into());
+    }
+    if !pct.is_finite() {
+        return Err("enter a percent".into());
+    }
+    match kind {
+        "tp" if (1.0..=10_000.0).contains(&pct) => Ok(("tp", pct, f)),
+        "sl" if (-95.0..=-1.0).contains(&pct) => Ok(("sl", pct, f)),
+        "tp" => Err("take profit must be between +1% and +10000%".into()),
+        "sl" => Err("stop loss must be between -1% and -95%".into()),
+        _ => Err("kind must be tp or sl".into()),
+    }
+}
+
+/// Has the market crossed an order's trigger?
+pub fn triggered(kind: &str, trigger: f64, price: f64) -> bool {
+    match kind {
+        "tp" => price >= trigger,
+        "sl" => price <= trigger,
+        _ => false,
+    }
+}
+
+/// `POST /demo/orders`: place a take profit or stop loss on a held coin.
+pub async fn create_rule(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<OrderRuleIn>) -> Result<Json<Value>, (StatusCode, String)> {
+    let u = c.acct.user(&headers).await?;
+    if !crate::account::is_solana_address(&o.mint) {
+        return Err((StatusCode::BAD_REQUEST, "not a coin address".into()));
+    }
+    let (kind, pct, fraction) = check_rule(&o.kind, o.pct, o.fraction).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let (_, _, round, rows) = account_rows(&c, &u.id).await?;
+    let pos = rows.iter().find(|p| p["mint"].as_str() == Some(&o.mint)).ok_or((StatusCode::BAD_REQUEST, "buy the coin first".into()))?;
+    let (tokens, cost) = (num(&pos["tokens"]), num(&pos["cost_usd"]));
+    if tokens <= 0.0 || cost <= 0.0 {
+        return Err((StatusCode::BAD_REQUEST, "buy the coin first".into()));
+    }
+    let open = c.acct.rest(reqwest::Method::GET, &format!("demo_orders?user_id=eq.{}&status=eq.open&select=id", u.id), None).await?;
+    if open.as_array().map_or(0, Vec::len) >= MAX_OPEN_ORDERS {
+        return Err((StatusCode::BAD_REQUEST, format!("at most {MAX_OPEN_ORDERS} open orders")));
+    }
+    let entry = cost / tokens;
+    let trigger = entry * (1.0 + pct / 100.0);
+    let v = c
+        .acct
+        .rest(
+            reqwest::Method::POST,
+            "demo_orders",
+            Some(json!({
+                "user_id": u.id, "mint": o.mint, "symbol": pos["symbol"].as_str().unwrap_or(""), "kind": kind,
+                "trigger_pct": pct, "trigger_price_usd": trigger, "fraction": fraction, "round": round
+            })),
+        )
+        .await?;
+    Ok(Json(v.as_array().and_then(|a| a.first()).cloned().unwrap_or(Value::Null)))
+}
+
+/// `GET /demo/orders`: the latest orders, open and done.
+pub async fn list_rules(State(c): State<DemoCtx>, headers: HeaderMap) -> Result<Json<Value>, (StatusCode, String)> {
+    let u = c.acct.user(&headers).await?;
+    let v = c
+        .acct
+        .rest(
+            reqwest::Method::GET,
+            &format!("demo_orders?user_id=eq.{}&select=id,mint,symbol,kind,trigger_pct,trigger_price_usd,fraction,status,note,created_at,done_at&order=created_at.desc&limit=100", u.id),
+            None,
+        )
+        .await?;
+    Ok(Json(v))
+}
+
+/// `POST /demo/orders/{id}/cancel`.
+pub async fn cancel_rule(State(c): State<DemoCtx>, headers: HeaderMap, Path(id): Path<i64>) -> Result<Json<Value>, (StatusCode, String)> {
+    let u = c.acct.user(&headers).await?;
+    let v = c
+        .acct
+        .rest(
+            reqwest::Method::PATCH,
+            &format!("demo_orders?id=eq.{id}&user_id=eq.{}&status=eq.open", u.id),
+            Some(json!({ "status": "cancelled", "note": "cancelled", "done_at": crate::account::chrono_iso(now_secs()) })),
+        )
+        .await?;
+    if v.as_array().is_none_or(Vec::is_empty) {
+        return Err((StatusCode::NOT_FOUND, "order not open".into()));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Cancels a user's open orders: all of them (reset) or one coin's (position closed).
+async fn cancel_open(c: &DemoCtx, user: &str, mint: Option<&str>, note: &str) {
+    let filter = mint.map(|m| format!("&mint=eq.{m}")).unwrap_or_default();
+    let _ = c
+        .acct
+        .rest(
+            reqwest::Method::PATCH,
+            &format!("demo_orders?user_id=eq.{user}&status=eq.open{filter}"),
+            Some(json!({ "status": "cancelled", "note": note, "done_at": crate::account::chrono_iso(now_secs()) })),
+        )
+        .await;
+}
+
+/// Background task: every two seconds, sells at the live market any demo position whose
+/// take profit or stop loss the price has crossed. An order is claimed (status set)
+/// before it fills, so it can never fire twice.
+pub async fn watch_rules(c: DemoCtx) {
+    let mut tick = tokio::time::interval(ORDER_CHECK);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tick.tick().await;
+        let Ok(open) = c
+            .acct
+            .rest(reqwest::Method::GET, "demo_orders?status=eq.open&select=id,user_id,mint,kind,trigger_price_usd,fraction&order=id.asc&limit=2000", None)
+            .await
+        else {
+            continue;
+        };
+        let open = open.as_array().cloned().unwrap_or_default();
+        let mut prices: HashMap<String, Option<f64>> = HashMap::new();
+        for o in open {
+            let mint = o["mint"].as_str().unwrap_or("").to_string();
+            if !prices.contains_key(&mint) {
+                let p = quote(&c.app, &mint).await.ok().map(|q| q.price_usd);
+                prices.insert(mint.clone(), p);
+            }
+            let Some(price) = prices[&mint] else { continue };
+            let kind = o["kind"].as_str().unwrap_or("").to_string();
+            if !triggered(&kind, num(&o["trigger_price_usd"]), price) {
+                continue;
+            }
+            let (id, user) = (o["id"].as_i64().unwrap_or(0), o["user_id"].as_str().unwrap_or("").to_string());
+            if let Err(e) = fire(&c, id, &user, &mint, &kind, num(&o["fraction"])).await {
+                tracing::warn!(id, %mint, error = %e.1, "demo order failed");
+            }
+        }
+    }
+}
+
+async fn mark(c: &DemoCtx, id: i64, status: &str, note: String) {
+    let _ = c.acct.rest(reqwest::Method::PATCH, &format!("demo_orders?id=eq.{id}"), Some(json!({ "status": status, "note": note }))).await;
+}
+
+async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction: f64) -> Result<(), (StatusCode, String)> {
+    let lock = user_lock(user);
+    let _guard = lock.lock().await;
+    // Claim it first: only one fill per order, even if two checks overlap.
+    let claimed = c
+        .acct
+        .rest(
+            reqwest::Method::PATCH,
+            &format!("demo_orders?id=eq.{id}&status=eq.open"),
+            Some(json!({ "status": "filled", "done_at": crate::account::chrono_iso(now_secs()) })),
+        )
+        .await?;
+    if claimed.as_array().is_none_or(Vec::is_empty) {
+        return Ok(());
+    }
+    let (_, _, _, rows) = account_rows(c, user).await?;
+    let held = rows.iter().find(|p| p["mint"].as_str() == Some(mint)).map(|p| num(&p["tokens"])).unwrap_or(0.0);
+    if held <= 0.0 {
+        mark(c, id, "cancelled", "position already closed".into()).await;
+        return Ok(());
+    }
+    let q = match quote(&c.app, mint).await {
+        Ok(q) => q,
+        Err(e) => {
+            mark(c, id, "open", String::new()).await;
+            return Err(e);
+        }
+    };
+    let Some(fill) = q.sell(held * fraction) else {
+        mark(c, id, "cancelled", "nothing to sell".into()).await;
+        return Ok(());
+    };
+    let res = c
+        .acct
+        .rest(
+            reqwest::Method::POST,
+            "rpc/demo_fill",
+            Some(json!({
+                "p_user": user, "p_mint": mint, "p_symbol": q.symbol, "p_side": "sell", "p_tokens": fill.tokens,
+                "p_usd": fill.usd, "p_sol": fill.sol, "p_price_usd": fill.price_usd, "p_fee_usd": fill.fee_usd,
+                "p_impact": fill.impact_pct, "p_source": kind, "p_start": START_USD
+            })),
+        )
+        .await;
+    match res {
+        Ok(r) => {
+            let pnl = num(&r["realized_usd"]);
+            let size = if fraction >= 0.999 { "all".to_string() } else { format!("{:.0}%", fraction * 100.0) };
+            mark(c, id, "filled", format!("sold {size} for ${:.2}, P&L {:+.2}", fill.usd, pnl)).await;
+            if fraction >= 0.999 {
+                cancel_open(c, user, Some(mint), "position closed").await;
+            }
+            tracing::info!(id, mint, kind, usd = fill.usd, "demo order filled");
+            Ok(())
+        }
+        Err(e) => {
+            mark(c, id, "cancelled", format!("could not fill: {}", e.1)).await;
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +653,20 @@ mod tests {
         // A rugged coin (almost no liquidity) sells for almost nothing.
         let rug = Quote { depth: Depth::Pool { reserve_usd: 5.0 }, ..thin };
         assert!(rug.sell(1_000_000.0).expect("rug").usd < 5.0);
+    }
+
+    #[test]
+    fn take_profit_and_stop_loss_rules() {
+        assert_eq!(check_rule("tp", 50.0, None), Ok(("tp", 50.0, 1.0)));
+        assert_eq!(check_rule("sl", -20.0, Some(0.5)), Ok(("sl", -20.0, 0.5)));
+        assert!(check_rule("tp", -5.0, None).is_err());
+        assert!(check_rule("sl", 10.0, None).is_err());
+        assert!(check_rule("sl", -99.0, None).is_err());
+        assert!(check_rule("tp", 50.0, Some(0.0)).is_err());
+        assert!(check_rule("tp", f64::NAN, None).is_err());
+        assert!(check_rule("buy", 5.0, None).is_err());
+        assert!(triggered("tp", 1.5, 1.5) && !triggered("tp", 1.5, 1.49));
+        assert!(triggered("sl", 0.8, 0.79) && !triggered("sl", 0.8, 0.81));
     }
 
     #[test]

@@ -751,6 +751,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bs58",
+ "dotenvy",
  "ed25519-dalek",
  "monexa-common",
  "monexa-ingest",
@@ -762,6 +763,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -25,6 +25,16 @@ export type Features = {
   accounts: boolean;
   portfolio: boolean;
   demo: boolean;
+  share_cards: boolean;
+  demo_orders: boolean;
+  competition: boolean;
+  referrals: boolean;
+  real_trading: boolean;
+  /** Public address that receives the platform fee. */
+  fee_wallet: string;
+  settings: boolean;
+  support: boolean;
+  live_chat: boolean;
 };
 
 export const ALL_ON: Features = {
@@ -45,6 +55,16 @@ export const ALL_ON: Features = {
   accounts: true,
   portfolio: true,
   demo: true,
+  share_cards: true,
+  demo_orders: true,
+  competition: true,
+  referrals: true,
+  // Real money stays off unless the gateway says otherwise.
+  real_trading: false,
+  fee_wallet: "",
+  settings: true,
+  support: true,
+  live_chat: true,
 };
 
 /** Admin labels for every switch, in the order the admin shows them. */
@@ -61,6 +81,14 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
   { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },
   { key: "demo", label: "Demo account", hint: "Virtual $10,000 traded at live prices" },
+  { key: "share_cards", label: "Share P&L cards", hint: "Trade result image to share on X, Reddit and Telegram" },
+  { key: "demo_orders", label: "Take profit / Stop loss", hint: "Automatic exits on demo positions" },
+  { key: "competition", label: "Weekly competition", hint: "Demo trading leaderboard and badges" },
+  { key: "referrals", label: "Referral links", hint: "Personal invite links and share-card links" },
+  { key: "settings", label: "Settings", hint: "Trading defaults, notifications, data export and account deletion" },
+  { key: "support", label: "Support", hint: "Transaction Doctor, help center and tickets" },
+  { key: "live_chat", label: "Live chat", hint: "Chat button on every page; online only while an agent is active in the inbox" },
+  { key: "real_trading", label: "Real trading", hint: "Real SOL trades signed in Phantom. Turn on only after the security review" },
   { key: "accounts", label: "Accounts", hint: "Sign in with Google, Phantom or email" },
 ];
 
@@ -105,4 +133,7 @@ export const PAGE_FLAG: Record<string, keyof Features> = {
   wallets: "wallet_monitor",
   rewards: "rewards",
   portfolio: "portfolio",
+  competition: "competition",
+  settings: "settings",
+  support: "support",
 };

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* MONEXA tokens. Variables are prefixed --mx- because generic names like --bg and
+/* Kixo tokens. Variables are prefixed --mx- because generic names like --bg and
    --text get overwritten by browser extensions that inject their own :root vars.
    Graphite neutrals on a near-black base. Emerald is the single chrome accent
    (live state, selection). Cyan is reserved for on-chain identifiers. No purple. */
@@ -188,4 +188,13 @@ body {
   .radar-sweep {
     animation: none;
   }
+}
+
+/* Sidebar scroll: a hairline thumb that only shows while the pointer is over it. */
+.nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.nav-scroll:hover {
+  scrollbar-color: var(--mx-surface-3) transparent;
 }

@@ -2,11 +2,15 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { shortAddress } from "@/lib/gateway";
+import { GATEWAY_HTTP, shortAddress } from "@/lib/gateway";
 
 /** Token logo from creator metadata, with a letter fallback when missing or broken. */
 export function TokenLogo({ src, symbol, size = 56 }: { src: string | null; symbol: string; size?: number }) {
-  const [failed, setFailed] = useState(false);
+  // 0: the image as given; 1: through the gateway (hosts that block other sites); 2: letter.
+  const [tries, setTries] = useState<{ src: string | null; n: number }>({ src, n: 0 });
+  const n = tries.src === src ? tries.n : 0;
+  const failed = n >= 2 || (n === 1 && !src?.startsWith("https://"));
+  const url = n === 1 && src ? `${GATEWAY_HTTP}/img?u=${encodeURIComponent(src)}` : src;
   const letter = (symbol.replace(/[^a-z0-9]/gi, "")[0] ?? "?").toUpperCase();
 
   return (
@@ -18,12 +22,12 @@ export function TokenLogo({ src, symbol, size = 56 }: { src: string | null; symb
         // Creator-hosted image of unknown origin: no referrer, lazy, sized box.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          src={url ?? undefined}
           alt=""
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
+          onError={() => setTries({ src, n: n + 1 })}
           className="h-full w-full object-cover"
         />
       ) : (

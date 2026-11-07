@@ -1,7 +1,7 @@
 import type { DiscoverRow } from "./categories";
 import type { DevReport, FeedToken, MarketToken } from "./gateway";
 
-/* Safety score: one number from every signal MONEXA has on a coin, 0 (many red
+/* Safety score: one number from every signal Kixo has on a coin, 0 (many red
    flags) to 100 (none found). It starts at 100, each red flag takes points off and a
    few good signs add some back. Unknown data is never counted as safe: it costs a
    little, so a coin we know nothing about cannot score high. Fewer red flags, not a

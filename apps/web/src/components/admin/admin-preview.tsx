@@ -1,17 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, CalendarRange, UserRound, Ban, Eye, KeySquare, PauseCircle, ClipboardList, FileClock, Gauge, KeyRound, Lock, Megaphone, ShieldCheck, SlidersHorizontal, ToggleRight, Users } from "lucide-react";
+import { Activity, CalendarRange, LifeBuoy, UserRound, Ban, Eye, KeySquare, PauseCircle, ClipboardList, FileClock, Gauge, KeyRound, Lock, Megaphone, ShieldCheck, SlidersHorizontal, ToggleRight, Users } from "lucide-react";
 import { ALL_ON, FEATURE_LIST, type Features } from "@/lib/features";
 import { GATEWAY_HTTP } from "@/lib/gateway";
+import { SupportInbox } from "./support-inbox";
 import { FALLBACK_CONFIG, type GatewayTier, type RewardsConfig } from "@/lib/rewards";
 
-type View = "overview" | "users" | "live" | "features" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team";
+type View = "overview" | "users" | "live" | "features" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
 const NAV: { key: View; label: string; icon: typeof Gauge }[] = [
   { key: "overview", label: "Dashboard", icon: Gauge },
   { key: "users", label: "Users", icon: UserRound },
   { key: "live", label: "Live users and activity", icon: Activity },
   { key: "features", label: "Features", icon: ToggleRight },
+  { key: "support", label: "Support inbox", icon: LifeBuoy },
   { key: "review", label: "Annual review", icon: CalendarRange },
   { key: "rewards", label: "Rewards settings", icon: SlidersHorizontal },
   { key: "creators", label: "Creator requests", icon: Megaphone },
@@ -37,7 +39,7 @@ export function AdminPreview() {
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface">
         <div className="flex h-14 items-center gap-2 border-b border-border px-5">
           <span className="h-2.5 w-2.5 rounded-sm bg-emerald" />
-          <span className="font-medium">MONEXA Admin</span>
+          <span className="font-medium">Kixo Admin</span>
         </div>
         <nav className="flex flex-col gap-1 p-3">
           {NAV.map((n) => (
@@ -75,6 +77,12 @@ export function AdminPreview() {
           {view === "approvals" && <Approvals />}
           {view === "audit" && <Audit />}
           {view === "team" && <Team />}
+          {view === "support" && (
+            <>
+              <Title title="Support inbox" sub="Tickets from users, newest messages first. Replies reach the user on their Support page; internal notes stay with the team" />
+              <SupportInbox />
+            </>
+          )}
         </div>
       </main>
     </div>
@@ -359,7 +367,7 @@ function UsersScreen() {
   const sessions = m?.presence.sessions ?? [];
   return (
     <>
-      <Title title="Users" sub="Who is on MONEXA now, and, once accounts open, every registered user with their activity and controls" />
+      <Title title="Users" sub="Who is on Kixo now, and, once accounts open, every registered user with their activity and controls" />
       <div className="mb-4 flex gap-1">
         {(
           [
@@ -375,7 +383,7 @@ function UsersScreen() {
 
       {tab === "live" ? (
         <Card>
-          <p className="mb-3 text-xs text-text-2">Anonymous: each row is one open MONEXA tab, with its page and time online. No name, address or identity is stored</p>
+          <p className="mb-3 text-xs text-text-2">Anonymous: each row is one open Kixo tab, with its page and time online. No name, address or identity is stored</p>
           {sessions.length === 0 ? (
             <p className="py-10 text-center text-xs text-muted">Nobody online right now</p>
           ) : (
@@ -434,7 +442,7 @@ function UsersScreen() {
           <div className="flex flex-col items-center gap-2 px-8 py-12 text-center">
             <UserRound size={20} strokeWidth={1.5} className="text-muted" />
             <p className="text-sm text-text-2">No accounts yet</p>
-            <p className="max-w-md text-xs text-muted">MONEXA has no sign-up yet, so there are no users to list. When accounts open, every user appears here with these controls</p>
+            <p className="max-w-md text-xs text-muted">Kixo has no sign-up yet, so there are no users to list. When accounts open, every user appears here with these controls</p>
           </div>
           <div className="grid gap-3 border-t border-border pt-4 md:grid-cols-4">
             <Action icon={Eye} title="View" body="Profile, trades, positions, rewards and sign-in history" />
@@ -869,7 +877,7 @@ function Live() {
       <Title title="Live users and activity" sub="Counted on the gateway every 5 seconds. Visitors are counted without accounts or cookies, as anonymous daily hashes" />
       <p className="mb-3 text-xs text-muted">People</p>
       <div className="grid gap-4 md:grid-cols-4">
-        <Big label="Live users now" value={n(p?.live_users)} sub="Open MONEXA tabs" live />
+        <Big label="Live users now" value={n(p?.live_users)} sub="Open Kixo tabs" live />
         <Big label="Trade pages open" value={n(p?.trade_pages_open)} sub="People looking at a coin" live />
         <Big label="Visitors today" value={n(p?.visitors_today)} sub="Since midnight UTC" />
         <Big label="Peak today" value={n(p?.peak_live_today)} sub="Most live users at once" />
@@ -916,10 +924,43 @@ function FeaturesEditor() {
   }, []);
   const set = (patch: Partial<Features>) => setDraft((d) => ({ ...d, ...patch }));
   const changed = (Object.keys(draft) as (keyof Features)[]).filter((k) => draft[k] !== live[k]);
+  // The admin key (ADMIN_TOKEN in the gateway .env) is typed for each change, never stored.
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [trade, setTrade] = useState<{ ready: boolean; not_ready: string | null } | null>(null);
+  useEffect(() => {
+    fetch(`${GATEWAY_HTTP}/trade/config`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => c && setTrade({ ready: c.ready, not_ready: c.not_ready ?? null }))
+      .catch(() => {});
+  }, [live]);
+  const walletOk = draft.fee_wallet.trim() === "" || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(draft.fee_wallet.trim());
+  async function apply() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`${GATEWAY_HTTP}/admin/features`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-admin-token": key },
+        body: JSON.stringify({ ...draft, fee_wallet: draft.fee_wallet.trim() }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(res.status === 403 ? "Wrong admin key" : text || `Failed (${res.status})`);
+      const saved = { ...ALL_ON, ...(JSON.parse(text) as Features) };
+      setLive(saved);
+      setDraft(saved);
+      setMsg({ ok: true, text: "Saved. Every visitor gets it within a minute" });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <>
-      <Title title="Features" sub="Switch any part of MONEXA off for everyone, post an announcement, or put the site in maintenance. Every new feature gets a switch here" />
+      <Title title="Features" sub="Switch any part of Kixo off for everyone, post an announcement, or put the site in maintenance. Every new feature gets a switch here" />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex flex-col gap-6">
           <Card title="Features">
@@ -930,6 +971,23 @@ function FeaturesEditor() {
                 </div>
               ))}
             </div>
+          </Card>
+          <Card title="Real trading">
+            <p className="text-xs text-text-2">
+              The 1% platform fee goes to this wallet. Paste its public address only, never a private key or seed phrase. It must already hold at least 0.01 SOL
+            </p>
+            <input
+              value={draft.fee_wallet}
+              onChange={(e) => set({ fee_wallet: e.target.value.trim().slice(0, 44) })}
+              placeholder="Fee wallet address"
+              spellCheck={false}
+              className={`mt-3 h-9 w-full rounded-lg border bg-bg px-3 font-mono text-sm outline-none placeholder:text-muted focus:border-emerald/50 ${walletOk ? "border-border" : "border-negative/60"}`}
+            />
+            {!walletOk && <p className="mt-1 text-xs text-negative">Not a Solana address</p>}
+            <p className={`mt-2 text-xs ${trade?.ready ? "text-positive" : "text-warning"}`}>
+              {trade == null ? "Checking the trading setup" : trade.ready ? "Ready: fee wallet set and funded" : (trade.not_ready ?? "Not ready")}
+            </p>
+            <p className="mt-1 text-[11px] text-muted">Turn on Real trading in Features only after the security review and a small live test</p>
           </Card>
           <Card title="Announcement">
             <Toggle label="Show announcement bar" hint="A line above every page" on={draft.announcement_on} onChange={() => set({ announcement_on: !draft.announcement_on })} />
@@ -969,16 +1027,30 @@ function FeaturesEditor() {
               ))}
             </ul>
           )}
-          <div className="mt-3 flex gap-2">
+          <input
+            type="password"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="Admin key"
+            autoComplete="off"
+            className="mt-3 h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm outline-none placeholder:text-muted focus:border-emerald/50"
+          />
+          <div className="mt-2 flex gap-2">
             <button type="button" onClick={() => setDraft(live)} disabled={!changed.length} className="h-9 flex-1 rounded-lg border border-border text-sm text-text-2 hover:text-text disabled:opacity-40">
               Discard
             </button>
-            <button type="button" disabled title="Available in the secure admin" className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-text text-sm font-medium text-bg opacity-40">
+            <button
+              type="button"
+              onClick={apply}
+              disabled={!changed.length || key.length < 16 || !walletOk || saving}
+              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-text text-sm font-medium text-bg disabled:opacity-40"
+            >
               <KeyRound size={13} strokeWidth={1.5} />
-              Apply
+              {saving ? "Saving" : "Apply"}
             </button>
           </div>
-          <p className="mt-2 text-[11px] text-muted">Switches apply within a minute for every visitor, and are logged</p>
+          {msg && <p className={`mt-2 text-xs ${msg.ok ? "text-positive" : "text-negative"}`}>{msg.text}</p>}
+          <p className="mt-2 text-[11px] text-muted">The admin key is ADMIN_TOKEN from the gateway .env. It is never stored. Switches apply within a minute for every visitor</p>
         </Card>
       </div>
     </>

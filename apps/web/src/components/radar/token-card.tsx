@@ -306,7 +306,7 @@ function Cell({ label, value, warn, title }: { label: string; value: number | nu
 
 function devTitle(r: DevReport) {
   return r.coins === 0
-    ? "No earlier coins by this creator since MONEXA started tracking"
+    ? "No earlier coins by this creator since Kixo started tracking"
     : `Creator's earlier coins: ${r.coins} launched, ${r.graduated} graduated, ${r.rugged} rugged (sold out, down 70%+), ${r.died_fast} died within 15 minutes${
         r.best_peak_mc_usd ? `, best peak ${usd(r.best_peak_mc_usd)}` : ""
       }`;

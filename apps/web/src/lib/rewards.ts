@@ -4,7 +4,7 @@
 
 export const REWARDS_STATUS = {
   draft: true,
-  /** MONEXA's trading fee the programmes share, in % of each trade. */
+  /** Kixo's trading fee the programmes share, in % of each trade. */
   tradingFeePct: 1,
 };
 
@@ -37,7 +37,7 @@ export const CASHBACK = {
     { name: "Whale", unlock: "$1M traded this month", minUsd: 1_000_000, pct: 20 },
   ] satisfies Tier[],
   rules: [
-    "Counted on every buy and sell you make on MONEXA",
+    "Counted on every buy and sell you make on Kixo",
     "Your tier is set by this calendar month's volume and resets on the 1st",
     "Added to your rewards balance after each trade, claimable in SOL",
   ],
@@ -48,14 +48,14 @@ export const CREATOR = {
   benefits: [
     { title: "Higher revenue share", body: "Up to 40% of the trading fees from your audience, above the public referral tiers" },
     { title: "Your own code and page", body: "A custom invite code and a creator page that shows the coins you call" },
-    { title: "Early features", body: "New tools before public launch, and a direct line to the MONEXA team" },
+    { title: "Early features", body: "New tools before public launch, and a direct line to the Kixo team" },
     { title: "Live stats", body: "Sign-ups, active traders, volume and earnings from your audience, updated live" },
   ],
   requirements: [
     "An active audience of traders: X, Telegram, YouTube, Twitch or Discord",
     "Original content about Solana memecoins and trading",
     "No paid pumps, fake calls or hidden promotions",
-    "Clear disclosure that you earn from MONEXA invites",
+    "Clear disclosure that you earn from Kixo invites",
   ],
 };
 

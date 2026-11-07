@@ -7,6 +7,7 @@ import { Loader2, LogOut, Unplug, User, Wallet } from "lucide-react";
 import { activeWallet, authError, connectWallet, disconnectWallet, signOut, useAccount } from "@/lib/account";
 import { phantom, PHANTOM_INSTALL } from "@/lib/phantom";
 import { pushToast } from "@/lib/toast";
+import { useSettings } from "@/lib/settings";
 import { setMode, useDemo } from "@/lib/demo";
 import { useFeatures } from "@/lib/features";
 import { GATEWAY_HTTP, shortAddress } from "@/lib/gateway";
@@ -68,7 +69,7 @@ export function AccountMenu() {
               <User size={14} strokeWidth={1.5} className="text-text-2" />
               <span className="truncate">{me?.email ?? "Wallet account"}</span>
             </p>
-            <p className="mt-1 text-xs text-muted">Signed in with {METHOD[me?.login_method ?? ""] ?? "MONEXA"}</p>
+            <p className="mt-1 text-xs text-muted">Signed in with {METHOD[me?.login_method ?? ""] ?? "Kixo"}</p>
             {wallet && <p className="mt-2 break-all font-mono text-xs text-cyan">{wallet}</p>}
             {account.error && <p className="mt-2 text-xs text-warning">{account.error}</p>}
           </div>
@@ -154,8 +155,12 @@ function WalletChip({ wallet }: { wallet: string }) {
 }
 
 /** One click between the virtual demo account and the real wallet. */
+/** Settings: the account mode to open in after signing in. */
+const applyStartMode = (m: "demo" | "real") => setMode(m);
+
 function ModeSwitch() {
   const { mode, enabled } = useDemo();
+  useSettings(applyStartMode);
   if (!enabled) return null;
   return (
     <div role="group" aria-label="Account mode" className="flex h-9 items-center rounded-lg border border-border bg-surface p-0.5 text-xs">

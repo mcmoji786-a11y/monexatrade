@@ -38,7 +38,7 @@ export function WalletTradesPanel({ trades, now, fresh, symbols }: { trades: Wal
   return (
     <div className="fade-up border-t border-border bg-bg/60 px-4 py-3">
       {trades.length === 0 ? (
-        <p className="py-4 text-center text-xs text-muted">No trades yet on the coins MONEXA is tracking. New ones appear here the moment they confirm</p>
+        <p className="py-4 text-center text-xs text-muted">No trades yet on the coins Kixo is tracking. New ones appear here the moment they confirm</p>
       ) : (
         <>
           <p className="mb-2 flex gap-4 font-mono text-[11px] text-muted">

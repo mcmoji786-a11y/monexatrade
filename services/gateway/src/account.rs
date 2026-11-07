@@ -127,8 +127,9 @@ impl AccountState {
         let status = res.status();
         let text = res.text().await.unwrap_or_default();
         if !status.is_success() {
-            tracing::warn!(%status, "profiles request failed");
-            let msg = if text.contains("profiles") && text.contains("does not exist") { "accounts table not set up yet" } else { "database error" };
+            tracing::warn!(%status, table = path.split('?').next().unwrap_or(""), "database request failed");
+            // A migration that has not been run shows up as a missing table (PGRST205).
+            let msg = if text.contains("PGRST205") || text.contains("does not exist") || text.contains("Could not find the table") { "not set up yet: run the latest migration" } else { "database error" };
             return Err((StatusCode::SERVICE_UNAVAILABLE, msg.into()));
         }
         Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
@@ -142,6 +143,26 @@ impl AccountState {
     async fn upsert(&self, p: Value) -> Result<Profile, (StatusCode, String)> {
         let v = self.rest(reqwest::Method::POST, "profiles?on_conflict=id", Some(p)).await?;
         v.as_array().and_then(|a| a.first()).and_then(|p| serde_json::from_value(p.clone()).ok()).ok_or((StatusCode::SERVICE_UNAVAILABLE, "could not save".into()))
+    }
+
+    /// Deletes the auth user (the account owner asked for it). Rows that reference it
+    /// cascade or keep their history as their tables define.
+    pub(crate) async fn delete_user(&self, id: &str) -> Result<(), (StatusCode, String)> {
+        let res = self
+            .http
+            .delete(format!("{}/auth/v1/admin/users/{id}", self.url))
+            .header("apikey", &self.service)
+            .bearer_auth(&self.service)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "account service unreachable".into()))?;
+        if !res.status().is_success() {
+            tracing::warn!(status = %res.status(), "delete user failed");
+            return Err((StatusCode::BAD_GATEWAY, "could not delete the account, try again".into()));
+        }
+        self.users.lock().expect("users lock").retain(|_, (_, u)| u.id != id);
+        Ok(())
     }
 
     /// Is this wallet already on another account?
@@ -198,7 +219,7 @@ fn iso_now() -> String {
 /// The exact text the wallet signs: names the account and the wallet, so a signature
 /// cannot be reused for another account or another wallet.
 pub fn link_message(user_id: &str, wallet: &str, nonce: &str) -> String {
-    format!("MONEXA wallet link\nThis proves you own this wallet. It does not move funds or cost anything.\nAccount: {user_id}\nWallet: {wallet}\nCode: {nonce}")
+    format!("Kixo wallet link\nThis proves you own this wallet. It does not move funds or cost anything.\nAccount: {user_id}\nWallet: {wallet}\nCode: {nonce}")
 }
 
 /// ed25519 check of a base58 signature over `message` by `wallet`.
@@ -262,6 +283,8 @@ pub async fn sync(State(a): State<Arc<AccountState>>, headers: HeaderMap) -> Res
         row["wallet_verified_at"] = Value::Null;
     }
     let p = if existing.is_none() || row.get("wallet").is_some() { a.upsert(fix_now(row)).await? } else { existing.unwrap_or_default() };
+    // Every account gets its referral code (also its leaderboard name) from the start.
+    let _ = crate::growth::own_code(&a, &u.id).await;
     Ok(Json(me(&u, &p)))
 }
 
@@ -292,7 +315,7 @@ fn fix_now(mut row: Value) -> Value {
 }
 
 /// Unix seconds as RFC 3339 UTC, without a date library.
-fn chrono_iso(secs: i64) -> String {
+pub(crate) fn chrono_iso(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     let (y, m, d) = civil(days);

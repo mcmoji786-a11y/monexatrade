@@ -16,7 +16,7 @@ const isAddress = (s: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s);
 const MAX_ROWS = 200;
 
 /** Wallet Monitor: follow wallets, see their trades live, get alerts on big buys and
- *  sells. Trades come from MONEXA's own decoder (every coin it tracks). */
+ *  sells. Trades come from Kixo's own decoder (every coin it tracks). */
 export function MonitorBoard() {
   const m = useMonitor();
   const now = useNow();
@@ -361,7 +361,7 @@ function useWalletActivity(wallets: MonitoredWallet[]) {
 }
 
 /** Where alerts go. Browser alerts work now; Telegram and Discord switch on once the
- *  gateway has MONEXA's bot and accounts store these settings. */
+ *  gateway has Kixo's bot and accounts store these settings. */
 function Delivery() {
   const m = useMonitor();
   const [status, setStatus] = useState<{
@@ -402,7 +402,7 @@ function Delivery() {
         on={m.prefs.browser}
       >
         <label className="flex items-center justify-between text-sm text-text-2">
-          Notify while MONEXA is open
+          Notify while Kixo is open
           <input
             type="checkbox"
             checked={m.prefs.browser}
@@ -420,7 +420,7 @@ function Delivery() {
       >
         <ol className="list-decimal space-y-1 pl-4 text-xs text-text-2">
           <li>
-            Open MONEXA&apos;s Telegram bot (link appears here once it is live)
+            Open Kixo&apos;s Telegram bot (link appears here once it is live)
           </li>
           <li>Press Start. The bot replies with your chat ID</li>
           <li>Paste the chat ID below</li>
@@ -469,8 +469,8 @@ function Delivery() {
 
       <p className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-text-2">
         {status?.server_delivery
-          ? "Telegram and Discord alerts are live, even when MONEXA is closed"
-          : "Telegram and Discord delivery switch on when MONEXA accounts launch. Until then your settings stay in this browser, and browser alerts work now"}
+          ? "Telegram and Discord alerts are live, even when Kixo is closed"
+          : "Telegram and Discord delivery switch on when Kixo accounts launch. Until then your settings stay in this browser, and browser alerts work now"}
       </p>
     </aside>
   );

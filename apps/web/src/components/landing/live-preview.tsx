@@ -30,7 +30,7 @@ export function LivePreview() {
         <ul className="min-w-0">
           {newest.length === 0 && (
             <li className="py-10 text-center text-sm text-muted">
-              {live ? "Waiting for the next launch" : "Start the MONEXA gateway to see live launches"}
+              {live ? "Waiting for the next launch" : "Start the Kixo gateway to see live launches"}
             </li>
           )}
           {newest.map((t) => (

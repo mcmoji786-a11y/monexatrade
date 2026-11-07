@@ -1,6 +1,6 @@
 # Launch checklist
 
-These must be done before any real user or real money touches MONEXA.
+These must be done before any real user or real money touches Kixo.
 
 ## Secret rotation (the keys were shared in a chat during setup)
 - [ ] Rotate the Helius API key

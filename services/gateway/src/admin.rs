@@ -131,13 +131,31 @@ pub struct FeatureFlags {
     pub portfolio: bool,
     /// Demo trading account.
     pub demo: bool,
+    /// Shareable P&L cards for trades.
+    pub share_cards: bool,
+    /// Take profit / stop loss on demo positions.
+    pub demo_orders: bool,
+    /// Weekly demo competition page.
+    pub competition: bool,
+    /// Referral links and codes.
+    pub referrals: bool,
+    /// Real-money trading through the user's own wallet. Off until the founder turns it on.
+    pub real_trading: bool,
+    /// Public address that receives the 1% platform fee (never a private key).
+    pub fee_wallet: String,
+    /// Settings page.
+    pub settings: bool,
+    /// Support center: Transaction Doctor, help center and tickets.
+    pub support: bool,
+    /// Live chat with the support team (shown online only while an agent is active).
+    pub live_chat: bool,
 }
 
 impl Default for FeatureFlags {
     fn default() -> Self {
         Self {
             maintenance: false,
-            maintenance_message: "MONEXA is being upgraded. Back shortly".into(),
+            maintenance_message: "Kixo is being upgraded. Back shortly".into(),
             announcement_on: false,
             announcement: String::new(),
             discover: true,
@@ -153,6 +171,15 @@ impl Default for FeatureFlags {
             accounts: true,
             portfolio: true,
             demo: true,
+            share_cards: true,
+            demo_orders: true,
+            competition: true,
+            referrals: true,
+            real_trading: false,
+            fee_wallet: String::new(),
+            settings: true,
+            support: true,
+            live_chat: true,
         }
     }
 }
@@ -161,6 +188,13 @@ impl FeatureFlags {
     fn validate(&self) -> Result<(), String> {
         if self.announcement.len() > 200 || self.maintenance_message.len() > 200 {
             return Err("messages: up to 200 characters".into());
+        }
+        let w = self.fee_wallet.trim();
+        if !w.is_empty() && crate::solana_tx::pubkey(w).is_err() {
+            return Err("fee wallet: not a Solana address".into());
+        }
+        if self.real_trading && w.is_empty() && std::env::var("FEE_WALLET").map_or(true, |v| v.trim().is_empty()) {
+            return Err("set a fee wallet before turning real trading on".into());
         }
         Ok(())
     }
@@ -241,6 +275,22 @@ const APPLY_PER_HOUR: usize = 3;
 const MAX_APPLICATIONS: usize = 5_000;
 
 impl AdminState {
+    /// Whether real-money trading is switched on in the admin.
+    pub fn real_trading(&self) -> bool {
+        self.features.lock().expect("features lock").real_trading
+    }
+
+    /// Whether live chat is switched on in the admin.
+    pub fn live_chat(&self) -> bool {
+        let f = self.features.lock().expect("features lock");
+        f.support && f.live_chat
+    }
+
+    /// The fee wallet set in the admin, if any.
+    pub fn fee_wallet(&self) -> Option<String> {
+        Some(self.features.lock().expect("features lock").fee_wallet.trim().to_string()).filter(|w| !w.is_empty())
+    }
+
     pub fn load() -> Arc<Self> {
         let rewards = std::fs::read(REWARDS_FILE).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let applications = std::fs::read(APPLICATIONS_FILE).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -258,7 +308,7 @@ fn save(path: &str, value: &impl Serialize) {
 }
 
 /// Constant-time comparison against ADMIN_TOKEN; no token configured means no admin.
-fn is_admin(headers: &HeaderMap) -> bool {
+pub(crate) fn is_admin(headers: &HeaderMap) -> bool {
     let Ok(expected) = std::env::var("ADMIN_TOKEN") else { return false };
     if expected.len() < 16 {
         return false;
@@ -403,5 +453,27 @@ mod tests {
         assert!(bad.validate().is_err());
         let unknown = ApplicationIn { socials: vec![Social { platform: "myspace".into(), url: "https://myspace.com/a".into() }], ..ok };
         assert!(unknown.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod flag_tests {
+    use super::*;
+
+    #[test]
+    fn fee_wallet_and_real_trading_rules() {
+        let mut f = FeatureFlags::default();
+        assert!(!f.real_trading, "real trading is off by default");
+        assert!(f.validate().is_ok());
+        f.fee_wallet = "not-an-address".into();
+        assert!(f.validate().is_err());
+        f.fee_wallet = "D2L6yPZ2FmmmTKPgzaMKdhu6EWZcTpLy1Vhx8uvZe7NZ".into();
+        assert!(f.validate().is_ok());
+        f.real_trading = true;
+        assert!(f.validate().is_ok(), "on with a fee wallet");
+        if std::env::var("FEE_WALLET").is_err() {
+            f.fee_wallet.clear();
+            assert!(f.validate().is_err(), "on without any fee wallet is refused");
+        }
     }
 }

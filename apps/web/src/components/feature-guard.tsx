@@ -25,12 +25,12 @@ export function FeatureGuard({ children }: { children: React.ReactNode }) {
 
   if (f.maintenance) {
     return (
-      <Notice icon={<Wrench size={22} strokeWidth={1.5} />} title="Maintenance" body={f.maintenance_message || "MONEXA is being upgraded. Back shortly"} />
+      <Notice icon={<Wrench size={22} strokeWidth={1.5} />} title="Maintenance" body={f.maintenance_message || "Kixo is being upgraded. Back shortly"} />
     );
   }
   if (flag && !f[flag]) {
     const name = FEATURE_LIST.find((x) => x.key === flag)?.label ?? "This page";
-    return <Notice icon={<PauseCircle size={22} strokeWidth={1.5} />} title={`${name} is paused`} body="The MONEXA team paused this feature for now. It will be back soon" back />;
+    return <Notice icon={<PauseCircle size={22} strokeWidth={1.5} />} title={`${name} is paused`} body="The Kixo team paused this feature for now. It will be back soon" back />;
   }
   return <>{children}</>;
 }

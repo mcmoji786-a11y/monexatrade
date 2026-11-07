@@ -1,5 +1,5 @@
 /** AI coin analysis: the contract between the UI and whatever produces the analysis.
- *  The engine is not chosen yet (a hosted model API or MONEXA's own model), so
+ *  The engine is not chosen yet (a hosted model API or Kixo's own model), so
  *  `analyze` reports "not ready". Wiring an engine later only changes this file
  *  (and a gateway route), not the button or popup. */
 

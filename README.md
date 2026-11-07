@@ -1,4 +1,4 @@
-# MONEXA
+# Kixo
 
 AI-powered Solana trading and market intelligence terminal. The product spec is in [MONEXA_MASTER_SPEC.md](MONEXA_MASTER_SPEC.md).
 

@@ -21,6 +21,12 @@ const MAX_TRADES: usize = 1_000;
 pub const CANDLE_SECS: i64 = 5;
 /// 5 s candles for 6 hours.
 const MAX_CANDLES: usize = 4_320;
+/// Copy simulation: a follower sees a trade and lands the same order this many seconds
+/// later, paying this share in fees and slippage on each side.
+pub const COPY_DELAY_SECS: i64 = 3;
+const COPY_COST: f64 = 0.01;
+/// Copy orders waiting for their delay, per coin.
+const MAX_PENDING: usize = 2_000;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TradeRow {
@@ -70,6 +76,25 @@ pub struct Position {
     pub last_ts: i64,
     pub dev: bool,
     pub sniper: bool,
+    /// A follower copying this wallet COPY_DELAY_SECS late: tokens held, cost of what
+    /// is held, and realised profit and cost of what was sold (SOL).
+    #[serde(skip)]
+    pub copy_tokens: f64,
+    #[serde(skip)]
+    pub copy_basis: f64,
+    #[serde(skip)]
+    pub copy_realized_sol: f64,
+    #[serde(skip)]
+    pub copy_sold_cost: f64,
+}
+
+/// A follower's order, filled at the market once its delay has passed.
+struct Pending {
+    wallet: String,
+    due: i64,
+    /// Buy: SOL to spend. Sell: share of the follower's tokens to sell.
+    buy_sol: Option<f64>,
+    sell_frac: f64,
 }
 
 struct Book {
@@ -90,6 +115,7 @@ struct Book {
     whales: VecDeque<TradeRow>,
     candles: VecDeque<Candle>,
     wallets: HashMap<String, Position>,
+    pending: VecDeque<Pending>,
 }
 
 impl Book {
@@ -120,10 +146,39 @@ impl Book {
             whales: VecDeque::new(),
             candles: VecDeque::new(),
             wallets: HashMap::new(),
+            pending: VecDeque::new(),
+        }
+    }
+
+    /// Fills follower orders whose delay has passed at the latest market price.
+    fn fill_copies(&mut self, now: i64) {
+        let px = self.price_sol;
+        while self.pending.front().is_some_and(|o| o.due <= now) {
+            let o = self.pending.pop_front().expect("front");
+            if px <= 0.0 {
+                continue;
+            }
+            let Some(p) = self.wallets.get_mut(&o.wallet) else { continue };
+            match o.buy_sol {
+                Some(sol) => {
+                    p.copy_tokens += sol * (1.0 - COPY_COST) / px;
+                    p.copy_basis += sol;
+                }
+                None if p.copy_tokens > 0.0 => {
+                    let tokens = p.copy_tokens * o.sell_frac;
+                    let cost = p.copy_basis * o.sell_frac;
+                    p.copy_realized_sol += tokens * px * (1.0 - COPY_COST) - cost;
+                    p.copy_sold_cost += cost;
+                    p.copy_tokens -= tokens;
+                    p.copy_basis -= cost;
+                }
+                None => {}
+            }
         }
     }
 
     fn apply(&mut self, signature: &str, t: &Trade) -> TradeRow {
+        self.fill_copies(t.timestamp);
         // The price a trade actually executed at (SOL paid / tokens moved), as large
         // screeners report it. The pool's post-trade spot price can differ a lot on thin
         // liquidity (verified: a drained PumpSwap pool, spot 38x below the fill price).
@@ -163,6 +218,13 @@ impl Book {
         if t.is_buy && !dev && t.timestamp - self.created <= SNIPE_WINDOW_SECS {
             p.sniper = true;
         }
+        let copy = if t.user.is_empty() || dev {
+            None
+        } else if t.is_buy {
+            Some((Some(sol), 0.0))
+        } else {
+            Some((None, if p.balance > 0.0 { (tokens / p.balance).min(1.0) } else { 1.0 }))
+        };
         if t.is_buy {
             p.buys += 1;
             p.bought_sol += sol;
@@ -182,6 +244,12 @@ impl Book {
         }
         p.last_ts = p.last_ts.max(t.timestamp);
         let sniper = p.sniper;
+        if let Some((buy_sol, sell_frac)) = copy {
+            if self.pending.len() >= MAX_PENDING {
+                self.pending.pop_front();
+            }
+            self.pending.push_back(Pending { wallet: t.user.clone(), due: t.timestamp + COPY_DELAY_SECS, buy_sol, sell_frac });
+        }
 
         let row = TradeRow {
             signature: signature.to_string(),
@@ -315,6 +383,7 @@ impl Books {
             trades: seed_trades.into_iter().take(MAX_TRADES).collect(),
             candles: seed_candles.into_iter().collect(),
             wallets: HashMap::new(),
+            pending: VecDeque::new(),
         });
         book.source = dex.to_string();
         book.pool = Some(pool.to_string());
@@ -382,6 +451,13 @@ impl Books {
 
     pub fn supply(&self, mint: &str) -> Option<f64> {
         self.books.get(mint).map(|b| b.supply)
+    }
+
+    /// Price of the latest decoded pool trade (not a bonding curve) and when it happened.
+    pub fn last_pool_price(&self, mint: &str) -> Option<(f64, i64)> {
+        let b = self.books.get(mint).filter(|b| b.source != "curve")?;
+        let t = b.trades.front()?;
+        (t.price_sol > 0.0).then_some((t.price_sol, t.ts))
     }
 
     /// Recent trades by any of `wallets` across live books, newest first.
@@ -568,4 +644,27 @@ mod tests {
         assert_eq!(snap.candles[0].t, 85);
         assert_eq!(snap.candles[1].t, 90);
     }
+
+    /// A trade that leaves the curve at `mult` times the starting price.
+    fn at(user: &str, buy: bool, sol: u64, ts: i64, mult: f64) -> Trade {
+        Trade { virtual_sol_reserves: (30_000_000_000.0 * mult) as u64, ..trade(user, buy, sol, 1_000_000, ts) }
+    }
+
+    #[test]
+    fn simulates_a_late_follower() {
+        let mut books = Books::default();
+        books.add(&token());
+        books.apply("a", &at("LEAD", true, 1_000_000_000, 100, 1.0)).unwrap();
+        // The price doubles before the follower's order lands three seconds later.
+        books.apply("b", &at("X", true, 1_000_000, 101, 2.0)).unwrap();
+        books.apply("c", &at("Y", true, 1_000_000, 103, 2.5)).unwrap();
+        books.apply("d", &at("LEAD", false, 1_000_000_000, 104, 3.0)).unwrap();
+        books.apply("e", &at("Z", true, 1_000_000, 107, 1.0)).unwrap();
+        let p = books.positions_of("M").into_iter().find(|p| p.wallet == "LEAD").unwrap();
+        // Bought 0.99 SOL of tokens at 2x, sold them at 3x less 1%: 1.0 SOL cost, 1.470 back.
+        assert!((p.copy_sold_cost - 1.0).abs() < 1e-9, "{}", p.copy_sold_cost);
+        assert!((p.copy_realized_sol - (0.99 * 0.99 * 1.5 - 1.0)).abs() < 1e-9, "{}", p.copy_realized_sol);
+        assert!(p.copy_tokens.abs() < 1e-9);
+    }
+
 }

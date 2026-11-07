@@ -247,7 +247,7 @@ mod tests {
 
     fn sample_event(with_reserves: bool) -> String {
         let mut b = CREATE_EVENT_DISCRIMINATOR.to_vec();
-        borsh_str(&mut b, "Monexa Test");
+        borsh_str(&mut b, "Kixo Test");
         borsh_str(&mut b, "MNX");
         borsh_str(&mut b, "https://example.com/meta.json");
         for k in [1u8, 2, 3, 4] {
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn decodes_legacy_create_with_reserves() {
         let t = parse_create("sig1", &logs(CREATE_LOG, &sample_event(true))).unwrap();
-        assert_eq!(t.name, "Monexa Test");
+        assert_eq!(t.name, "Kixo Test");
         assert_eq!(t.symbol, "MNX");
         assert_eq!(t.mint, bs58::encode([1u8; 32]).into_string());
         assert_eq!(t.creator, bs58::encode([4u8; 32]).into_string());

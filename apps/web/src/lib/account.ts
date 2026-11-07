@@ -144,6 +144,8 @@ export async function acceptTerms() {
 
 /** The current access token, for calls to the gateway. */
 export const accessToken = () => session?.access_token ?? null;
+/** The signed-in user's id, or null when signed out. */
+export const currentUserId = () => session?.user?.id ?? null;
 
 /* ---------------- Sign-in methods ---------------- */
 
@@ -193,10 +195,18 @@ export async function signInWithPhantom() {
   };
   const { error } = await client().auth.signInWithWeb3({
     chain: "solana",
-    statement: "Sign in to MONEXA. This does not move funds or cost anything.",
+    statement: "Sign in to Kixo. This does not move funds or cost anything.",
     wallet: signer as never,
   });
   if (error) throw error;
+}
+
+/** Signs out on every device and browser (all sessions of this account). */
+export async function signOutEverywhere() {
+  try {
+    await supabase()?.auth.signOut({ scope: "global" });
+  } catch {}
+  await signOut();
 }
 
 export async function signOut() {

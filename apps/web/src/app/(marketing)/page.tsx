@@ -16,7 +16,7 @@ import {
 } from "@/components/landing/sections";
 
 export const metadata: Metadata = {
-  title: "MONEXA · See every new Solana token the second it launches",
+  title: { absolute: "Kixo – AI-Powered Solana Memecoin Trading Terminal" },
 };
 
 export default function LandingPage() {
@@ -34,7 +34,7 @@ export default function LandingPage() {
               See every new Solana token the second it launches
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-text-2">
-              MONEXA reads launches straight from the chain, prices them itself and flags the risks it can verify.
+              Kixo reads launches straight from the chain, prices them itself and flags the risks it can verify.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-3">
               <TradeNowButton className={buttonClass("primary", "lg")}>Trade now</TradeNowButton>

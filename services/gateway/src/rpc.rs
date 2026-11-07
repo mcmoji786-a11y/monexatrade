@@ -7,7 +7,14 @@ use std::time::Duration;
 
 /// Requests per second the gateway sends Helius (free plan: about 10, and the
 /// ingest engine's SOL price poller shares the key).
-const REQUESTS_PER_SECOND: usize = 8;
+/// Default for the free plan; HELIUS_RPS in the environment raises it on a paid plan.
+const DEFAULT_RPS: usize = 8;
+
+fn requests_per_second() -> usize {
+    use std::sync::OnceLock;
+    static RPS: OnceLock<usize> = OnceLock::new();
+    *RPS.get_or_init(|| std::env::var("HELIUS_RPS").ok().and_then(|v| v.parse().ok()).filter(|v| (1..=500).contains(v)).unwrap_or(DEFAULT_RPS))
+}
 
 /// Waits until `weight` requests fit in the last second's budget. A batch of n calls
 /// costs n. Callers queue instead of failing with 429.
@@ -16,7 +23,7 @@ async fn pace(weight: usize) {
     use std::time::Instant;
     static SENT: Mutex<std::collections::VecDeque<Instant>> =
         Mutex::new(std::collections::VecDeque::new());
-    let weight = weight.clamp(1, REQUESTS_PER_SECOND);
+    let weight = weight.clamp(1, requests_per_second());
     loop {
         let wait = {
             let mut sent = SENT.lock().expect("rpc pace lock");
@@ -26,12 +33,12 @@ async fn pace(weight: usize) {
             {
                 sent.pop_front();
             }
-            if sent.len() + weight <= REQUESTS_PER_SECOND {
+            if sent.len() + weight <= requests_per_second() {
                 let now = Instant::now();
                 sent.extend(std::iter::repeat_n(now, weight));
                 return;
             }
-            let oldest = sent[sent.len() + weight - REQUESTS_PER_SECOND - 1];
+            let oldest = sent[sent.len() + weight - requests_per_second() - 1];
             Duration::from_secs(1).saturating_sub(oldest.elapsed())
         };
         tokio::time::sleep(wait.max(Duration::from_millis(20))).await;

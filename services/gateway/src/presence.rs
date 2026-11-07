@@ -1,6 +1,6 @@
-//! Who is on MONEXA right now, counted without accounts or cookies.
+//! Who is on Kixo right now, counted without accounts or cookies.
 //!
-//! - Live users: open live-feed connections (every MONEXA page holds one).
+//! - Live users: open live-feed connections (every Kixo page holds one).
 //! - Trade pages open: open per-coin connections.
 //! - Visitors today: distinct visitors since midnight UTC, kept as salted hashes of the
 //!   address (never the address itself); the salt changes daily so days cannot be

@@ -128,7 +128,7 @@ export function DiscoverBoard() {
 
       <p className="mt-6 max-w-3xl text-xs leading-5 text-muted">
         Memecoins only: tokens tagged meme or launched on a memecoin launchpad. Stocks, RWAs and DeFi tokens are
-        excluded. Prices for new launches are computed by MONEXA from every trade. Holders, liquidity and
+        excluded. Prices for new launches are computed by Kixo from every trade. Holders, liquidity and
         established tokens come from market data and refresh every few seconds. Holder counts marked ~ are estimates
         until exact counts load. Being listed is not a recommendation.
       </p>
@@ -185,7 +185,7 @@ function CategoryView({
 
       {list.length === 0 ? (
         <div className="mt-4 rounded-2xl border border-dashed border-border px-8 py-20 text-center text-sm text-muted">
-          {status === "live" ? "Nothing fits this category yet. It fills as data comes in" : "Connecting to the MONEXA gateway"}
+          {status === "live" ? "Nothing fits this category yet. It fills as data comes in" : "Connecting to the Kixo gateway"}
         </div>
       ) : (
         <>

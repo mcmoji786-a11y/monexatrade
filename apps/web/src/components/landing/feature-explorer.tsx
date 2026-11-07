@@ -57,7 +57,7 @@ const CATEGORIES: Category[] = [
     label: "Trade",
     icon: ArrowLeftRight,
     title: "Fast trades from your own wallet",
-    body: "Build the order, see the fee and a simulation, then sign in Phantom. MONEXA never holds your keys.",
+    body: "Build the order, see the fee and a simulation, then sign in Phantom. Kixo never holds your keys.",
     features: [
       { name: "Instant and one-click buy and sell", status: "building" },
       { name: "Presets, custom amounts and multiple wallets", status: "building" },

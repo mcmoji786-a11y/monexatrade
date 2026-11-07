@@ -29,7 +29,7 @@ export function Features() {
           id="features"
           eyebrow="Features"
           title="Everything a Solana trader needs, in one terminal"
-          body="The full MONEXA platform, grouped the way you trade. Each feature shows whether it is live today, in development or planned."
+          body="The full Kixo platform, grouped the way you trade. Each feature shows whether it is live today, in development or planned."
         />
         <Reveal delay={120}>
           <dl className="flex gap-8 font-mono">
@@ -113,7 +113,7 @@ export function ChainData() {
         id="data"
         eyebrow="Data"
         title="Read from the chain, not resold"
-        body="MONEXA runs its own decoders for Solana programs. The numbers you see are worked out from on-chain events, and estimates are labelled as estimates."
+        body="Kixo runs its own decoders for Solana programs. The numbers you see are worked out from on-chain events, and estimates are labelled as estimates."
       />
       <dl className="divide-y divide-border rounded-2xl border border-border bg-surface">
         {DATA_POINTS.map((d) => (
@@ -130,7 +130,7 @@ export function ChainData() {
 /* ---------- security ---------- */
 
 const SECURITY: { icon: LucideIcon; title: string; body: string }[] = [
-  { icon: KeyRound, title: "Your keys stay yours", body: "MONEXA never asks for a seed phrase or private key. Funds stay in your wallet." },
+  { icon: KeyRound, title: "Your keys stay yours", body: "Kixo never asks for a seed phrase or private key. Funds stay in your wallet." },
   { icon: ShieldCheck, title: "You sign every trade", body: "Each transaction is approved in your own wallet, such as Phantom, before it is sent." },
   { icon: Receipt, title: "Simulated first", body: "Transactions are simulated before you sign, so obvious failures are caught early." },
 ];
@@ -143,7 +143,7 @@ export function Security() {
           id="security"
           eyebrow="Security"
           title="Non-custodial by design"
-          body="Real-money trading opens only after an independent security review. Until then MONEXA shows data and never moves funds."
+          body="Real-money trading opens only after an independent security review. Until then Kixo shows data and never moves funds."
         />
         <div className="mt-12 grid gap-6 md:grid-cols-3">
           {SECURITY.map(({ icon: Icon, title, body }, i) => (
@@ -169,7 +169,7 @@ export function Fees() {
           id="fees"
           eyebrow="Fees"
           title="One flat fee, shown before you approve"
-          body="No subscription and no hidden spread. Solana network fees go to the network, not to MONEXA."
+          body="No subscription and no hidden spread. Solana network fees go to the network, not to Kixo."
         />
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border">
           {[
@@ -196,8 +196,8 @@ const FAQ = [
     a: "Sol Radar is live: new Solana tokens from every major launchpad, with price, market cap, volume, holders, curve progress and concentration. Trading, token pages and the wallet tracker are in development.",
   },
   {
-    q: "Does MONEXA hold my funds?",
-    a: "No. MONEXA is non-custodial. You trade from your own wallet and approve each transaction there. We never ask for a seed phrase.",
+    q: "Does Kixo hold my funds?",
+    a: "No. Kixo is non-custodial. You trade from your own wallet and approve each transaction there. We never ask for a seed phrase.",
   },
   {
     q: "Which tokens appear on Sol Radar?",
@@ -205,7 +205,7 @@ const FAQ = [
   },
   {
     q: "Why are holder counts marked as approximate?",
-    a: "Holders are counted from the trades MONEXA observes after launch. Direct wallet-to-wallet transfers are not trades, so the count can differ slightly.",
+    a: "Holders are counted from the trades Kixo observes after launch. Direct wallet-to-wallet transfers are not trades, so the count can differ slightly.",
   },
   {
     q: "Is a token on Sol Radar a recommendation?",
@@ -259,7 +259,7 @@ export function SiteFooter() {
         <div className="flex flex-col gap-8 md:flex-row md:justify-between">
           <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-[3px] bg-emerald" />
-            <span className="font-semibold text-text">Monexa</span>
+            <span className="font-semibold text-text">Kixo</span>
           </div>
           <nav className="flex flex-wrap gap-x-8 gap-y-3 text-sm text-text-2" aria-label="Footer">
             <Link href="/discover" className="hover:text-text">Discover</Link>
@@ -271,10 +271,10 @@ export function SiteFooter() {
           </nav>
         </div>
         <p className="mt-10 max-w-3xl text-xs leading-5 text-muted">
-          Trading crypto assets carries a high risk of loss. Nothing on MONEXA is financial advice. Data is
+          Trading crypto assets carries a high risk of loss. Nothing on Kixo is financial advice. Data is
           provided as is, and estimates are labelled as estimates.
         </p>
-        <p className="mt-4 font-mono text-xs text-muted">© 2026 MONEXA · monexa.trade</p>
+        <p className="mt-4 font-mono text-xs text-muted">© 2026 Kixo</p>
       </div>
     </footer>
   );

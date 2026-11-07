@@ -1,7 +1,8 @@
 "use client";
 
-/* Phantom in the browser: connect and sign a text message. Nothing here can move funds;
-   MONEXA never asks for a transaction signature or a seed phrase to sign in. */
+/* Phantom in the browser: connect, sign a text message to sign in, and sign a trade the
+   user has reviewed. Signing in never moves funds. A trade is signed only when the user
+   presses Buy or Sell and approves it in Phantom. Kixo never asks for a seed phrase. */
 
 type PhantomSolana = {
   isPhantom?: boolean;
@@ -102,6 +103,8 @@ export function base58(bytes: Uint8Array): string {
     if (byte !== 0) break;
     out += "1";
   }
+  // An all-zero input is only its leading "1"s; the value itself is zero.
+  if (out.length === bytes.length) return out;
   for (let i = digits.length - 1; i >= 0; i--) out += ALPHABET[digits[i]];
   return out;
 }
@@ -115,4 +118,32 @@ export async function signWithPhantom(message: string, wallet?: string) {
   if (wallet && wallet !== address) throw new Error("Phantom switched to another wallet, try again");
   const { signature } = await p.signMessage(new TextEncoder().encode(message), "utf8");
   return { wallet: address, signature: base58(signature) };
+}
+
+type SignTxFeature = {
+  signTransaction(...inputs: { account: StdAccount; transaction: Uint8Array; chain?: string }[]): Promise<{ signedTransaction: Uint8Array }[]>;
+};
+
+/** Phantom through the Wallet Standard: it signs raw transaction bytes, so Kixo needs
+ *  no Solana SDK in the browser. */
+function phantomStandard(): StdWallet | null {
+  const std = registered.filter((w) => w.features["standard:connect"] && w.features["solana:signTransaction"]);
+  return std.find((w) => /phantom/i.test(w.name)) ?? null;
+}
+
+/** Asks Phantom to sign `tx` with `wallet`. The user sees and approves it in Phantom.
+ *  Returns the signed bytes; nothing is sent from the wallet. */
+export async function signTransactionWithPhantom(tx: Uint8Array, wallet: string): Promise<Uint8Array> {
+  const w = phantomStandard();
+  if (!w) throw new Error("Phantom is not installed or needs an update");
+  let account = w.accounts.find((a) => a.address === wallet);
+  if (!account) {
+    const connect = w.features["standard:connect"] as { connect: () => Promise<{ accounts: readonly StdAccount[] }> };
+    const out = await connect.connect();
+    account = out.accounts.find((a) => a.address === wallet);
+  }
+  if (!account) throw new Error("Phantom is on another wallet. Switch to the connected one and try again");
+  const f = w.features["solana:signTransaction"] as SignTxFeature;
+  const [out] = await f.signTransaction({ account, transaction: tx, chain: "solana:mainnet" });
+  return out.signedTransaction;
 }

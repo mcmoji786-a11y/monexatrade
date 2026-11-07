@@ -31,7 +31,11 @@ export function Topbar() {
         >
           <Menu size={18} strokeWidth={1.5} />
         </button>
-        <div className="md:hidden">
+        {/* On a phone the mark alone, so the account controls fit without a sideways scroll. */}
+        <div className="sm:hidden">
+          <Logo compact />
+        </div>
+        <div className="hidden sm:block md:hidden">
           <Logo />
         </div>
         <GlobalSearch key={pathname} />

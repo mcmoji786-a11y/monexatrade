@@ -249,7 +249,7 @@ function Settings({ s, update, reset, solUsd }: { s: SniperSettings; update: (p:
 
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted">Alert on every buy and sell</p>
-        <Check label="Pop-up in MONEXA" on={s.notifyToast} onChange={() => update({ notifyToast: !s.notifyToast })} />
+        <Check label="Pop-up in Kixo" on={s.notifyToast} onChange={() => update({ notifyToast: !s.notifyToast })} />
         <Check label="Sound" on={s.notifySound} onChange={() => update({ notifySound: !s.notifySound })} />
         <Check
           label="Desktop notification"
@@ -269,7 +269,7 @@ function Settings({ s, update, reset, solUsd }: { s: SniperSettings; update: (p:
       </Group>
 
       <p className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-text-2">
-        Runs while MONEXA is open in this browser. Dev selling always blocks a buy. Settings and history stay in this browser
+        Runs while Kixo is open in this browser. Dev selling always blocks a buy. Settings and history stay in this browser
       </p>
     </aside>
   );

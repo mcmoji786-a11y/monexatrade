@@ -110,7 +110,7 @@ async fn call(http: &reqwest::Client, url: &str, method: &str, params: Value) ->
 pub async fn resolve(http: &reqwest::Client, rpc_url: &str, signature: &str, logs: &[String]) -> Option<NewToken> {
     let mut tx = None;
     for attempt in 0..3 {
-        tx = call(http, rpc_url, "getTransaction", json!([signature, { "maxSupportedTransactionVersion": 0, "encoding": "jsonParsed", "commitment": "confirmed" }])).await;
+        tx = call(http, rpc_url, "getTransaction", json!([signature, { "maxSupportedTransactionVersion": 1, "encoding": "jsonParsed", "commitment": "confirmed" }])).await;
         if tx.is_some() {
             break;
         }

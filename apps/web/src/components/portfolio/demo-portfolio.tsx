@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Image as ImageIcon, Loader2, RotateCcw } from "lucide-react";
 import { orderError, resetDemo, useDemo, type DemoTrade } from "@/lib/demo";
 import { pushToast } from "@/lib/toast";
+import { useFeatures } from "@/lib/features";
+import { ShareCard, type ShareTrade } from "./share-card";
 import { compact, money, signed, tinyPrice } from "@/components/trade/trade-panel";
 
 /** The demo account as a portfolio: equity, positions at live prices and every trade. */
@@ -13,6 +15,9 @@ export function DemoPortfolio() {
   const [allRounds, setAllRounds] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState<ShareTrade | null>(null);
+  const shareOn = useFeatures().share_cards;
+  const closeShare = useCallback(() => setSharing(null), []);
 
   if (!account) {
     return (
@@ -34,6 +39,7 @@ export function DemoPortfolio() {
   const best = sells.reduce<DemoTrade | null>((b, t) => (!b || (t.realized_usd ?? 0) > (b.realized_usd ?? 0) ? t : b), null);
   const worst = sells.reduce<DemoTrade | null>((b, t) => (!b || (t.realized_usd ?? 0) < (b.realized_usd ?? 0) ? t : b), null);
   const shown = allRounds ? trades ?? [] : round;
+  const opened = openedAt(trades ?? []);
 
   async function reset() {
     setBusy(true);
@@ -169,6 +175,7 @@ export function DemoPortfolio() {
                   <th className="px-3 py-2 text-right font-normal">Fee</th>
                   <th className="px-3 py-2 text-right font-normal">P&L</th>
                   <th className="px-4 py-2 font-normal">By</th>
+                  {shareOn && <th className="px-4 py-2" />}
                 </tr>
               </thead>
               <tbody>
@@ -184,7 +191,20 @@ export function DemoPortfolio() {
                     <td className={`px-3 py-2 text-right ${Number(t.impact_pct) > 10 ? "text-warning" : "text-text-2"}`}>{Number(t.impact_pct).toFixed(2)}%</td>
                     <td className="px-3 py-2 text-right text-text-2">{money(Number(t.fee_usd))}</td>
                     <td className={`px-3 py-2 text-right ${tone(t.realized_usd == null ? null : Number(t.realized_usd))}`}>{t.realized_usd == null ? "—" : signed(Number(t.realized_usd))}</td>
-                    <td className="px-4 py-2 text-xs text-muted">{t.source === "sniper" ? "Sniper" : "You"}{allRounds ? ` · round ${t.round + 1}` : ""}</td>
+                    <td className="px-4 py-2 text-xs text-muted">{SOURCE[t.source] ?? "You"}{allRounds ? ` · round ${t.round + 1}` : ""}</td>
+                    {shareOn && (
+                      <td className="px-4 py-1.5 text-right">
+                        {t.side === "sell" && t.realized_usd != null && (
+                          <button
+                            type="button"
+                            onClick={() => setSharing({ ...t, openedAt: opened.get(t.id) ?? null })}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text-2 transition-colors hover:bg-surface-3 hover:text-text focus-visible:outline-2 focus-visible:outline-emerald"
+                          >
+                            <ImageIcon size={14} strokeWidth={1.5} /> View
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -192,8 +212,30 @@ export function DemoPortfolio() {
           </div>
         )}
       </section>
+      {sharing && <ShareCard trade={sharing} onClose={closeShare} />}
     </div>
   );
+}
+
+const SOURCE: Record<string, string> = { manual: "You", sniper: "Sniper", tp: "Take profit", sl: "Stop loss" };
+
+/** When the position each sell closed from was opened: its first buy since it was last empty. */
+function openedAt(trades: DemoTrade[]) {
+  const out = new Map<number, string>();
+  const open = new Map<string, { tokens: number; since: string }>();
+  for (const t of [...trades].sort((a, b) => a.id - b.id)) {
+    const key = `${t.round}|${t.mint}`;
+    const cur = open.get(key);
+    if (t.side === "buy") {
+      open.set(key, { tokens: (cur?.tokens ?? 0) + Number(t.tokens), since: cur && cur.tokens > 0 ? cur.since : t.ts });
+    } else {
+      if (cur) out.set(t.id, cur.since);
+      const left = (cur?.tokens ?? 0) - Number(t.tokens);
+      if (left <= (cur?.tokens ?? 0) * 1e-6) open.delete(key);
+      else open.set(key, { tokens: left, since: cur!.since });
+    }
+  }
+  return out;
 }
 
 function Title({ round }: { round?: number }) {

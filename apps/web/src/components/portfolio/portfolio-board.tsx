@@ -79,7 +79,7 @@ function Board({ wallet, viewing }: { wallet: string; viewing: boolean }) {
           label="Realized P&L"
           value={act.data ? signedSol(realized) : null}
           tone={realized}
-          sub={act.data && solUsd ? `${signedUsd(realized * solUsd)} · last 100 txs` : "last 100 txs"}
+          sub={act.data && solUsd ? `${signedUsd(realized * solUsd)} · last 30 days` : "last 30 days"}
         />
         <Stat
           label="Unrealized P&L"
@@ -226,7 +226,7 @@ function HoldingRow({ t, total, pnl }: { t: Holding; total: number | null; pnl?:
       <td className={`px-3 py-2.5 text-right ${tone(t.change_24h)}`}>{pct(t.change_24h)}</td>
       <td className="px-3 py-2.5 text-right text-text">{t.value_usd == null ? <span className="text-muted">No price</span> : usdFull(t.value_usd)}</td>
       <td className="px-3 py-2.5 text-right text-text-2">{t.value_usd != null && total ? `${((t.value_usd / total) * 100).toFixed(1)}%` : "—"}</td>
-      <td className={`px-3 py-2.5 text-right ${tone(coinPnl)}`} title={pnl ? `Bought ${pnl.boughtSol.toFixed(3)} SOL, sold ${pnl.soldSol.toFixed(3)} SOL in the last 100 txs` : "No buys in the last 100 txs"}>
+      <td className={`px-3 py-2.5 text-right ${tone(coinPnl)}`} title={pnl ? `Bought ${pnl.boughtSol.toFixed(3)} SOL, sold ${pnl.soldSol.toFixed(3)} SOL in the last 30 days` : "No buys in the last 30 days"}>
         {coinPnl == null ? "—" : signedSol(coinPnl)}
       </td>
       <td className="px-4 py-2.5 text-right">
@@ -238,20 +238,25 @@ function HoldingRow({ t, total, pnl }: { t: Holding; total: number | null; pnl?:
   );
 }
 
+const ACTIVITY_PAGE = 50;
+
 function Activity({ trades, error, symbolOf, solUsd }: { trades: Trade[] | null; error: string | null; symbolOf: (m: string) => string; solUsd: number | null }) {
+  const [shown, setShown] = useState(ACTIVITY_PAGE);
   return (
     <section className="rounded-xl border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h2 className="text-sm font-medium text-text">Recent trades</h2>
+        <h2 className="text-sm font-medium text-text">
+          Trades <span className="font-normal text-muted">· last 30 days</span>
+        </h2>
         {trades && <span className="font-mono text-xs text-muted">{trades.length}</span>}
       </div>
       {!trades ? (
         error ? <p className="px-4 py-4 text-sm text-text-2">{error}</p> : <Loading />
       ) : trades.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-text-2">No swaps in this wallet&apos;s last 100 transactions</p>
+        <p className="px-4 py-6 text-sm text-text-2">No swaps in this wallet in the last 30 days</p>
       ) : (
         <ul className="max-h-[480px] divide-y divide-border overflow-y-auto">
-          {trades.slice(0, 50).map((t) => (
+          {trades.slice(0, shown).map((t) => (
             <li key={t.sig + t.mint}>
               <Link href={`/token/${t.mint}`} className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-2">
                 <span className={`w-9 text-xs font-medium ${t.buy ? "text-positive" : "text-negative"}`}>{t.buy ? "Buy" : "Sell"}</span>
@@ -263,6 +268,13 @@ function Activity({ trades, error, symbolOf, solUsd }: { trades: Trade[] | null;
               </Link>
             </li>
           ))}
+          {trades.length > shown && (
+            <li>
+              <button type="button" onClick={() => setShown((n) => n + ACTIVITY_PAGE)} className="w-full px-4 py-2.5 text-center text-xs text-text-2 transition-colors hover:bg-surface-2 hover:text-text">
+                Show {Math.min(ACTIVITY_PAGE, trades.length - shown)} more of {trades.length - shown}
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </section>

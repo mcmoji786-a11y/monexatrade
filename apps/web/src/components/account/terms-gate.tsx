@@ -16,7 +16,7 @@ const POINTS: { title: string; body: string }[] = [
   },
   {
     title: "What we keep",
-    body: "Your email or wallet address, how you signed in, and basic usage to run and secure MONEXA. We do not sell your data",
+    body: "Your email or wallet address, how you signed in, and basic usage to run and secure Kixo. We do not sell your data",
   },
   {
     title: "Your responsibility",
@@ -50,7 +50,7 @@ export function TermsGate() {
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/75 px-4 py-12 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="terms-title">
       <div className="w-full max-w-[480px] rounded-2xl border border-border bg-surface p-6">
         <h2 id="terms-title" className="text-xl font-medium text-text">Before you start</h2>
-        <p className="mt-1 text-sm text-text-2">Please read and accept how MONEXA works</p>
+        <p className="mt-1 text-sm text-text-2">Please read and accept how Kixo works</p>
         <dl className="mt-5 flex flex-col gap-4">
           {POINTS.map((p) => (
             <div key={p.title} className="border-l border-border pl-3">

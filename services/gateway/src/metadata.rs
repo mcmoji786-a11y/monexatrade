@@ -105,10 +105,57 @@ fn clean(raw: Raw) -> TokenMeta {
             .description
             .map(|d| d.trim().chars().take(280).collect::<String>())
             .filter(|d| !d.is_empty()),
-        twitter: raw.twitter.as_deref().and_then(safe_url),
-        telegram: raw.telegram.as_deref().and_then(safe_url),
-        website: raw.website.as_deref().and_then(safe_url),
+        twitter: raw.twitter.as_deref().and_then(twitter_url),
+        telegram: raw.telegram.as_deref().and_then(telegram_url),
+        website: raw.website.as_deref().and_then(website_url),
     }
+}
+
+/// Trading terminals, screeners, explorers and launchpads. A "website" on one of these
+/// is somebody else's page for the coin (often with a referral code), not the project's.
+const NOT_A_PROJECT_SITE: &[&str] = &[
+    "axiom.trade", "gmgn.ai", "photon-sol.tinyastro.io", "tinyastro.io", "bullx.io", "padre.gg", "otcdesks.cash",
+    "dexscreener.com", "dextools.io", "birdeye.so", "geckoterminal.com", "coingecko.com", "coinmarketcap.com",
+    "jup.ag", "raydium.io", "meteora.ag", "orca.so", "solscan.io", "solana.fm", "explorer.solana.com", "solanabeach.io",
+    "pump.fun", "bonk.fun", "letsbonk.fun", "believe.app", "moonshot.cc", "moonshot.money", "floatlaunch.xyz",
+    "bags.fm", "boop.fun", "launchlab.raydium.io", "trojan.app", "bonkbot.io", "maestrobots.com", "bloombot.app",
+    "nova.trade", "tradewithnova.com", "fomo.family", "vector.fun", "moby.fun", "rugcheck.xyz", "defined.fi",
+];
+
+fn host_of(url: &str) -> String {
+    url.trim_start_matches("https://").split(['/', '?', '#']).next().unwrap_or("").to_ascii_lowercase()
+}
+
+fn on(host: &str, domains: &[&str]) -> bool {
+    domains.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// A Solana address in the path: a page about one coin on some other site.
+fn has_address(url: &str) -> bool {
+    url.split(['/', '?', '#', '=', '&']).any(|p| (32..=44).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric() && !b"0OIl".contains(&b)))
+}
+
+/// The coin's X account or post: x.com or twitter.com only.
+pub fn twitter_url(s: &str) -> Option<String> {
+    safe_url(s).filter(|u| on(&host_of(u), &["x.com", "twitter.com"]) && has_handle(u))
+}
+
+/// The link names an account or group: "/name", not a bare host or "#fragment".
+fn has_handle(url: &str) -> bool {
+    let path = url.trim_start_matches("https://").split_once('/').map_or("", |(_, p)| p);
+    let first = path.split(['/', '?', '#']).next().unwrap_or("");
+    !first.is_empty() && first.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'+' || b == b'-')
+}
+
+/// The coin's Telegram group: t.me or telegram.me only.
+pub fn telegram_url(s: &str) -> Option<String> {
+    safe_url(s).filter(|u| on(&host_of(u), &["t.me", "telegram.me"]) && has_handle(u))
+}
+
+/// The project's own site: never a trading terminal, screener or another site's page
+/// for the coin.
+pub fn website_url(s: &str) -> Option<String> {
+    safe_url(s).filter(|u| !on(&host_of(u), NOT_A_PROJECT_SITE) && !has_address(u))
 }
 
 /// Accept only absolute https URLs. Rejects javascript:, data:, http: and garbage.
@@ -129,6 +176,27 @@ pub fn safe_url(s: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn socials_are_the_projects_own() {
+        assert!(twitter_url("https://x.com/coin").is_some());
+        assert!(twitter_url("https://twitter.com/coin/status/1").is_some());
+        assert!(twitter_url("https://thehill.com/news/x").is_none());
+        assert!(twitter_url("https://x.com.evil.io/coin").is_none());
+        assert!(telegram_url("https://t.me/coin").is_some());
+        assert!(telegram_url("https://discord.gg/coin").is_none());
+        assert!(telegram_url("https://t.me/#0xaB6bC6dCf578a8A79F05AbabC17269dF93257777").is_none());
+        assert!(telegram_url("https://t.me/+AbCd123").is_some());
+        assert!(twitter_url("https://x.com/").is_none());
+        assert!(website_url("https://mycoin.fun").is_some());
+        assert!(website_url("https://www.mycoin.fun/about").is_some());
+        assert!(website_url("https://axiom.trade/token/SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb?chain=sol").is_none());
+        assert!(website_url("https://otcdesks.cash/coin/E4SnV39be1N9uY36eNo1Q5XAUAbhVAfzLUaLp7ghuPpY").is_none());
+        assert!(website_url("https://pump.fun/coin/B6dcfkWBPE261THqCprWhLCTtx4keW2znsSEEngkcLmP").is_none());
+        assert!(website_url("https://neo.bullx.io/terminal?chainId=1").is_none());
+        assert!(website_url("https://dexscreener.com/solana/abc").is_none());
+        assert!(website_url("https://someterminal.xyz/tokens/DBPTU2oKLDHXQjAEJ3rZi8bUGmt2uxUbipgg6xmXoMqr").is_none());
+    }
+
     use super::*;
 
     #[test]

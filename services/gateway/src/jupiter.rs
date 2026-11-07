@@ -177,9 +177,9 @@ impl From<RawToken> for MarketToken {
             launchpad: r.launchpad,
             created_at: r.created_at,
             // Creator-supplied links: https only, like launch metadata.
-            twitter: r.twitter.as_deref().and_then(metadata::safe_url),
-            telegram: r.telegram.as_deref().and_then(metadata::safe_url),
-            website: r.website.as_deref().and_then(metadata::safe_url),
+            twitter: r.twitter.as_deref().and_then(metadata::twitter_url),
+            telegram: r.telegram.as_deref().and_then(metadata::telegram_url),
+            website: r.website.as_deref().and_then(metadata::website_url),
             mint: r.id,
             symbol: r.symbol.chars().take(24).collect(),
             name: r.name.chars().take(64).collect(),

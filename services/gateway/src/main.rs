@@ -1,4 +1,4 @@
-//! MONEXA gateway: the public HTTP/WebSocket entry point for the frontend.
+//! Kixo gateway: the public HTTP/WebSocket entry point for the frontend.
 //! Runs the ingest engine in-process: one Helius connection serves all users.
 //! Tracked tokens live only in memory (no database), per ADR 0003.
 
@@ -9,11 +9,20 @@ mod presence;
 mod book;
 mod devs;
 mod dex;
+mod growth;
+mod settings;
+mod support;
 mod jupiter;
 mod metadata;
 mod pools;
 mod portfolio;
 mod rpc;
+mod safe_fetch;
+mod pumpfun_tx;
+mod pumpswap_tx;
+mod launch_tx;
+mod solana_tx;
+mod trade;
 mod txdecode;
 
 use anyhow::Result;
@@ -128,6 +137,8 @@ fn now_unix() -> i64 {
 struct AppState {
     config: Config,
     http: reqwest::Client,
+    /// For URLs that come from outside (token logos and metadata): public https hosts only.
+    outside: reqwest::Client,
     feed: broadcast::Sender<FeedEvent>,
     board: Mutex<Board>,
     stats: Arc<IngestStats>,
@@ -139,6 +150,8 @@ struct AppState {
     leaders: Mutex<Vec<devs::Leader>>,
     /// Wallets checked on chain for bot speed: (checked at, looks like a bot).
     bot_checks: Mutex<HashMap<String, (Instant, bool)>>,
+    /// SOL balances of smart-money candidates, re-read every few minutes.
+    smart_balances: Mutex<HashMap<String, (Instant, f64)>>,
     /// Trade history per tracked launch, for the trade page.
     books: Mutex<book::Books>,
     /// GeckoTerminal candles and trades for tokens outside our decoder.
@@ -188,6 +201,7 @@ async fn main() -> Result<()> {
     let (tx_queue_tx, tx_queue_rx) = mpsc::unbounded_channel();
     let state = Arc::new(AppState {
         http,
+        outside: safe_fetch::client()?,
         feed,
         board: Mutex::new(Board::default()),
         stats: stats.clone(),
@@ -198,6 +212,7 @@ async fn main() -> Result<()> {
         smart: Mutex::new(load_smart()),
         leaders: Mutex::new(Vec::new()),
         bot_checks: Mutex::new(HashMap::new()),
+        smart_balances: Mutex::new(HashMap::new()),
         books: Mutex::new(book::Books::default()),
         ingest_cmd: cmd_tx,
         watches: Mutex::new(HashMap::new()),
@@ -231,6 +246,7 @@ async fn main() -> Result<()> {
         .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION, axum::http::HeaderName::from_static("x-admin-token")]);
 
     // Rewards settings and creator applications (admin.rs), with their own state.
+    let admin_state = admin::AdminState::load();
     let admin_routes: Router<Arc<AppState>> = Router::new()
         .route("/rewards/config", get(admin::get_rewards))
         .route("/features", get(admin::get_features))
@@ -240,7 +256,7 @@ async fn main() -> Result<()> {
         .route("/admin/rewards", axum::routing::put(admin::put_rewards))
         .route("/admin/creator-applications", get(admin::list_applications))
         .route("/admin/creator-applications/{id}", axum::routing::post(admin::set_application))
-        .with_state(admin::AdminState::load());
+        .with_state(admin_state.clone());
 
     let acct = account::AccountState::new(state.http.clone(), &config.supabase_url, &config.supabase_anon_key, &config.supabase_service_role_key);
     // Demo trading (demo.rs): virtual balance filled at live market prices.
@@ -249,11 +265,53 @@ async fn main() -> Result<()> {
         .route("/demo/order", axum::routing::post(demo::order))
         .route("/demo/reset", axum::routing::post(demo::reset))
         .route("/demo/trades", get(demo::trades))
+        .route("/demo/orders", get(demo::list_rules).post(demo::create_rule))
+        .route("/demo/orders/{id}/cancel", axum::routing::post(demo::cancel_rule))
         .with_state(demo::DemoCtx { app: state.clone(), acct: acct.clone() });
+    tokio::spawn(demo::watch_rules(demo::DemoCtx { app: state.clone(), acct: acct.clone() }));
     // Accounts: profile sync (account.rs).
+    let trade_ctx = trade::TradeCtx { app: state.clone(), acct: acct.clone(), admin: admin_state.clone(), t: trade::TradeState::from_env() };
+    let trade_routes: Router<Arc<AppState>> = Router::new()
+        .route("/trade/config", get(trade::config))
+        .route("/trade/quote", axum::routing::post(trade::quote))
+        .route("/trade/prepare", axum::routing::post(trade::prepare))
+        .route("/trade/send", axum::routing::post(trade::send))
+        .route("/trade/status/{sig}", get(trade::status))
+        .route("/trade/history", get(trade::history))
+        .with_state(trade_ctx.clone());
+    tokio::spawn(trade::warm_loop(trade_ctx));
+
+    let support_ctx = support::SupportCtx { app: state.clone(), acct: acct.clone(), admin: admin_state.clone(), live: support::Live::new() };
+    tokio::spawn(support::presence_loop(support_ctx.clone()));
+    let support_routes: Router<Arc<AppState>> = Router::new()
+        .route("/support/diagnose", axum::routing::post(support::diagnose))
+        .route("/support/tickets", get(support::list).post(support::create))
+        .route("/support/unread", get(support::unread))
+        .route("/support/tickets/{id}", get(support::get_ticket))
+        .route("/support/tickets/{id}/messages", axum::routing::post(support::reply))
+        .route("/admin/support/tickets", get(support::admin_list))
+        .route("/admin/support/tickets/{id}", get(support::admin_get))
+        .route("/admin/support/tickets/{id}/messages", axum::routing::post(support::admin_reply))
+        .route("/admin/support/tickets/{id}/status", axum::routing::post(support::admin_update))
+        .route("/admin/support/tickets/{id}/claim", axum::routing::post(support::admin_claim))
+        .route("/admin/support/presence", get(support::admin_presence).post(support::admin_set_presence))
+        .route("/support/live", get(support::live_current))
+        .route("/support/presence", get(support::presence))
+        .route("/support/ws", get(support::ws))
+        .with_state(support_ctx.clone());
+
+    let activity_routes: Router<Arc<AppState>> = Router::new()
+        .route("/wallet/{address}/activity", get(activity_handler))
+        .with_state(ActivityCtx { app: state.clone(), acct: acct.clone() });
+
     let account_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/sync", axum::routing::post(account::sync))
         .route("/account/me", get(account::me_handler))
+        .route("/account/referral", get(growth::referral).post(growth::claim))
+        .route("/account/settings", get(settings::get).put(settings::put))
+        .route("/account/export", get(settings::export))
+        .route("/account/delete", axum::routing::post(settings::delete))
+        .route("/demo/leaderboard", get(growth::leaderboard))
         .with_state(acct);
 
     let app = Router::new()
@@ -264,16 +322,19 @@ async fn main() -> Result<()> {
         .route("/token/{mint}", get(token_handler))
         .route("/token/{mint}/wallets", get(wallets_handler))
         .route("/token/{mint}/dex", get(dex_handler))
+        .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))
         .route("/wallet/{address}/balance", get(balance_handler))
         .route("/wallet/{address}/portfolio", get(portfolio_handler))
-        .route("/wallet/{address}/activity", get(activity_handler))
         .route("/alerts/status", get(alerts_status))
         .route("/ws/wallets", get(ws_wallets))
         .route("/ws/token/{mint}", get(ws_token))
         .merge(admin_routes)
         .merge(account_routes)
         .merge(demo_routes)
+        .merge(trade_routes)
+        .merge(activity_routes)
+        .merge(support_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -582,7 +643,7 @@ fn spawn_metadata(state: Arc<AppState>, token: NewToken) {
         let Ok(_permit) = state.meta_slots.acquire().await else {
             return;
         };
-        let Some(meta) = metadata::fetch(&state.http, &token.uri).await else {
+        let Some(meta) = metadata::fetch(&state.outside, &token.uri).await else {
             return;
         };
         {
@@ -780,7 +841,7 @@ async fn lookup_token(state: &Arc<AppState>, mint: &str) -> Option<Option<jupite
     Some(found)
 }
 
-/// MONEXA shows Solana memecoins only: our own pump.fun launches, or a token the
+/// Kixo shows Solana memecoins only: our own pump.fun launches, or a token the
 /// provider classifies as a memecoin. Anything else gets no chart, trades or pool watch.
 /// While the provider is rate limited we do not block: a confirmed non-memecoin is
 /// cached and blocked on the next answer.
@@ -1129,8 +1190,12 @@ async fn watch_pool(state: &Arc<AppState>, mint: &str) -> bool {
     tracing::info!(mint, %pool, %dex, factor, decode_logs, "watching pool");
 
     let (state, mint) = (state.clone(), mint.to_string());
+    // Candles (the chart) and recent trades load side by side: the chart must not wait
+    // for the slower, rate paced transaction backfill.
+    let (st, m) = (state.clone(), mint.to_string());
+    tokio::spawn(async move { backfill_candles(st, m).await });
     tokio::spawn(async move {
-        // 1. Recent trades from the chain, read by the universal decoder.
+        // Recent trades from the chain, read by the universal decoder.
         let sigs = rpc::recent_signatures(&state.http, &rpc_url, &pool, RECENT_SWAPS).await;
         let mut older = Vec::new();
         for (n, chunk) in sigs.chunks(TX_BATCH).enumerate() {
@@ -1154,7 +1219,12 @@ async fn watch_pool(state: &Arc<AppState>, mint: &str) -> bool {
                 .backfill_trades(&mint, older);
             let _ = state.refresh.send(mint.clone());
         }
-        // 2. Longer candle history from the indexer, retried if it is rate limited.
+    });
+    true
+}
+
+/// Longer candle history from the indexer, retried if it is rate limited.
+async fn backfill_candles(state: Arc<AppState>, mint: String) {
         for attempt in 0..5 {
             if attempt > 0 {
                 tokio::time::sleep(Duration::from_secs(30)).await;
@@ -1195,8 +1265,6 @@ async fn watch_pool(state: &Arc<AppState>, mint: &str) -> bool {
             let _ = state.refresh.send(mint.clone());
             return;
         }
-    });
-    true
 }
 
 /// A decoded swap as a book trade, its quote converted to lamports of equal value.
@@ -1368,10 +1436,30 @@ async fn update_smart(state: Arc<AppState>) {
                     bot
                 }
             };
-            if !bot {
-                leaders.push(l);
+            if bot {
+                continue;
             }
+            // A wallet that sends its profit away right after (no SOL left) is a burner:
+            // nothing to follow there.
+            let cached = state.smart_balances.lock().expect("balance lock").get(&l.wallet).filter(|(at, _)| at.elapsed() < SMART_BALANCE_TTL).map(|(_, b)| *b);
+            let sol = match cached {
+                Some(b) => b,
+                None => {
+                    let Some(b) = rpc::sol_balance(&state.http, &state.config.helius_rpc_url(), &l.wallet).await else { continue };
+                    let mut m = state.smart_balances.lock().expect("balance lock");
+                    if m.len() > 10_000 {
+                        m.retain(|_, (at, _)| at.elapsed() < SMART_BALANCE_TTL);
+                    }
+                    m.insert(l.wallet.clone(), (Instant::now(), b));
+                    b
+                }
+            };
+            if sol < SMART_MIN_SOL_BALANCE {
+                continue;
+            }
+            leaders.push(devs::Leader { sol_balance: Some((sol * 1000.0).round() / 1000.0), ..l });
         }
+        let leaders = drop_clones(leaders);
         let mut counts: HashMap<String, u32> = HashMap::new();
         for l in &leaders {
             for m in &l.holding {
@@ -1392,11 +1480,102 @@ async fn smart_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::V
         let board = state.board.lock().expect("board lock");
         leaders.iter().flat_map(|l| l.holding.iter()).filter_map(|m| board.tokens.get(m).map(|t| (m.clone(), t.token.symbol.clone()))).collect()
     };
-    Json(json!({ "tracking_secs": state.started.elapsed().as_secs(), "leaders": leaders, "symbols": symbols }))
+    // How long the records reach back (they survive restarts), not this run's uptime.
+    let now = now_unix();
+    let oldest = state.smart.lock().expect("smart lock").oldest().unwrap_or(now);
+    let tracking = (now - oldest).max(state.started.elapsed().as_secs() as i64);
+    Json(json!({ "tracking_secs": tracking, "min_copy_coins": devs::MIN_COPY_COINS, "leaders": leaders, "symbols": symbols }))
+}
+
+/// Largest image the proxy passes on.
+const IMG_MAX_BYTES: usize = 2 * 1024 * 1024;
+const IMG_CACHE: usize = 400;
+type ImgEntry = (Instant, String, axum::body::Bytes);
+static IMGS: std::sync::Mutex<Option<HashMap<String, ImgEntry>>> = std::sync::Mutex::new(None);
+
+#[derive(serde::Deserialize)]
+struct ImgQuery {
+    u: String,
+}
+
+/// Only public https hosts: no IP literals, no localhost or internal names, so the
+/// proxy can never be pointed at our own network. The `outside` client re-checks every
+/// redirect and refuses domains that resolve to private addresses.
+fn proxy_allowed(url: &str) -> bool {
+    safe_fetch::allowed_str(url)
+}
+
+/// `GET /img?u=<https url>`: a token logo fetched by the gateway, for image hosts that
+/// refuse to be shown on other sites. Images only, at most 2 MB, cached a day.
+async fn img_proxy(State(state): State<Arc<AppState>>, Query(q): Query<ImgQuery>) -> Response {
+    use axum::{http::header, response::IntoResponse};
+    if !proxy_allowed(&q.u) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let hit = IMGS.lock().expect("img lock").as_ref().and_then(|m| m.get(&q.u).cloned());
+    let (ctype, body) = match hit {
+        Some((at, c, b)) if at.elapsed() < Duration::from_secs(86_400) => (c, b),
+        _ => {
+            // Every failure gives the same answer, so the proxy tells nothing about what
+            // is or is not reachable from here.
+            let Ok(res) = state.outside.get(&q.u).send().await else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            let ctype = res.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+            if !res.status().is_success() || !ctype.starts_with("image/") || ctype.contains("svg") {
+                return StatusCode::NOT_FOUND.into_response();
+            }
+            if res.content_length().is_some_and(|l| l as usize > IMG_MAX_BYTES) {
+                return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+            }
+            let Ok(body) = res.bytes().await else { return StatusCode::BAD_GATEWAY.into_response() };
+            if body.len() > IMG_MAX_BYTES {
+                return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+            }
+            let mut cache = IMGS.lock().expect("img lock");
+            let map = cache.get_or_insert_with(HashMap::new);
+            if map.len() >= IMG_CACHE {
+                if let Some(old) = map.iter().min_by_key(|(_, (at, _, _))| *at).map(|(k, _)| k.clone()) {
+                    map.remove(&old);
+                }
+            }
+            map.insert(q.u.clone(), (Instant::now(), ctype.clone(), body.clone()));
+            (ctype, body)
+        }
+    };
+    (
+        [
+            (header::CONTENT_TYPE, ctype),
+            (header::CACHE_CONTROL, "public, max-age=86400".to_string()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+#[cfg(test)]
+mod img_tests {
+    use super::proxy_allowed;
+
+    #[test]
+    fn proxy_only_reaches_public_https_hosts() {
+        assert!(proxy_allowed("https://gmgn.ai/external-res-asia/a.webp"));
+        assert!(proxy_allowed("https://ipfs.io/ipfs/Qm123"));
+        assert!(!proxy_allowed("http://gmgn.ai/a.png"));
+        assert!(!proxy_allowed("https://127.0.0.1/a.png"));
+        assert!(!proxy_allowed("https://169.254.169.254/latest"));
+        assert!(!proxy_allowed("https://localhost/a.png"));
+        assert!(!proxy_allowed("https://evil.com:8080/a.png"));
+        assert!(!proxy_allowed("https://user@10.0.0.1/a.png"));
+        assert!(!proxy_allowed("https://[::1]/a.png"));
+        assert!(!proxy_allowed("https://printer.local/a.png"));
+        assert!(!proxy_allowed("file:///etc/passwd"));
+    }
 }
 
 /// `GET /alerts/status`: which outside delivery channels are set up on this gateway.
-/// Telegram needs MONEXA's bot token in the environment; Discord uses each user's own
+/// Telegram needs Kixo's bot token in the environment; Discord uses each user's own
 /// webhook, delivered by the gateway once alerts are stored per account.
 async fn alerts_status() -> Json<serde_json::Value> {
     let telegram = std::env::var("TELEGRAM_BOT_TOKEN").is_ok_and(|t| !t.trim().is_empty());
@@ -1451,6 +1630,19 @@ async fn stream_wallets(mut socket: WebSocket, state: Arc<AppState>, wallets: st
             },
         }
     }
+}
+
+/// Smart wallets must hold at least this much SOL now.
+const SMART_MIN_SOL_BALANCE: f64 = 0.5;
+const SMART_BALANCE_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// One operator often runs several wallets that trade the same coins at the same
+/// moments; they then show identical records. Keep the most profitable of each group.
+fn drop_clones(mut leaders: Vec<devs::Leader>) -> Vec<devs::Leader> {
+    leaders.sort_by(|a, b| b.realized_sol.total_cmp(&a.realized_sol));
+    let mut seen = std::collections::HashSet::new();
+    leaders.retain(|l| seen.insert((l.coins, l.wins, l.avg_hold_secs, l.last_trade / 60)));
+    leaders
 }
 
 const BOT_SAMPLE: usize = 100;
@@ -1851,7 +2043,70 @@ async fn portfolio_handler(State(state): State<Arc<AppState>>, Path(address): Pa
 
 /// `GET /wallet/{address}/activity`: the wallet's swaps among its latest 100
 /// transactions, newest first. Cached 60 seconds per wallet.
-async fn activity_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<Vec<portfolio::Trade>>, StatusCode> {
+/// How far back a portfolio's history reaches.
+const HISTORY_DAYS: i64 = 30;
+/// History pages read when a wallet is first opened (up to 100 transactions each), and
+/// on later visits until the newest stored swap is reached.
+const BACKFILL_PAGES: usize = 6;
+const UPDATE_PAGES: usize = 3;
+/// Older pages read per visit until the stored history reaches 30 days back.
+const OLDER_PAGES: usize = 2;
+/// First-time backfills allowed per hour across all wallets, so nobody can drain the
+/// history API's credits by opening thousands of wallets.
+const BACKFILLS_PER_HOUR: usize = 40;
+
+#[derive(Clone)]
+struct ActivityCtx {
+    app: Arc<AppState>,
+    acct: Arc<account::AccountState>,
+}
+
+fn backfill_allowed() -> bool {
+    static RECENT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+    let mut r = RECENT.lock().expect("backfill lock");
+    r.retain(|t| t.elapsed() < Duration::from_secs(3600));
+    if r.len() >= BACKFILLS_PER_HOUR {
+        return false;
+    }
+    r.push(Instant::now());
+    true
+}
+
+fn trade_of_row(r: &serde_json::Value) -> Option<portfolio::Trade> {
+    let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()));
+    let ts = r["ts"].as_str()?;
+    Some(portfolio::Trade {
+        mint: r["mint"].as_str()?.to_string(),
+        buy: r["buy"].as_bool()?,
+        sol: num(&r["sol"])?,
+        raw: match &r["raw"] {
+            serde_json::Value::String(s) => s.split('.').next().unwrap_or("0").to_string(),
+            v => v.to_string().split('.').next().unwrap_or("0").to_string(),
+        },
+        time: iso_secs(ts)?,
+        sig: r["signature"].as_str()?.to_string(),
+        symbol: r["symbol"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+/// "2026-11-07T10:20:30+00:00" (as Postgres returns it) to unix seconds.
+fn iso_secs(s: &str) -> Option<i64> {
+    let (date, time) = s.split_once('T')?;
+    let mut d = date.split('-').map(|p| p.parse::<i64>().ok());
+    let (y, m, dd) = (d.next()??, d.next()??, d.next()??);
+    let t: Vec<i64> = time.get(..8)?.split(':').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+    let y2 = if m <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * ((m + 9) % 12) + 2) / 5 + dd - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some((era * 146_097 + doe - 719_468) * 86_400 + t[0] * 3600 + t[1] * 60 + t[2])
+}
+
+/// `GET /wallet/{address}/activity`: the wallet's swaps over the last 30 days. Swaps are
+/// stored as they are found, so the history keeps growing past the 100 transactions the
+/// history API returns at a time. Falls back to that single page if the table is missing.
+async fn activity_handler(State(c): State<ActivityCtx>, Path(address): Path<String>) -> Result<Json<Vec<portfolio::Trade>>, StatusCode> {
     static CACHE: Mutex<Option<HashMap<String, (Instant, Vec<portfolio::Trade>)>>> = Mutex::new(None);
     if !account::is_solana_address(&address) {
         return Err(StatusCode::BAD_REQUEST);
@@ -1861,14 +2116,100 @@ async fn activity_handler(State(state): State<Arc<AppState>>, Path(address): Pat
             return Ok(Json(t.clone()));
         }
     }
-    let mut trades = portfolio::history(&state.http, &state.config.helius_api_key, &address).await.ok_or(StatusCode::BAD_GATEWAY)?;
-    portfolio::name_trades(&state.http, &mut trades).await;
+    let state = &c.app;
+    let key = &state.config.helius_api_key;
+    let since = now_unix() - HISTORY_DAYS * 86_400;
+    let stored = c
+        .acct
+        .rest(reqwest::Method::GET, &format!("wallet_trades?wallet=eq.{address}&ts=gte.{}&select=*&order=ts.desc&limit=5000", account::chrono_iso(since)), None)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned());
+
+    let mut trades: Vec<portfolio::Trade> = match stored {
+        // Table missing (migration not applied): the latest page only, as before.
+        None => portfolio::history(&state.http, key, &address).await.ok_or(StatusCode::BAD_GATEWAY)?,
+        Some(rows) => {
+            let mut have: Vec<portfolio::Trade> = rows.iter().filter_map(trade_of_row).collect();
+            let known: std::collections::HashSet<String> = have.iter().map(|t| t.sig.clone()).collect();
+            let first_visit = have.is_empty();
+            let pages = if first_visit && backfill_allowed() { BACKFILL_PAGES } else { UPDATE_PAGES };
+            let mut fresh: Vec<portfolio::Trade> = Vec::new();
+            let mut before: Option<String> = None;
+            for _ in 0..pages {
+                let Some(page) = portfolio::history_page(&state.http, key, &address, before.as_deref()).await else { break };
+                let reached_known = page.signatures.iter().any(|s| known.contains(s));
+                fresh.extend(page.trades.into_iter().filter(|t| !known.contains(&t.sig)));
+                // Stop at the stored part, at 30 days back, or at the end of the history.
+                if reached_known || !page.full || page.oldest.is_some_and(|t| t < since) {
+                    break;
+                }
+                before = page.signatures.last().cloned();
+            }
+            // Older side: a very active wallet needs more than one visit to reach 30 days
+            // back. Each visit reads a little further back from the oldest stored swap.
+            if !first_visit {
+                if let Some(oldest) = have.iter().min_by_key(|t| t.time).filter(|t| t.time > since + 3600) {
+                    let mut before = Some(oldest.sig.clone());
+                    for _ in 0..OLDER_PAGES {
+                        let Some(page) = portfolio::history_page(&state.http, key, &address, before.as_deref()).await else { break };
+                        fresh.extend(page.trades.into_iter().filter(|t| !known.contains(&t.sig) && t.time >= since));
+                        if !page.full || page.oldest.is_some_and(|t| t < since) {
+                            break;
+                        }
+                        before = page.signatures.last().cloned();
+                    }
+                }
+            }
+            if !fresh.is_empty() {
+                portfolio::name_trades(&state.http, &mut fresh).await;
+                let rows: Vec<serde_json::Value> = fresh
+                    .iter()
+                    .map(|t| json!({ "wallet": address, "signature": t.sig, "ts": account::chrono_iso(t.time), "mint": t.mint, "symbol": t.symbol, "buy": t.buy, "sol": t.sol, "raw": t.raw }))
+                    .collect();
+                if let Err(e) = c.acct.rest(reqwest::Method::POST, "wallet_trades?on_conflict=wallet,signature", Some(serde_json::Value::Array(rows))).await {
+                    tracing::warn!(error = %e.1, "could not store wallet history");
+                }
+            }
+            have.extend(fresh);
+            have
+        }
+    };
+    trades.retain(|t| t.time >= since);
+    // Stored rows carry their tickers; name only what is still unnamed.
+    if trades.iter().any(|t| t.symbol.is_empty()) {
+        let mut unnamed: Vec<portfolio::Trade> = trades.iter().filter(|t| t.symbol.is_empty()).cloned().collect();
+        portfolio::name_trades(&state.http, &mut unnamed).await;
+        let names: HashMap<String, String> = unnamed.into_iter().filter(|t| !t.symbol.is_empty()).map(|t| (t.mint, t.symbol)).collect();
+        for t in trades.iter_mut().filter(|t| t.symbol.is_empty()) {
+            if let Some(n) = names.get(&t.mint) {
+                t.symbol = n.clone();
+            }
+        }
+    }
     trades.sort_by(|a, b| b.time.cmp(&a.time));
-    let mut c = CACHE.lock().expect("activity cache");
-    let m = c.get_or_insert_with(HashMap::new);
+    trades.dedup_by(|a, b| a.sig == b.sig);
+    let mut cache = CACHE.lock().expect("activity cache");
+    let m = cache.get_or_insert_with(HashMap::new);
     if m.len() > 2_000 {
         m.clear();
     }
     m.insert(address, (Instant::now(), trades.clone()));
     Ok(Json(trades))
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[test]
+    fn stored_rows_read_back_as_trades() {
+        assert_eq!(iso_secs("1970-01-01T00:00:00+00:00"), Some(0));
+        assert_eq!(iso_secs("2026-11-02T00:00:00+00:00"), Some(1_793_577_600));
+        let row = json!({ "mint": "M", "buy": true, "sol": "0.25", "raw": "123456.0", "ts": "2026-11-07T10:20:30+00:00", "signature": "S", "symbol": "PNUT" });
+        let t = trade_of_row(&row).unwrap();
+        assert_eq!((t.mint.as_str(), t.buy, t.sol, t.raw.as_str(), t.sig.as_str()), ("M", true, 0.25, "123456", "S"));
+        assert_eq!(t.time, iso_secs("2026-11-07T10:20:30+00:00").unwrap());
+        assert_eq!(account::chrono_iso(t.time), "2026-11-07T10:20:30Z");
+    }
 }

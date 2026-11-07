@@ -1,4 +1,4 @@
-//! MONEXA ingest: real-time Solana data engine, built on our own decoders.
+//! Kixo ingest: real-time Solana data engine, built on our own decoders.
 //!
 //! One Helius WebSocket connection carries:
 //! - one subscription to pump.fun's mint authority (new tokens only), and

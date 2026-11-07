@@ -371,7 +371,7 @@ export function RadarBoard() {
       )}
 
       <p className="mt-6 max-w-3xl text-xs leading-5 text-muted">
-        Prices, volume and holders are computed by MONEXA from on-chain trades.
+        Prices, volume and holders are computed by Kixo from on-chain trades.
         Holder counts are approximate. Logos and social links come from token
         creators and are not verified. A new token is not a recommendation, and
         most new tokens lose their value.
@@ -393,7 +393,7 @@ function EmptyState({
   looksLikeMint: boolean;
   lowerRisk: boolean;
 }) {
-  let text = "Connecting to the MONEXA gateway";
+  let text = "Connecting to the Kixo gateway";
   if (query && looksLikeMint)
     text =
       "This token is not on the radar right now. Looking up any Solana token by address comes next";

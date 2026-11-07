@@ -84,7 +84,7 @@ pub fn canonical_pool(mint: &str) -> Option<String> {
 
 /// Solana's find_program_address: the first bump (255 down) whose hash is off the
 /// ed25519 curve.
-pub(crate) fn find_pda(seeds: &[&[u8]], program: &[u8]) -> Option<[u8; 32]> {
+pub fn find_pda(seeds: &[&[u8]], program: &[u8]) -> Option<[u8; 32]> {
     use sha2::{Digest, Sha256};
     for bump in (0..=255u8).rev() {
         let mut h = Sha256::new();

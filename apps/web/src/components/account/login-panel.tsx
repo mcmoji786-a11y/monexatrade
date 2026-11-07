@@ -59,7 +59,7 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
     <div className="w-full max-w-[400px]">
       {!inPopup && (
         <Link href="/" className="mb-8 flex items-center gap-2 text-sm text-text-2 hover:text-text">
-          <span className="font-medium tracking-tight text-text">MONEXA</span>
+          <span className="font-medium tracking-tight text-text">Kixo</span>
         </Link>
       )}
 
@@ -68,7 +68,7 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
           <p className="text-sm text-text-2">Sign-in is paused for a short while. You can keep using Discover and Sol Radar.</p>
         ) : step === "choose" ? (
           <>
-            <h1 className="text-xl font-medium text-text">Sign in to MONEXA</h1>
+            <h1 className="text-xl font-medium text-text">Sign in to Kixo</h1>
             <p className="mt-1 text-sm text-text-2">Track Solana memecoins, wallets and your sniper in one account</p>
 
             <div className="mt-6 flex flex-col gap-2">
@@ -156,7 +156,7 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
       </div>
 
       <p className="mt-6 text-xs leading-relaxed text-muted">
-        MONEXA never asks for your seed phrase and signing in never moves funds
+        Kixo never asks for your seed phrase and signing in never moves funds
       </p>
     </div>
   );

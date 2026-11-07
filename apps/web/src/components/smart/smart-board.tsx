@@ -6,14 +6,13 @@ import { Brain, Check, Plus } from "lucide-react";
 import { GATEWAY_HTTP, GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
 import { Move } from "@/components/discover/token-table";
 import { formatAge, useNow } from "@/components/radar/use-radar-feed";
-import { tokenHref } from "@/lib/open-token";
 import { CopyAddress } from "@/components/token/token-bits";
 import { Tick } from "@/components/token/tick";
 import { useMonitor } from "@/lib/prefs";
 import { WalletDot } from "@/components/monitor/wallet-dot";
+import { LeaderDetail, TopHoldings } from "./leader-detail";
 import {
   TradesToggle,
-  WalletTradesPanel,
 } from "@/components/monitor/wallet-trades";
 
 type Leader = {
@@ -25,6 +24,10 @@ type Leader = {
   avg_hold_secs: number;
   last_trade: number;
   holding: string[];
+  /** Coins on which copying it 3 s late was simulated, and that copy's return in %. */
+  copy_coins: number;
+  copy_return_pct: number | null;
+  sol_balance: number | null;
 };
 type Board = {
   tracking_secs: number;
@@ -42,8 +45,10 @@ const RULES = [
   "Holds a coin 1+ minute on average",
   "Under 12 trades a coin, 30 coins an hour",
   "Holds 10 or fewer coins at once",
-  "Traded in the last 24 hours",
+  "Traded in the last hour",
+  "0.5+ SOL in the wallet now",
   "Human speed on chain",
+  "Clone wallets merged",
 ];
 
 const hold = (s: number) =>
@@ -53,7 +58,7 @@ const hold = (s: number) =>
       ? `${Math.round(s / 60)}m`
       : `${s}s`;
 
-/** Smart Money: wallets that keep taking profit on new Solana coins, from MONEXA's own
+/** Smart Money: wallets that keep taking profit on new Solana coins, from Kixo's own
  *  decoded trades. Selected automatically; bots that scalp every launch are left out. */
 export function SmartMoneyBoard() {
   const [data, setData] = useState<Board | null>(null);
@@ -83,7 +88,8 @@ export function SmartMoneyBoard() {
     };
   }, []);
 
-  const leaders = data?.leaders ?? [];
+  const [sort, setSort] = useState<"profit" | "copy">("profit");
+  const leaders = sortLeaders(data?.leaders ?? [], sort);
   const now = useNow();
   const moves = useRankMoves(leaders.map((l) => l.wallet));
   const live = useLeaderTrades(leaders.slice(0, 50).map((l) => l.wallet));
@@ -167,6 +173,33 @@ export function SmartMoneyBoard() {
 
       {data && leaders.length === 0 && <Scanning hours={hours} />}
 
+      {leaders.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex gap-1 rounded-lg border border-border bg-surface p-1" role="group" aria-label="Sort wallets">
+            {(
+              [
+                ["profit", "Most profit"],
+                ["copy", "Best to copy"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={sort === k}
+                onClick={() => setSort(k)}
+                className={`h-8 rounded-md px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${sort === k ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="max-w-xl text-xs text-muted">
+            Copy score: what you would have made copying each trade 3 seconds late, after
+            1% fees each way. A wallet can win while its copiers lose
+          </p>
+        </div>
+      )}
+
       {/* Top three */}
       {leaders.length > 0 && (
         <div className="grid gap-3 lg:grid-cols-3">
@@ -175,7 +208,6 @@ export function SmartMoneyBoard() {
               key={l.wallet}
               leader={l}
               rank={i + 1}
-              symbols={data!.symbols}
               delay={i * 80}
               move={moves.get(l.wallet)}
               now={now}
@@ -190,13 +222,9 @@ export function SmartMoneyBoard() {
         <div className="overflow-hidden rounded-2xl border border-cyan/30 bg-surface">
           <p className="flex items-center gap-2 px-4 pt-3 text-sm text-text">
             <WalletDot address={open!} size={16} />
-            Trades by #{leaders.findIndex((l) => l.wallet === open) + 1}
+            Wallet #{leaders.findIndex((l) => l.wallet === open) + 1}
           </p>
-          <WalletTradesPanel
-            trades={tradesOf(open!)}
-            now={now}
-            symbols={data!.symbols}
-          />
+          <LeaderDetail wallet={open!} live={tradesOf(open!)} now={now} />
         </div>
       )}
 
@@ -212,7 +240,8 @@ export function SmartMoneyBoard() {
                 <th className="w-48 px-3 font-normal">Win rate</th>
                 <th className="px-3 text-right font-normal">Avg hold</th>
                 <th className="px-3 text-right font-normal">Last trade</th>
-                <th className="pl-6 font-normal">Holding now</th>
+                <th className="px-3 text-right font-normal">Copy score</th>
+                <th className="px-3 text-right font-normal">SOL now</th>
                 <th className="pr-5" />
               </tr>
             </thead>
@@ -255,8 +284,11 @@ export function SmartMoneyBoard() {
                         ? `${formatAge(now / 1000 - l.last_trade)} ago`
                         : "—"}
                     </td>
-                    <td className="pl-6">
-                      <Holdings mints={l.holding} symbols={data!.symbols} />
+                    <td className="px-3 text-right font-mono">
+                      <CopyScore l={l} />
+                    </td>
+                    <td className="px-3 text-right font-mono text-text-2">
+                      {l.sol_balance != null ? sol(l.sol_balance) : "—"}
                     </td>
                     <td className="pr-5 text-right">
                       <span className="inline-flex items-center gap-2">
@@ -272,11 +304,7 @@ export function SmartMoneyBoard() {
                   {open === l.wallet && (
                     <tr className="border-b border-border">
                       <td colSpan={8} className="p-0">
-                        <WalletTradesPanel
-                          trades={tradesOf(l.wallet)}
-                          now={now}
-                          symbols={data!.symbols}
-                        />
+                        <LeaderDetail wallet={l.wallet} live={tradesOf(l.wallet)} now={now} />
                       </td>
                     </tr>
                   )}
@@ -288,7 +316,7 @@ export function SmartMoneyBoard() {
       )}
 
       <p className="max-w-3xl text-xs leading-5 text-muted">
-        Profit is realised on sells only, from trades MONEXA decoded since it
+        Profit is realised on sells only, from trades Kixo decoded since it
         started watching. Past results do not predict future ones, and following
         a wallet is not a recommendation.
       </p>
@@ -299,7 +327,6 @@ export function SmartMoneyBoard() {
 function Podium({
   leader: l,
   rank,
-  symbols,
   delay,
   move,
   now,
@@ -309,7 +336,6 @@ function Podium({
 }: {
   leader: Leader;
   rank: number;
-  symbols: Record<string, string>;
   delay: number;
   move?: number;
   now: number;
@@ -347,7 +373,7 @@ function Podium({
         <span className="text-xs text-muted">realised</span>
       </div>
       <WinBar rate={l.win_rate} wins={l.wins} coins={l.coins} />
-      <dl className="grid grid-cols-3 gap-2 border-t border-border pt-3 font-mono text-xs">
+      <dl className="grid grid-cols-4 gap-2 border-t border-border pt-3 font-mono text-xs">
         <div>
           <dt className="font-sans text-[11px] text-muted">Coins sold</dt>
           <dd className="mt-0.5 text-text">{l.coins}</dd>
@@ -362,15 +388,44 @@ function Podium({
             {now ? `${formatAge(now / 1000 - l.last_trade)} ago` : "—"}
           </dd>
         </div>
+        <div>
+          <dt className="font-sans text-[11px] text-muted">Copy score</dt>
+          <dd className="mt-0.5">
+            <CopyScore l={l} />
+          </dd>
+        </div>
       </dl>
       <div className="flex items-center justify-between gap-3">
-        <Holdings mints={l.holding} symbols={symbols} />
+        <TopHoldings wallet={l.wallet} />
         <span className="flex items-center gap-2">
           <TradesToggle open={open} count={trades} onClick={onToggle} />
           <MonitorButton wallet={l.wallet} rank={rank} />
         </span>
       </div>
     </article>
+  );
+}
+
+/** Wallets with a measured copy return first, best first; the rest by profit. */
+function sortLeaders(list: Leader[], by: "profit" | "copy") {
+  if (by === "profit") return list;
+  return [...list].sort((a, b) => (b.copy_return_pct ?? -Infinity) - (a.copy_return_pct ?? -Infinity) || b.realized_sol - a.realized_sol);
+}
+
+/** Return of a follower copying the wallet 3 s late; "Measuring" until one copied coin sold. */
+function CopyScore({ l }: { l: Leader }) {
+  if (l.copy_return_pct == null)
+    return (
+      <span className="text-xs text-muted" title="Shown once copying it was simulated on 3 coins">
+        Measuring <span className="font-mono">{Math.min(l.copy_coins, 3)}/3</span>
+      </span>
+    );
+  const v = l.copy_return_pct;
+  return (
+    <span className={v > 0 ? "text-positive" : v < 0 ? "text-negative" : "text-text-2"} title={`Copying it on ${l.copy_coins} coin${l.copy_coins === 1 ? "" : "s"}`}>
+      {v >= 0 ? "+" : "−"}
+      {Math.abs(v).toFixed(1)}%
+    </span>
   );
 }
 
@@ -405,36 +460,7 @@ function WinBar({
   );
 }
 
-function Holdings({
-  mints,
-  symbols,
-}: {
-  mints: string[];
-  symbols: Record<string, string>;
-}) {
-  if (!mints.length)
-    return <span className="text-xs text-muted">Nothing live</span>;
-  return (
-    <span className="flex flex-wrap gap-1.5">
-      {mints.slice(0, 4).map((m) => (
-        <Link
-          key={m}
-          href={tokenHref(m)}
-          className="rounded-full border border-border px-2 py-0.5 font-mono text-[11px] text-text-2 transition-colors hover:border-cyan/40 hover:text-text"
-        >
-          {symbols[m] ?? `${m.slice(0, 4)}…`}
-        </Link>
-      ))}
-      {mints.length > 4 && (
-        <span className="self-center text-xs text-muted">
-          +{mints.length - 4}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/** Before anyone qualifies: how long MONEXA has watched, against the time it takes. */
+/** Before anyone qualifies: how long Kixo has watched, against the time it takes. */
 function Scanning({ hours }: { hours: number }) {
   const progress = Math.min(100, (hours / 2) * 100);
   return (

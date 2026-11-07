@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { PortfolioBoard } from "@/components/portfolio/portfolio-board";
 
-export const metadata: Metadata = { title: "Portfolio · MONEXA" };
+export const metadata: Metadata = { title: "Portfolio" };
 
 export default function PortfolioPage() {
   return (

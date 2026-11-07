@@ -16,6 +16,9 @@ import {
   Users,
 } from "lucide-react";
 import { GATEWAY_HTTP, usd } from "@/lib/gateway";
+import { refLink, useReferral } from "@/lib/growth";
+import { useAccount, openLogin } from "@/lib/account";
+import { pushToast } from "@/lib/toast";
 import {
   CASHBACK,
   CREATOR,
@@ -93,7 +96,7 @@ export function RewardsBoard() {
           </div>
           <p className="mt-1 max-w-2xl text-sm text-text-2">
             Earn from the traders you bring, get part of your own fees back, and
-            grow with MONEXA as a creator. Payouts start when trading goes live
+            grow with Kixo as a creator. Payouts start when trading goes live
           </p>
         </div>
         <dl className="flex flex-wrap gap-x-10 gap-y-4">
@@ -152,7 +155,7 @@ export function RewardsBoard() {
 
       <p className="max-w-3xl text-xs leading-5 text-muted">
         Rates and tiers are a draft and may change before launch. Rewards are
-        paid from MONEXA trading fees only. Nothing here is an investment or a
+        paid from Kixo trading fees only. Nothing here is an investment or a
         promise of income.
       </p>
     </section>
@@ -193,6 +196,53 @@ function Referral({ cfg }: { cfg: RewardsConfig }) {
   );
 }
 
+/** The signed-in user's own invite link, and how many joined with it. */
+function InviteLink() {
+  const account = useAccount();
+  const ref = useReferral();
+  if (account.status !== "signed-in")
+    return (
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border bg-bg px-3 py-2.5 text-sm text-text-2">
+        Sign in to get your invite link
+        <button type="button" onClick={() => openLogin("/rewards")} className="text-text underline underline-offset-2">
+          Sign in
+        </button>
+      </div>
+    );
+  const link = ref ? refLink(ref.code) : null;
+  const copy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      pushToast({ tone: "good", title: "Link copied" });
+    } catch {
+      pushToast({ tone: "bad", title: "Copy not supported here" });
+    }
+  };
+  return (
+    <>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="flex h-10 min-w-64 flex-1 items-center gap-2 rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text">
+          <Link2 size={14} strokeWidth={1.5} className="text-muted" />
+          {link ?? "Creating your link…"}
+        </span>
+        <button
+          type="button"
+          disabled={!link}
+          onClick={copy}
+          className="flex h-10 items-center gap-1.5 rounded-lg border border-border px-4 text-sm text-text-2 transition-colors hover:bg-surface-3 hover:text-text disabled:opacity-50"
+        >
+          <Copy size={14} strokeWidth={1.5} />
+          Copy
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-muted">
+        {ref ? `${ref.invited} ${ref.invited === 1 ? "person has" : "people have"} joined with your link · code ${ref.code}` : "Your code is also your name on the competition board"}
+      </p>
+    </>
+  );
+}
+
 function reffBody(cfg: RewardsConfig, tiers: Tier[]) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
@@ -207,24 +257,7 @@ function reffBody(cfg: RewardsConfig, tiers: Tier[]) {
               </p>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="flex h-10 min-w-64 flex-1 items-center gap-2 rounded-lg border border-dashed border-border bg-bg px-3 font-mono text-sm text-muted">
-              <Link2 size={14} strokeWidth={1.5} />
-              monexa.app/r/your-code
-            </span>
-            <button
-              type="button"
-              disabled
-              className="flex h-10 items-center gap-1.5 rounded-lg border border-border px-4 text-sm text-muted"
-              title="Your link is created with your account"
-            >
-              <Copy size={14} strokeWidth={1.5} />
-              Copy
-            </button>
-          </div>
-          <p className="mt-2 text-[11px] text-muted">
-            Your link is created when MONEXA accounts open
-          </p>
+          <InviteLink />
         </Card>
 
         <Steps
@@ -405,7 +438,7 @@ function Creator({ cfg }: { cfg: RewardsConfig }) {
           </p>
           <p className="mt-1 max-w-xl text-sm text-text-2">
             You post about Solana memecoins and people listen. Bring them to
-            MONEXA, give them better tools, and earn up to{" "}
+            Kixo, give them better tools, and earn up to{" "}
             {cfg.creator_max_share_pct}% of the fees they pay
           </p>
           <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -433,7 +466,7 @@ function Creator({ cfg }: { cfg: RewardsConfig }) {
             },
             {
               title: "We review",
-              body: "The MONEXA team checks your profiles and replies",
+              body: "The Kixo team checks your profiles and replies",
             },
             {
               title: "Earn and grow",
@@ -517,7 +550,7 @@ function ApplyForm({ open }: { open: boolean }) {
     } catch {
       setState({
         kind: "error",
-        msg: "MONEXA is offline. Try again in a moment",
+        msg: "Kixo is offline. Try again in a moment",
       });
     }
   };
@@ -529,7 +562,7 @@ function ApplyForm({ open }: { open: boolean }) {
           <CircleCheck size={32} strokeWidth={1.5} className="text-positive" />
           <p className="text-sm font-medium text-text">Application sent</p>
           <p className="max-w-xs text-xs text-text-2">
-            The MONEXA team reviews every request and replies on the contact you
+            The Kixo team reviews every request and replies on the contact you
             gave
           </p>
         </div>
@@ -655,7 +688,7 @@ function ApplyForm({ open }: { open: boolean }) {
           {state.kind === "sending" ? "Sending" : "Send application"}
         </button>
         <p className="text-[11px] text-muted">
-          Links must start with https://. Your request goes to the MONEXA admin
+          Links must start with https://. Your request goes to the Kixo admin
           team
         </p>
       </div>

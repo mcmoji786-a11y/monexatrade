@@ -118,11 +118,25 @@ pub struct CoinResult {
     pub trades: u32,
     pub first_ts: i64,
     pub last_ts: i64,
+    /// What a follower copying this wallet a few seconds late made on the coin, and
+    /// the cost of what that follower sold (SOL). Zero for records saved before.
+    #[serde(default)]
+    pub copy_realized_sol: f64,
+    #[serde(default)]
+    pub copy_sold_cost: f64,
 }
 
 impl CoinResult {
     pub fn of(p: &Position) -> Self {
-        Self { realized_sol: p.realized_sol, held_secs: (p.last_ts - p.first_ts).max(0), trades: p.buys + p.sells, first_ts: p.first_ts, last_ts: p.last_ts }
+        Self {
+            realized_sol: p.realized_sol,
+            held_secs: (p.last_ts - p.first_ts).max(0),
+            trades: p.buys + p.sells,
+            first_ts: p.first_ts,
+            last_ts: p.last_ts,
+            copy_realized_sol: p.copy_realized_sol,
+            copy_sold_cost: p.copy_sold_cost,
+        }
     }
 }
 
@@ -136,6 +150,9 @@ struct Stat {
     trades: u32,
     first_ts: i64,
     last_ts: i64,
+    copy_realized_sol: f64,
+    copy_sold_cost: f64,
+    copy_coins: u32,
 }
 
 impl Stat {
@@ -147,6 +164,11 @@ impl Stat {
         self.trades += r.trades;
         self.first_ts = if self.first_ts == 0 { r.first_ts } else { self.first_ts.min(r.first_ts) };
         self.last_ts = self.last_ts.max(r.last_ts);
+        if r.copy_sold_cost > 0.0 {
+            self.copy_coins += 1;
+            self.copy_realized_sol += r.copy_realized_sol;
+            self.copy_sold_cost += r.copy_sold_cost;
+        }
     }
 
     /// Bot patterns: in and out within seconds, many trades per coin, or a new coin
@@ -176,8 +198,8 @@ const SMART_MAX_TRADES_PER_COIN: f64 = 12.0;
 const SMART_MAX_COINS_PER_HOUR: f64 = 30.0;
 /// Live coins a wallet has touched (bought, held or sold); bots touch dozens.
 const SMART_MAX_LIVE_TOUCHED: usize = 25;
-/// Listed only while active: a trade in the last day.
-const SMART_ACTIVE_SECS: i64 = 86_400;
+/// Listed only while active: a trade in the last hour.
+pub const SMART_ACTIVE_SECS: i64 = 3_600;
 /// Records older than this are forgotten.
 const SMART_KEEP_SECS: i64 = 7 * 86_400;
 const MAX_WALLETS: usize = 300_000;
@@ -214,6 +236,11 @@ impl SmartMoney {
 
     pub fn wallets(&self) -> usize {
         self.closed.len()
+    }
+
+    /// Oldest trade in the records (unix seconds), or None when there are none.
+    pub fn oldest(&self) -> Option<i64> {
+        self.closed.values().flat_map(|c| c.values()).map(|r| r.first_ts).filter(|t| *t > 0).min()
     }
 
     /// Smart wallets holding each live coin (mint -> count), and the smart-money
@@ -262,6 +289,11 @@ impl SmartMoney {
                     avg_hold_secs: s.held_secs / s.coins.max(1) as i64,
                     last_trade: s.last_ts,
                     holding: holding.get(w).map(|v| v.iter().map(|m| m.to_string()).collect()).unwrap_or_default(),
+                    copy_coins: s.copy_coins,
+                    // A copy score from one or two coins is noise: shown from three.
+                    copy_return_pct: (s.copy_coins >= MIN_COPY_COINS && s.copy_sold_cost > 0.0)
+                        .then(|| (s.copy_realized_sol / s.copy_sold_cost * 1000.0).round() / 10.0),
+                    sol_balance: None,
                 })
             })
             .collect();
@@ -292,9 +324,17 @@ pub struct Leader {
     pub last_trade: i64,
     /// Live coins it holds right now.
     pub holding: Vec<String>,
+    /// Coins on which a follower copying it COPY_DELAY_SECS late was simulated, and that
+    /// follower's realised return in % (None until a copied coin was sold).
+    pub copy_coins: u32,
+    pub copy_return_pct: Option<f64>,
+    /// SOL in the wallet now, read from chain.
+    pub sol_balance: Option<f64>,
 }
 
 const LEADERS: usize = 200;
+/// Copied coins needed before a copy score is shown.
+pub const MIN_COPY_COINS: u32 = 3;
 
 #[cfg(test)]
 mod tests {

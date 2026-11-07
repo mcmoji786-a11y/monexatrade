@@ -179,7 +179,7 @@ export function useDiscoverFilters() {
 
 /* Wallet Monitor: wallets the user follows, alert rules, and delivery channels.
    Kept in this browser until accounts (Supabase) exist; then the gateway delivers
-   Telegram and Discord alerts even when MONEXA is closed. */
+   Telegram and Discord alerts even when Kixo is closed. */
 export type MonitoredWallet = {
   address: string;
   label: string;
@@ -191,7 +191,7 @@ export type MonitoredWallet = {
 };
 export type MonitorPrefs = {
   wallets: MonitoredWallet[];
-  /** In-browser notifications while MONEXA is open. */
+  /** In-browser notifications while Kixo is open. */
   browser: boolean;
   discordWebhook: string;
   telegramChatId: string;
