@@ -13,6 +13,12 @@ const DEFAULT_SUPPLY: u64 = 1_000_000_000_000_000;
 const WHALE_LAMPORTS: u64 = 5_000_000_000;
 const MAX_WHALES: usize = 100;
 const SNIPE_WINDOW_SECS: i64 = 3;
+/// Same rule as the market engine's bundles: this many wallets buying in one slot
+/// (block) early in the launch, usually one person splitting a buy across wallets.
+const BUNDLE_MIN_WALLETS: usize = 3;
+const BUNDLE_WINDOW_SECS: i64 = 30;
+/// A holder of at least this share of supply is labelled a whale.
+pub const WHALE_HOLDER_PCT: f64 = 1.0;
 /// Trades below this (0.0001 SOL) are priced from reserves instead of their fill.
 const MIN_PRICED_LAMPORTS: u64 = 100_000;
 
@@ -42,6 +48,7 @@ pub struct TradeRow {
     pub whale: bool,
     pub dev: bool,
     pub sniper: bool,
+    pub bundler: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +83,11 @@ pub struct Position {
     pub last_ts: i64,
     pub dev: bool,
     pub sniper: bool,
+    /// Bought in a bundle: BUNDLE_MIN_WALLETS or more wallets buying in the same slot in
+    /// the first BUNDLE_WINDOW_SECS of the launch (usually one person, many wallets).
+    pub bundler: bool,
+    /// Made a single buy of WHALE_LAMPORTS or more.
+    pub big_buyer: bool,
     /// A follower copying this wallet COPY_DELAY_SECS late: tokens held, cost of what
     /// is held, and realised profit and cost of what was sold (SOL).
     #[serde(skip)]
@@ -116,6 +128,8 @@ struct Book {
     candles: VecDeque<Candle>,
     wallets: HashMap<String, Position>,
     pending: VecDeque<Pending>,
+    /// Buyers per slot during the bundle window.
+    early_buyers: HashMap<u64, Vec<String>>,
 }
 
 impl Book {
@@ -147,6 +161,7 @@ impl Book {
             candles: VecDeque::new(),
             wallets: HashMap::new(),
             pending: VecDeque::new(),
+            early_buyers: HashMap::new(),
         }
     }
 
@@ -177,7 +192,7 @@ impl Book {
         }
     }
 
-    fn apply(&mut self, signature: &str, t: &Trade) -> TradeRow {
+    fn apply(&mut self, signature: &str, t: &Trade, slot: Option<u64>) -> TradeRow {
         self.fill_copies(t.timestamp);
         // The price a trade actually executed at (SOL paid / tokens moved), as large
         // screeners report it. The pool's post-trade spot price can differ a lot on thin
@@ -230,6 +245,9 @@ impl Book {
             p.bought_sol += sol;
             p.bought_tokens += tokens;
             p.balance += tokens;
+            if t.sol_amount >= WHALE_LAMPORTS {
+                p.big_buyer = true;
+            }
         } else {
             let avg_cost = if p.bought_tokens > 0.0 {
                 p.bought_sol / p.bought_tokens
@@ -250,6 +268,25 @@ impl Book {
             }
             self.pending.push_back(Pending { wallet: t.user.clone(), due: t.timestamp + COPY_DELAY_SECS, buy_sol, sell_frac });
         }
+        // Bundles: enough distinct wallets buying in the same slot early in the launch.
+        // Trades without a slot (fetched pool transactions) are never counted.
+        let early = t.is_buy && !dev && !t.user.is_empty() && t.timestamp - self.created <= BUNDLE_WINDOW_SECS;
+        if let (true, Some(slot)) = (early, slot) {
+            let buyers = self.early_buyers.entry(slot).or_default();
+            if !buyers.contains(&t.user) {
+                buyers.push(t.user.clone());
+            }
+            if buyers.len() >= BUNDLE_MIN_WALLETS {
+                for w in buyers.iter() {
+                    if let Some(p) = self.wallets.get_mut(w) {
+                        p.bundler = true;
+                    }
+                }
+            }
+        } else if !self.early_buyers.is_empty() && t.timestamp - self.created > BUNDLE_WINDOW_SECS {
+            self.early_buyers.clear();
+        }
+        let bundler = self.wallets.get(&t.user).is_some_and(|p| p.bundler);
 
         let row = TradeRow {
             signature: signature.to_string(),
@@ -263,6 +300,7 @@ impl Book {
             whale: t.sol_amount >= WHALE_LAMPORTS,
             dev,
             sniper,
+            bundler,
         };
         self.trades.push_front(row.clone());
         if row.whale {
@@ -384,6 +422,7 @@ impl Books {
             candles: seed_candles.into_iter().collect(),
             wallets: HashMap::new(),
             pending: VecDeque::new(),
+            early_buyers: HashMap::new(),
         });
         book.source = dex.to_string();
         book.pool = Some(pool.to_string());
@@ -409,7 +448,7 @@ impl Books {
         let mut live_trades = std::mem::take(&mut b.trades);
         let mut live_candles = std::mem::take(&mut b.candles);
         for (sig, t) in older.iter().rev().filter(|(s, _)| !known.contains(s)) {
-            b.apply(sig, t);
+            b.apply(sig, t, None);
         }
         let old_trades = std::mem::replace(&mut b.trades, std::mem::take(&mut live_trades));
         let old_candles = std::mem::replace(&mut b.candles, std::mem::take(&mut live_candles));
@@ -488,7 +527,12 @@ impl Books {
 
     /// None when the token is not tracked.
     pub fn apply(&mut self, signature: &str, t: &Trade) -> Option<TradeRow> {
-        Some(self.books.get_mut(&t.mint)?.apply(signature, t))
+        self.apply_in_slot(signature, t, None)
+    }
+
+    /// A trade from the live stream, with the slot it landed in (bundle detection).
+    pub fn apply_in_slot(&mut self, signature: &str, t: &Trade, slot: Option<u64>) -> Option<TradeRow> {
+        Some(self.books.get_mut(&t.mint)?.apply(signature, t, slot))
     }
 
     pub fn snapshot(&self, mint: &str) -> Option<BookSnapshot> {
@@ -502,6 +546,33 @@ impl Books {
             candle_secs: CANDLE_SECS,
             supply: b.supply,
         })
+    }
+
+    /// Every wallet in this coin with a label: "dev", "sniper", "bundler", "whale" (a buy
+    /// of 5 SOL+ or WHALE_HOLDER_PCT of supply held). At most MAX_LABELLED wallets.
+    pub fn labels(&self, mint: &str) -> Option<HashMap<String, Vec<&'static str>>> {
+        const MAX_LABELLED: usize = 3_000;
+        let b = self.books.get(mint)?;
+        let mut out = HashMap::new();
+        for p in b.wallets.values() {
+            let mut l = Vec::new();
+            if p.dev {
+                l.push("dev");
+            }
+            if p.sniper {
+                l.push("sniper");
+            }
+            if p.bundler {
+                l.push("bundler");
+            }
+            if p.big_buyer || (p.balance > 0.0 && p.balance / b.supply * 100.0 >= WHALE_HOLDER_PCT) {
+                l.push("whale");
+            }
+            if !l.is_empty() && out.len() < MAX_LABELLED {
+                out.insert(p.wallet.clone(), l);
+            }
+        }
+        Some(out)
     }
 
     pub fn wallets(&self, mint: &str, focus: Option<&str>) -> Option<Wallets> {
@@ -573,6 +644,47 @@ mod tests {
             virtual_sol_reserves: 30_000_000_000,
             virtual_token_reserves: 1_000_000_000_000_000,
             real_token_reserves: 0,
+        }
+    }
+
+    #[test]
+    fn labels_dev_snipers_bundles_and_whales() {
+        let mut books = Books::default();
+        books.add(&token());
+        books.apply("d", &trade("DEV", true, 1_000_000_000, 10_000_000_000, 100)).unwrap();
+        books.apply("s", &trade("SNIPE", true, 100_000_000, 1_000_000_000, 101)).unwrap();
+        // Three wallets in the same slot, 10 s in: a bundle.
+        for (i, w) in ["B1", "B2", "B3"].iter().enumerate() {
+            let row = books.apply_in_slot(&format!("b{i}"), &trade(w, true, 100_000_000, 1_000_000_000, 110), Some(7)).unwrap();
+            assert_eq!(row.bundler, i == 2, "the third buyer completes the bundle");
+        }
+        // Two in one slot is not a bundle; three in the same second but different slots
+        // (an ordinary busy launch) are not; nor are late buyers, or trades without a slot.
+        books.apply_in_slot("x1", &trade("PAIR1", true, 100_000_000, 1_000_000_000, 115), Some(20)).unwrap();
+        books.apply_in_slot("x2", &trade("PAIR2", true, 100_000_000, 1_000_000_000, 115), Some(20)).unwrap();
+        for (i, w) in ["S1", "S2", "S3"].iter().enumerate() {
+            books.apply_in_slot(w, &trade(w, true, 100_000_000, 1_000_000_000, 116), Some(30 + i as u64)).unwrap();
+        }
+        for w in ["N1", "N2", "N3"] {
+            books.apply(w, &trade(w, true, 100_000_000, 1_000_000_000, 117)).unwrap();
+        }
+        for w in ["L1", "L2", "L3"] {
+            books.apply_in_slot(w, &trade(w, true, 100_000_000, 1_000_000_000, 200), Some(99)).unwrap();
+        }
+        // A 5 SOL buy, and a holder of more than 1% of supply.
+        books.apply("w", &trade("BIG", true, 5_000_000_000, 1_000_000_000, 300)).unwrap();
+        books.apply("h", &trade("HOLDER", true, 1_000_000_000, 20_000_000_000_000, 301)).unwrap();
+
+        let l = books.labels("M").unwrap();
+        assert_eq!(l["DEV"], vec!["dev"]);
+        assert_eq!(l["SNIPE"], vec!["sniper"]);
+        for w in ["B1", "B2", "B3"] {
+            assert_eq!(l[w], vec!["bundler"], "{w}");
+        }
+        assert_eq!(l["BIG"], vec!["whale"]);
+        assert_eq!(l["HOLDER"], vec!["whale"]);
+        for w in ["PAIR1", "PAIR2", "S1", "S2", "S3", "N1", "N2", "N3", "L1", "L2", "L3"] {
+            assert!(!l.contains_key(w), "{w} has no label");
         }
     }
 

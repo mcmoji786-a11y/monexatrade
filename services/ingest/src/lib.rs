@@ -62,7 +62,8 @@ pub enum IngestEvent {
     Market { sol_usd: Option<f64>, items: Vec<MarketSnapshot> },
     Removed(Vec<String>),
     /// Every decoded, successful trade on a tracked curve, with its transaction.
-    Trade { signature: String, trade: pumpfun::Trade },
+    /// `slot`: the block it landed in, when the stream reports it (bundle detection).
+    Trade { signature: String, trade: pumpfun::Trade, slot: Option<u64> },
     /// A successful transaction on a watched pool whose program does not log its
     /// trades (Raydium, Orca, Meteora...): the gateway fetches and decodes it.
     PoolTx { mint: String, signature: String },
@@ -476,7 +477,7 @@ impl Engine {
                 Event::Trade(trade) => {
                     stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
                     self.tracker.apply_trade_in_slot(&trade, slot);
-                    let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
+                    let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade, slot });
                 }
                 Event::Complete { mint } => self.tracker.complete(&mint, now_secs()),
             }
@@ -508,7 +509,7 @@ impl Engine {
                 if complete {
                     self.tracker.complete(&mint, now_secs());
                 }
-                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
+                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade, slot });
             }
         }
 
@@ -522,7 +523,7 @@ impl Engine {
                 stats.trades_decoded.fetch_add(1, Ordering::Relaxed);
                 let trade = t.into_trade(&mint, now_secs());
                 self.tracker.apply_trade_in_slot(&trade, slot);
-                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
+                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade, slot });
             }
         }
 
@@ -546,7 +547,7 @@ impl Engine {
                     virtual_token_reserves: s.pool_base_reserves,
                     real_token_reserves: 0,
                 };
-                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade });
+                let _ = out.send(IngestEvent::Trade { signature: sig.to_string(), trade, slot });
             }
         }
         Ok(())

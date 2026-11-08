@@ -157,6 +157,8 @@ export type TradeRow = {
   whale: boolean;
   dev: boolean;
   sniper: boolean;
+  /** Bought in a launch bundle (missing on DEX trades). */
+  bundler?: boolean;
 };
 
 /** OHLC of market cap in SOL, volume in SOL. */
@@ -182,6 +184,9 @@ export type Position = {
   last_ts: number;
   dev: boolean;
   sniper: boolean;
+  bundler?: boolean;
+  /** Made a single buy of 5 SOL or more. */
+  big_buyer?: boolean;
 };
 
 export type Wallets = {

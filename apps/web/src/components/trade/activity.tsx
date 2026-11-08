@@ -2,6 +2,7 @@
 
 import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { useState } from "react";
+import { CoinLabelsContext, LABEL_ORDER, useCoinLabels, useSmartWallets, type CoinLabels, type WalletLabel } from "@/lib/labels";
 import { CopyAddress } from "@/components/token/token-bits";
 import { amount, positionPnl, sol, usd, type Position, type TradeRow } from "@/lib/gateway";
 import { formatAge } from "@/components/radar/use-radar-feed";
@@ -36,6 +37,19 @@ export function Activity({
   supply: number | null;
 }) {
   const [tab, setTab] = useState<TabKey>("trades");
+  // Who to show in the trades, holders and top traders lists.
+  const [who, setWho] = useState<WalletLabel | "all">("all");
+  const labels = useCoinLabels(mint);
+  const smart = useSmartWallets();
+  const labelsOf = (wallet: string, flags: (WalletLabel | false | undefined)[]) => {
+    const all = new Set<WalletLabel>(labels[wallet] ?? []);
+    if (smart.has(wallet)) all.add("smart");
+    for (const f of flags) if (f) all.add(f);
+    return all;
+  };
+  const tradeShown = (t: TradeRow) => who === "all" || labelsOf(t.wallet, [t.dev && "dev", t.sniper && "sniper", t.whale && "whale", t.bundler && "bundler"]).has(who);
+  const walletShown = (p: Position) => who === "all" || labelsOf(p.wallet, [p.dev && "dev", p.sniper && "sniper", p.bundler && "bundler", p.big_buyer && "whale"]).has(who);
+  const filterable = tab === "trades" || tab === "holders" || tab === "traders";
   const [focus, setFocus] = useState<string | null>(null);
   const needsWallets = book.status === "live" && tab !== "trades" && tab !== "whales";
   const wallets = useWallets(mint, needsWallets, tab === "positions" ? focus : null);
@@ -70,6 +84,7 @@ export function Activity({
   };
 
   return (
+    <CoinLabelsContext.Provider value={labels}>
     <section className="min-h-[360px]">
       <div role="tablist" className="no-scrollbar flex h-11 items-center gap-1 overflow-x-auto border-b border-border px-2">
         {TABS.map((t) => (
@@ -88,6 +103,7 @@ export function Activity({
           </button>
         ))}
       </div>
+      {filterable && book.status !== "loading" && <WhoFilter who={who} setWho={setWho} labels={labels} smart={smart} />}
 
       {book.status === "loading" ? (
         <Empty>Loading</Empty>
@@ -100,10 +116,10 @@ export function Activity({
         <Empty>Loading trades from this coin&apos;s pool</Empty>
       ) : (
         <div className="max-h-[520px] overflow-y-auto">
-          {tab === "trades" && <TradeTable trades={trades} solUsd={solUsd} now={now} />}
+          {tab === "trades" && <TradeTable trades={trades.filter(tradeShown)} solUsd={solUsd} now={now} empty={who === "all" ? undefined : "No trades by these wallets in the recent list"} />}
           {tab === "whales" && <TradeTable trades={whales} solUsd={solUsd} now={now} empty="No buys or sells of 5 SOL or more yet" />}
-          {tab === "holders" && <WalletTable rows={wallets?.holders} solUsd={solUsd} now={now} kind="holders" />}
-          {tab === "traders" && <WalletTable rows={wallets?.top_traders} solUsd={solUsd} now={now} kind="traders" />}
+          {tab === "holders" && <WalletTable rows={wallets?.holders.filter(walletShown)} solUsd={solUsd} now={now} kind="holders" empty={who === "all" ? undefined : "None of the top holders have this label"} />}
+          {tab === "traders" && <WalletTable rows={wallets?.top_traders.filter(walletShown)} solUsd={solUsd} now={now} kind="traders" empty={who === "all" ? undefined : "None of the top traders have this label"} />}
           {tab === "snipers" && <WalletTable rows={wallets?.snipers} solUsd={solUsd} now={now} kind="traders" empty="No wallet bought in the first 3 seconds" />}
           {tab === "dev" && (
             <>
@@ -113,7 +129,7 @@ export function Activity({
                 <p className="border-t border-border px-4 py-3 text-xs text-muted">
                   <span className="flex items-center gap-2">
                     Creator wallet
-                    <CopyAddress value={creator} className="text-cyan" />
+                    <WalletLink address={creator} extra={["dev"]} />
                   </span>
                 </p>
               )}
@@ -123,6 +139,34 @@ export function Activity({
         </div>
       )}
     </section>
+    </CoinLabelsContext.Provider>
+  );
+}
+
+const WHO_TEXT: Record<WalletLabel, string> = { dev: "Dev", smart: "Smart money", whale: "Whales", bundler: "Bundlers", sniper: "Snipers" };
+
+/** Show only wallets with one label: the dev, smart money, whales, bundlers or snipers. */
+function WhoFilter({ who, setWho, labels, smart }: { who: WalletLabel | "all"; setWho: (w: WalletLabel | "all") => void; labels: CoinLabels; smart: Set<string> }) {
+  const count = (l: WalletLabel) => (l === "smart" ? Object.keys(labels).filter((w) => smart.has(w)).length : Object.values(labels).filter((ls) => ls.includes(l)).length);
+  return (
+    <div role="group" aria-label="Show wallets" className="no-scrollbar flex h-10 items-center gap-1 overflow-x-auto border-b border-border px-3">
+      <span className="mr-1 shrink-0 text-xs text-muted">Show</span>
+      {(["all", ...LABEL_ORDER] as const).map((k) => {
+        const n = k === "all" ? null : count(k);
+        return (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={who === k}
+            onClick={() => setWho(k)}
+            className={`flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs transition-colors ${who === k ? "bg-surface-3 text-text" : "text-text-2 hover:bg-surface-2 hover:text-text"}`}
+          >
+            {k === "all" ? "All" : WHO_TEXT[k]}
+            {n != null && n > 0 && <span className="font-mono text-[10px] text-muted">{n}</span>}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -156,7 +200,7 @@ function TradeTable({ trades, solUsd, now, empty = "No trades yet" }: { trades: 
               <span className="ml-1.5 text-muted">{t.sol >= 0.01 ? t.sol.toFixed(2) : t.sol.toFixed(4)}</span>
             </td>
             <td className="pl-6">
-              <WalletCell wallet={t.wallet} dev={t.dev} sniper={t.sniper} whale={t.whale} />
+              <WalletCell wallet={t.wallet} flags={[t.dev && "dev", t.sniper && "sniper", t.whale && "whale", t.bundler && "bundler"]} />
             </td>
             <td className="pr-4 text-right">
               <span className="inline-flex justify-end">
@@ -207,7 +251,7 @@ function WalletTable({
             <tr key={p.wallet} className="h-9 border-b border-border last:border-0 hover:bg-surface-2">
               <td className="pl-4 text-muted">{i + 1}</td>
               <td>
-                <WalletCell wallet={p.wallet} dev={p.dev} sniper={p.sniper} />
+                <WalletCell wallet={p.wallet} flags={[p.dev && "dev", p.sniper && "sniper", p.bundler && "bundler", p.big_buyer && "whale"]} />
               </td>
               <td className="text-right text-positive">
                 {money(p.bought_sol)}
@@ -287,24 +331,14 @@ function Positions({
   );
 }
 
-function WalletCell({ wallet, dev, sniper, whale }: { wallet: string; dev?: boolean; sniper?: boolean; whale?: boolean }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      {wallet ? (
-        <WalletLink address={wallet} />
-      ) : (
-        // LaunchLab curves do not log the trader.
-        <span className="text-muted" title="Not recorded for this coin">—</span>
-      )}
-      {dev && <Tag tone="text-warning border-warning/30">Dev</Tag>}
-      {sniper && <Tag tone="text-negative border-negative/30">Early</Tag>}
-      {whale && <Tag tone="text-cyan border-cyan/30">Whale</Tag>}
-    </span>
+/** A wallet with every label it has in this coin (and Smart Money), and Track. */
+function WalletCell({ wallet, flags }: { wallet: string; flags: (WalletLabel | false | undefined)[] }) {
+  return wallet ? (
+    <WalletLink address={wallet} extra={flags} />
+  ) : (
+    // LaunchLab curves do not log the trader.
+    <span className="text-muted" title="Not recorded for this coin">—</span>
   );
-}
-
-function Tag({ tone, children }: { tone: string; children: React.ReactNode }) {
-  return <span className={`rounded border px-1 text-[10px] leading-4 ${tone}`}>{children}</span>;
 }
 
 function Empty({ children }: { children: React.ReactNode }) {

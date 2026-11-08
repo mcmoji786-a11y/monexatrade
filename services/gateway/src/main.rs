@@ -406,6 +406,7 @@ async fn main() -> Result<()> {
         .route("/ws/new-tokens", get(ws_new_tokens))
         .route("/token/{mint}", get(token_handler))
         .route("/token/{mint}/wallets", get(wallets_handler))
+        .route("/token/{mint}/labels", get(labels_handler))
         .route("/token/{mint}/dex", get(dex_handler))
         .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))
@@ -554,6 +555,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
             IngestEvent::Trade {
                 signature,
                 mut trade,
+                slot,
             } => {
                 // Pools quoted in another token (WBTC, USDC...) report raw quote units;
                 // convert them to lamports of equal value so the book stays in SOL.
@@ -570,7 +572,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                     .books
                     .lock()
                     .expect("books lock")
-                    .apply(&signature, &trade);
+                    .apply_in_slot(&signature, &trade, slot);
                 if let Some(row) = row {
                     let _ = state.trades.send((trade.mint, row));
                 }
@@ -969,6 +971,20 @@ async fn wallets_handler(
             .expect("books lock")
             .wallets(&mint, focus),
     )
+}
+
+/// `GET /token/{mint}/labels`: the coin's labelled wallets (dev, sniper, bundler, whale,
+/// plus "smart" for Smart Money leaders), and the smart-money wallets on their own so any
+/// page can mark them without a coin.
+async fn labels_handler(State(state): State<Arc<AppState>>, Path(mint): Path<String>) -> Json<serde_json::Value> {
+    let mut labels = state.books.lock().expect("books lock").labels(&mint).unwrap_or_default();
+    let smart: Vec<String> = state.leaders.lock().expect("leaders lock").iter().map(|l| l.wallet.clone()).collect();
+    for w in &smart {
+        if let Some(l) = labels.get_mut(w) {
+            l.push("smart");
+        }
+    }
+    Json(json!({ "labels": labels, "smart": smart }))
 }
 
 async fn ws_token(

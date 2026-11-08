@@ -1,12 +1,13 @@
 "use client";
 
+import { WalletLink } from "@/components/tracker/wallet-tracker";
+
 import { openWalletTracker } from "@/lib/tracker";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Brain, Check, Plus } from "lucide-react";
 import { GATEWAY_HTTP, GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
 import { Move } from "@/components/discover/token-table";
 import { formatAge, useNow } from "@/components/radar/use-radar-feed";
-import { CopyAddress } from "@/components/token/token-bits";
 import { Tick } from "@/components/token/tick";
 import { useMonitor } from "@/lib/prefs";
 import { WalletDot } from "@/components/monitor/wallet-dot";
@@ -262,11 +263,7 @@ export function SmartMoneyBoard() {
                     <td>
                       <span className="flex items-center gap-2">
                         <WalletDot address={l.wallet} />
-                        <CopyAddress
-                          value={l.wallet}
-                          title={`Copy wallet ${l.wallet}`}
-                          className="text-cyan"
-                        />
+                        <WalletLink address={l.wallet} badges={false} />
                         <PortfolioLink wallet={l.wallet} />
                       </span>
                     </td>
@@ -352,11 +349,7 @@ function Podium({
       <div className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-2">
           <WalletDot address={l.wallet} size={28} />
-          <CopyAddress
-            value={l.wallet}
-            title={`Copy wallet ${l.wallet}`}
-            className="text-cyan"
-          />
+          <WalletLink address={l.wallet} badges={false} />
           <PortfolioLink wallet={l.wallet} />
         </span>
         <span className="flex items-center gap-2 font-mono text-xs text-muted">

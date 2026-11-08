@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Bell, BellOff, Check, Copy, ExternalLink, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
+import { Bell, BellOff, Check, Copy, ExternalLink, Eye, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
+import { useWalletLabels, type WalletLabel } from "@/lib/labels";
 import { pnlByCoin, useActivity, useLiveTrades, usePortfolio, type Holding, type Trade } from "@/lib/portfolio";
 import { useMonitor } from "@/lib/prefs";
 import { closeWalletTracker, openWalletTracker, useAddressKind, useOpenWallet, type AddressKind } from "@/lib/tracker";
@@ -40,11 +41,43 @@ const WINDOWS = [
 
 /* ---------------- A wallet anywhere on the site ---------------- */
 
-/** A wallet address that opens the Wallet Tracker, with a small copy button. */
-export function WalletLink({ address, className = "text-cyan" }: { address: string; className?: string }) {
+const LABEL_STYLE: Record<WalletLabel, { text: string; tone: string; title: string }> = {
+  dev: { text: "Dev", tone: "border-warning/30 text-warning", title: "Created this coin" },
+  smart: { text: "Smart", tone: "border-emerald/30 text-emerald", title: "Smart Money: strong realized results across many coins" },
+  whale: { text: "Whale", tone: "border-cyan/30 text-cyan", title: "Bought 5 SOL or more at once, or holds 1% or more of the supply" },
+  bundler: { text: "Bundler", tone: "border-negative/30 text-negative", title: "Bought in a bundle: 3 or more wallets in the same second at launch, often one person" },
+  sniper: { text: "Sniper", tone: "border-negative/30 text-negative", title: "Bought in the first 3 seconds after launch" },
+};
+
+/** One wallet label, the same everywhere on the site. */
+export function LabelChip({ label }: { label: WalletLabel }) {
+  const s = LABEL_STYLE[label];
+  return (
+    <span title={s.title} className={`rounded border px-1 font-sans text-[10px] leading-4 ${s.tone}`}>
+      {s.text}
+    </span>
+  );
+}
+
+/** A wallet address anywhere on the site: its labels (from the coin in scope and Smart
+ *  Money), the address (opens the Wallet Tracker), copy, and a Track button. */
+export function WalletLink({
+  address,
+  className = "text-cyan",
+  extra = [],
+  badges = true,
+}: {
+  address: string;
+  className?: string;
+  /** Labels the caller already knows, e.g. a trade row's dev flag. */
+  extra?: (WalletLabel | false | undefined)[];
+  badges?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
+  const labels = useWalletLabels(address, extra);
   return (
     <span className="inline-flex items-center gap-1">
+      {badges && labels.map((l) => <LabelChip key={l} label={l} />)}
       <button
         type="button"
         title={`Open ${address} in the Wallet Tracker`}
@@ -69,6 +102,18 @@ export function WalletLink({ address, className = "text-cyan" }: { address: stri
         className="text-muted hover:text-text"
       >
         {copied ? <Check size={11} strokeWidth={1.5} className="text-emerald" /> : <Copy size={11} strokeWidth={1.5} />}
+      </button>
+      <button
+        type="button"
+        aria-label={`Track ${address}`}
+        title="Track: open this wallet's balance, coins and swaps"
+        onClick={(e) => {
+          e.stopPropagation();
+          openWalletTracker(address);
+        }}
+        className="flex size-5 items-center justify-center rounded text-muted transition-colors hover:bg-surface-3 hover:text-cyan"
+      >
+        <Eye size={12} strokeWidth={1.5} />
       </button>
     </span>
   );
@@ -167,6 +212,7 @@ function NotAWallet({ address, k, compact }: { address: string; k: AddressKind; 
 
 function WalletView({ address, compact }: { address: string; compact: boolean }) {
   const port = usePortfolio(address);
+  const headerLabels = useWalletLabels(address);
   const act = useActivity(address);
   const live = useLiveTrades(address);
   const now = useNow();
@@ -210,7 +256,12 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs text-text-2">Wallet</p>
+          <p className="flex items-center gap-1.5 text-xs text-text-2">
+            Wallet
+            {headerLabels.map((l) => (
+              <LabelChip key={l} label={l} />
+            ))}
+          </p>
           <p className="mt-1 flex items-center gap-2 font-mono text-sm text-text">
             <span className="truncate">{compact ? shortAddress(address) : address}</span>
             <button

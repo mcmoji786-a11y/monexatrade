@@ -1,5 +1,7 @@
 "use client";
 
+import { WalletLink } from "@/components/tracker/wallet-tracker";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -342,7 +344,7 @@ function Safety({ row: r, launch, market }: { row: DiscoverRow; launch: FeedToke
           warn={market?.freeze_authority_disabled === false}
         />
         {launch && (
-          <Row k="Creator" v={<CopyMint mint={launch.creator} />} />
+          <Row k="Creator" v={<WalletLink address={launch.creator} extra={["dev"]} badges={false} />} />
         )}
       </dl>
       {m && !m.complete && (
