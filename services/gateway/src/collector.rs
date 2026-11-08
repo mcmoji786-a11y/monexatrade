@@ -35,6 +35,8 @@ const COINS_HEADER: &str = "ts,signature,mint,symbol,name,creator,launchpad,quot
 enum Rec {
     Coin { part: &'static str, line: String, ts: i64 },
     Trade { part: &'static str, line: String, ts: i64 },
+    /// One JSON line of another data set: snapshots, outcomes, smart_money, news.
+    Json { kind: &'static str, line: String, ts: i64 },
 }
 
 static TX: OnceLock<mpsc::Sender<Rec>> = OnceLock::new();
@@ -47,6 +49,9 @@ struct Counts {
     history_trades: AtomicU64,
     history_coins: AtomicU64,
     history_oldest: AtomicU64,
+    snapshots: AtomicU64,
+    outcomes: AtomicU64,
+    other: AtomicU64,
     dropped: AtomicU64,
 }
 
@@ -148,7 +153,7 @@ fn open(path: &Path, header: &str) -> std::io::Result<Out> {
     let fresh = !path.exists();
     let file = OpenOptions::new().create(true).append(true).open(path)?;
     let mut enc = GzEncoder::new(file, Compression::default());
-    if fresh {
+    if fresh && !header.is_empty() {
         enc.write_all(header.as_bytes())?;
     }
     Ok(Out { enc })
@@ -181,7 +186,9 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
                     let (part, kind, line, ts) = match r {
                         Rec::Coin { part, line, ts } => (part, "coins", line, ts),
                         Rec::Trade { part, line, ts } => (part, "trades", line, ts),
+                        Rec::Json { kind, line, ts } => ("live", kind, line, ts),
                     };
+                    let csv = kind == "coins" || kind == "trades";
                     let key = (day(if ts > 0 { ts } else { now() }), part, kind);
                     if !files.contains_key(&key) {
                         // Keep only today's and yesterday's live files open; history can span many days.
@@ -191,8 +198,8 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
                                 let _ = o.enc.try_finish();
                             }
                         }
-                        let path = base.join(part).join(&key.0).join(format!("{kind}-{run}.csv.gz"));
-                        match open(&path, if kind == "coins" { COINS_HEADER } else { TRADES_HEADER }) {
+                        let path = base.join(part).join(&key.0).join(format!("{kind}-{run}.{}.gz", if csv { "csv" } else { "jsonl" }));
+                        match open(&path, if kind == "coins" { COINS_HEADER } else if kind == "trades" { TRADES_HEADER } else { "" }) {
                             Ok(o) => {
                                 files.insert(key.clone(), o);
                             }
@@ -207,9 +214,12 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
                             let c = COUNTS.get().expect("counts");
                             match (part, kind) {
                                 ("live", "trades") => c.live_trades.fetch_add(1, Ordering::Relaxed),
-                                ("live", _) => c.live_coins.fetch_add(1, Ordering::Relaxed),
+                                ("live", "coins") => c.live_coins.fetch_add(1, Ordering::Relaxed),
                                 (_, "trades") => c.history_trades.fetch_add(1, Ordering::Relaxed),
-                                _ => c.history_coins.fetch_add(1, Ordering::Relaxed),
+                                (_, "coins") => c.history_coins.fetch_add(1, Ordering::Relaxed),
+                                (_, "snapshots") => c.snapshots.fetch_add(1, Ordering::Relaxed),
+                                (_, "outcomes") => c.outcomes.fetch_add(1, Ordering::Relaxed),
+                                _ => c.other.fetch_add(1, Ordering::Relaxed),
                             };
                         }
                     }
@@ -223,6 +233,7 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
             }
         }
     });
+    tokio::spawn(snapshot_loop(state.clone()));
     if std::env::var("HISTORY_BACKFILL").is_ok_and(|v| v.trim() == "1") {
         tokio::spawn(history(state, dir.clone()));
     }
@@ -246,6 +257,9 @@ fn write_status(base: &Path) {
             "live_coins": c.live_coins.load(Ordering::Relaxed),
             "history_trades": c.history_trades.load(Ordering::Relaxed),
             "history_coins": c.history_coins.load(Ordering::Relaxed),
+            "snapshots": c.snapshots.load(Ordering::Relaxed),
+            "outcomes": c.outcomes.load(Ordering::Relaxed),
+            "smart_and_news": c.other.load(Ordering::Relaxed),
             "dropped": c.dropped.load(Ordering::Relaxed),
         },
         "history_reached": if oldest > 0 { json!(day(oldest)) } else { json!(null) },
@@ -335,9 +349,153 @@ async fn history(state: Arc<crate::AppState>, dir: PathBuf) {
     }
 }
 
+fn json(kind: &'static str, v: &serde_json::Value) {
+    if TX.get().is_some() {
+        send(Rec::Json { kind, line: format!("{v}
+"), ts: now() });
+    }
+}
+
+/// Only the parts of a JSON object that change from minute to minute: numbers and
+/// booleans (prices, market cap, holders, buys and sells, curve progress), plus the mint.
+/// Names, images, links and descriptions are saved once per coin instead.
+fn changing(v: &serde_json::Value) -> serde_json::Value {
+    let mut out = serde_json::Map::new();
+    if let Some(o) = v.as_object() {
+        for (k, x) in o {
+            match x {
+                serde_json::Value::Number(_) | serde_json::Value::Bool(_) => {
+                    out.insert(k.clone(), x.clone());
+                }
+                serde_json::Value::String(_) if k == "mint" => {
+                    out.insert(k.clone(), x.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
+/// Every minute: the changing figures of every live coin (launches with their curve and
+/// holder stats; Discover markets) and the SOL price. Once per coin: its card (socials,
+/// description, dev report) when first known. Every hour: the smart-money list, and the
+/// news stories not saved before. All already in memory: no extra RPC.
+async fn snapshot_loop(state: Arc<crate::AppState>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(60));
+    let mut n: u64 = 0;
+    let mut carded: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_news: std::collections::HashSet<String> = std::collections::HashSet::new();
+    loop {
+        tick.tick().await;
+        let t = now();
+        let (sol_usd, launches, markets, smart, cards) = {
+            let b = state.board.lock().expect("board lock");
+            let mut cards = Vec::new();
+            let launches: Vec<serde_json::Value> = b
+                .tokens
+                .values()
+                .map(|ft| {
+                    let mut row = ft.market.as_ref().map(|m| changing(&json!(m))).unwrap_or_else(|| json!({}));
+                    row["mint"] = json!(ft.token.mint);
+                    // The card once, when its metadata has loaded.
+                    if ft.meta.is_some() && !carded.contains(&ft.token.mint) {
+                        carded.insert(ft.token.mint.clone());
+                        cards.push(json!({ "t": t, "mint": ft.token.mint, "meta": ft.meta, "dev_report": ft.dev_report }));
+                    }
+                    row
+                })
+                .collect();
+            let markets: Vec<serde_json::Value> = b.markets.all().iter().map(|m| changing(&json!(m))).collect();
+            (b.sol_usd, launches, markets, b.smart.clone(), cards)
+        };
+        if carded.len() > 200_000 {
+            carded.clear();
+        }
+        for c in &cards {
+            json("coin_cards", c);
+        }
+        // Right after a start the board is still loading: nothing worth saving yet.
+        if !launches.is_empty() || !markets.is_empty() {
+            json("snapshots", &json!({ "t": t, "sol_usd": sol_usd, "launches": launches, "markets": markets, "smart_holders": smart }));
+        }
+        // Hourly, from the third minute (once the smart-money list is computed).
+        if n % 60 == 2 {
+            let leaders = state.leaders.lock().expect("leaders lock").clone();
+            if !leaders.is_empty() {
+                json("smart_money", &json!({ "t": t, "leaders": leaders }));
+            }
+            let stories: Vec<serde_json::Value> = fs::read_to_string("data/news.json")
+                .ok()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+                .map(|v| v.as_array().cloned().or_else(|| v["stories"].as_array().cloned()).unwrap_or_default())
+                .unwrap_or_default();
+            for s in stories {
+                let id = s["id"].as_str().or(s["url"].as_str()).or(s["title"].as_str()).unwrap_or("").to_string();
+                if !id.is_empty() && seen_news.insert(id) {
+                    json("news", &s);
+                }
+            }
+            if seen_news.len() > 100_000 {
+                seen_news.clear();
+            }
+        }
+        n += 1;
+    }
+}
+
+/// A coin leaving the live board: how its life went, from our own trade book (peak and
+/// last market cap, trades, buyers), with its final card and wallet labels. These are
+/// the answers the AI learns from.
+pub fn outcome(state: &crate::AppState, mints: &[String]) {
+    if TX.get().is_none() {
+        return;
+    }
+    for mint in mints {
+        let token = state.board.lock().expect("board lock").tokens.get(mint).cloned();
+        let (book, labels) = {
+            let books = state.books.lock().expect("books lock");
+            (books.snapshot(mint), books.labels(mint))
+        };
+        let Some(book) = book else { continue };
+        let peak = book.candles.iter().map(|c| c.h).fold(0.0_f64, f64::max);
+        let first = book.candles.first().map(|c| (c.t, c.o));
+        let last = book.candles.last().map(|c| (c.t, c.c));
+        let peak_at = book.candles.iter().max_by(|a, b| a.h.total_cmp(&b.h)).map(|c| c.t);
+        let mut label_counts: HashMap<&str, usize> = HashMap::new();
+        for ls in labels.iter().flat_map(|m| m.values()) {
+            for l in ls {
+                *label_counts.entry(l).or_default() += 1;
+            }
+        }
+        json(
+            "outcomes",
+            &json!({
+                "t": now(),
+                "mint": mint,
+                "source": book.source,
+                "supply": book.supply,
+                "first": first.map(|(t, mc)| json!({ "t": t, "mc_sol": mc })),
+                "peak": json!({ "t": peak_at, "mc_sol": peak }),
+                "last": last.map(|(t, mc)| json!({ "t": t, "mc_sol": mc })),
+                "recent_trades": book.trades.len(),
+                "whale_trades": book.whales.len(),
+                "labels": label_counts,
+                "token": token,
+            }),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshots_keep_only_changing_figures() {
+        let v = json!({ "mint": "M", "name": "Coin", "image": "https://x", "mc_usd": 5000.5, "holders": 12, "complete": false, "socials": { "x": "y" } });
+        assert_eq!(changing(&v), json!({ "mint": "M", "mc_usd": 5000.5, "holders": 12, "complete": false }));
+    }
 
     #[test]
     fn days_and_csv_fields() {

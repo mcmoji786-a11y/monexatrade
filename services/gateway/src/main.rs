@@ -532,6 +532,8 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 let _ = state.feed.send(FeedEvent::Market { sol_usd, items });
             }
             IngestEvent::Removed(mints) => {
+                // Saved before the coin leaves memory: how its life went (collector.rs).
+                collector::outcome(&state, &mints);
                 {
                     // Copy the watched set first: watch_pool locks watches before books,
                     // so never hold books while waiting for watches.
