@@ -30,7 +30,9 @@ export type Account = {
 };
 
 /** Bump when the terms change; everyone accepts the new version once. */
-export const TERMS_VERSION = 1;
+/** Version 2 (2026-11-09): full Terms of Use and Privacy Policy pages; the Kixo wallet,
+ *  fees and automatic tools described. Raising it asks every user to accept again. */
+export const TERMS_VERSION = 2;
 
 const CACHE = "mx.me";
 let state: Account = { status: "loading", me: null, error: null, accepted: true, connected: null };

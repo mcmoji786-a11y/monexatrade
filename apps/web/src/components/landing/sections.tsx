@@ -303,7 +303,11 @@ export function SiteFooter() {
           Trading crypto assets carries a high risk of loss. Nothing on Kixo is financial advice. Data is
           provided as is, and estimates are labelled as estimates.
         </p>
-        <p className="mt-4 font-mono text-xs text-muted">© 2026 Kixo</p>
+        <p className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-xs text-muted">
+          <span>© 2026 Kixo</span>
+          <Link href="/terms" className="hover:text-text">Terms of Use</Link>
+          <Link href="/privacy" className="hover:text-text">Privacy Policy</Link>
+        </p>
       </div>
     </footer>
   );

@@ -38,6 +38,10 @@ export type Features = {
   news: boolean;
   kixo_sender: boolean;
   wallet_tracker: boolean;
+  weekly_recap: boolean;
+  achievements: boolean;
+  milestone_alerts: boolean;
+  coin_share: boolean;
   onchain_top: boolean;
   copy_trading: boolean;
   grid_trading: boolean;
@@ -78,6 +82,10 @@ export const ALL_ON: Features = {
   news: true,
   kixo_sender: true,
   wallet_tracker: true,
+  weekly_recap: true,
+  achievements: true,
+  milestone_alerts: true,
+  coin_share: true,
   onchain_top: true,
   copy_trading: true,
   grid_trading: true,
@@ -103,6 +111,10 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "grid_trading", label: "Grid trading", hint: "Grid bots on the trade page: buy each dip to a level, sell one level up (demo and real, while Kixo is open)" },
   { key: "copy_trading", label: "Copy trading", hint: "Copy a Smart Money wallet's buys and sells: starts on demo, moves to real once profitable (runs while Kixo is open)" },
   { key: "onchain_top", label: "On-chain top traders", hint: "Competition page: Solana memecoin traders ranked by on-chain profit, while Kixo has few demo traders" },
+  { key: "coin_share", label: "Coin share card", hint: "Share button on the trade page: a coin card with its safety score, and how far it rose since Kixo spotted it at launch" },
+  { key: "milestone_alerts", label: "2x, 5x, 10x alerts", hint: "An alert with a share card when an open demo position reaches 2x, 5x, 10x and more" },
+  { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
+  { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
   { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },

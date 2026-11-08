@@ -5,7 +5,9 @@ import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, BadgeCheck, Crosshair, Fish, Gauge, Globe, Send, UserCog, Users, UsersRound, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Crosshair, Fish, Gauge, Globe, Send, Share2, UserCog, Users, UsersRound, type LucideIcon } from "lucide-react";
+import { openShare } from "@/lib/share";
+import { useFeatures } from "@/lib/features";
 import { buildRows, type DiscoverRow } from "@/lib/categories";
 import { GATEWAY_HTTP, amount, pct, price, usd, type FeedToken, type MarketToken } from "@/lib/gateway";
 import { CopyMint, TokenLogo } from "@/components/token/token-bits";
@@ -183,6 +185,43 @@ function useDirectMarket(mint: string, needed: boolean) {
   return state.mint === mint ? state : { mint, token: null, settled: false };
 }
 
+/** Shares the coin as a card: its safety score and live facts, and how far it rose
+ *  since launch when Kixo watched it from its first trade (the first candle of a
+ *  bonding-curve book is its launch). */
+function ShareCoinButton({ row: r, book, solUsd, safety, ageSecs }: { row: DiscoverRow; book: BookState; solUsd: number | null; safety: Safety | null; ageSecs: number }) {
+  const f = useFeatures();
+  if (!f.coin_share || !f.share_cards) return null;
+  const first = book.status === "live" && book.source === "curve" && book.candles.length ? book.candles[0] : null;
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        openShare({
+          kind: "coin",
+          coin: {
+            mint: r.mint,
+            symbol: r.symbol,
+            name: r.name,
+            image: r.image,
+            mcUsd: r.mcUsd,
+            firstMcUsd: first && solUsd ? first.o * solUsd : null,
+            firstSeen: first ? first.t : null,
+            safety: safety?.score ?? null,
+            holders: r.holders,
+            top10Pct: r.top10Pct,
+            liquidityUsd: r.liquidityUsd,
+            ageSecs: Number.isFinite(ageSecs) ? ageSecs : null,
+          },
+        })
+      }
+      title="Share this coin as an image"
+      className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm text-text-2 transition-colors hover:bg-surface-2 hover:text-text focus-visible:outline-2 focus-visible:outline-emerald"
+    >
+      <Share2 size={14} strokeWidth={1.5} /> <span className="hidden sm:inline">Share</span>
+    </button>
+  );
+}
+
 function Header({
   row: r,
   launch,
@@ -242,10 +281,11 @@ function Header({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {safety && <SafetyBadge safety={safety} size="md" />}
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
           <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
+          <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />
           <AiButton input={() => inputFromRow(r)} safety={safety} />
         </div>
       </div>

@@ -49,7 +49,7 @@ export function AccountMenu() {
   const me = account.me;
   const wallet = kixo.info?.exists ? kixo.info.pubkey : null;
   return (
-    <div ref={box} className="relative flex items-center gap-2">
+    <div ref={box} className="relative flex items-center gap-1.5 sm:gap-2">
       <ModeSwitch />
       {demo.mode === "demo" ? <DemoChip /> : <WalletButton />}
       <button
@@ -119,11 +119,11 @@ function ModeSwitch() {
 function DemoChip() {
   const { account } = useDemo();
   return (
-    <Link href="/portfolio" className="flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-surface px-3 text-sm transition-colors hover:bg-surface-2" title="Demo account value at live prices">
+    <Link href="/portfolio" className="flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-surface px-2.5 text-sm sm:px-3 transition-colors hover:bg-surface-2" title="Demo account value at live prices">
       <span data-private className="font-mono text-xs tabular-nums text-text">
         {account ? account.equity_usd.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "…"}
       </span>
-      <span className="text-[11px] text-warning">Demo</span>
+      <span className="hidden text-[11px] text-warning sm:inline">Demo</span>
     </Link>
   );
 }

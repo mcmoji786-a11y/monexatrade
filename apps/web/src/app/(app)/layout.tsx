@@ -9,7 +9,8 @@ import { GridEngine } from "@/components/trade/grid-engine";
 import { CopyEngine } from "@/components/smart/copy-engine";
 import { StreamerMode } from "@/components/streamer-mode";
 import { Toaster } from "@/components/toaster";
-import { ShareCardHost } from "@/components/portfolio/share-card";
+import { ShareCardHost } from "@/components/share/cards";
+import { EngagementWatcher } from "@/components/growth/engagement-watcher";
 import { AuthGate } from "@/components/account/auth-gate";
 import { TermsGate } from "@/components/account/terms-gate";
 import { WalletSetupGate } from "@/components/wallet/kixo-wallet-card";
@@ -32,6 +33,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <StreamerMode />
       <Toaster />
       <ShareCardHost />
+      <EngagementWatcher />
       <WalletTrackerDrawer />
       <Suspense fallback={null}>
         <LiveChat />

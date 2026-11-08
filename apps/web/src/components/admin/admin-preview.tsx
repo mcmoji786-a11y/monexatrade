@@ -2,6 +2,8 @@
 
 import { KixoMark } from "@/components/brand";
 import { useEffect, useState } from "react";
+import { HeartPulse } from "lucide-react";
+import { SystemAdmin } from "./system-admin";
 import { Activity, CalendarRange, LifeBuoy, UserRound, ClipboardList, FileClock, Gauge, Coins, KeyRound, Lock, Megaphone, Rocket, Settings2, ShieldCheck, SlidersHorizontal, ToggleRight, Users } from "lucide-react";
 import { adminFetch, OwnerNeeded } from "@/lib/admin";
 import { EarningsAdmin, UsersAdmin } from "./ops-admin";
@@ -12,7 +14,7 @@ import { GATEWAY_HTTP } from "@/lib/gateway";
 import { SupportInbox } from "./support-inbox";
 import { FALLBACK_CONFIG, type GatewayTier, type RewardsConfig } from "@/lib/rewards";
 
-type View = "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
+type View = "system" | "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
 /** `preview`: a design only, nothing on it saves yet. */
 const NAV: { key: View; label: string; icon: typeof Gauge; preview?: boolean }[] = [
   { key: "overview", label: "Dashboard", icon: Gauge },
@@ -20,6 +22,7 @@ const NAV: { key: View; label: string; icon: typeof Gauge; preview?: boolean }[]
   { key: "earnings", label: "Earnings", icon: Coins },
   { key: "marketing", label: "Marketing", icon: Rocket },
   { key: "live", label: "Live users and activity", icon: Activity },
+  { key: "system", label: "System health", icon: HeartPulse },
   { key: "features", label: "Features", icon: ToggleRight },
   { key: "platform", label: "Platform settings", icon: Settings2 },
   { key: "keys", label: "API keys", icon: KeyRound },
@@ -106,6 +109,12 @@ function AdminApp() {
             </>
           )}
           {view === "live" && <Live />}
+          {view === "system" && (
+            <>
+              <Title title="System health" sub="Is Kixo up, what went down in the last day, and every warning and error, grouped" />
+              <SystemAdmin />
+            </>
+          )}
           {view === "features" && <FeaturesEditor />}
           {view === "review" && <Review />}
           {view === "rewards" && <RewardsEditor live={live} />}

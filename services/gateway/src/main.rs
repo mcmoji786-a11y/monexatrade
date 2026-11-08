@@ -24,6 +24,7 @@ mod sender;
 mod platform;
 mod ops;
 mod marketing;
+mod monitor;
 mod tracker;
 mod journal;
 mod wallet;
@@ -200,7 +201,8 @@ struct Health {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    monexa_common::init_tracing();
+    // Console logs as before, plus every warning and error kept for the admin (monitor.rs).
+    monitor::init_tracing();
     let _ = rustls::crypto::ring::default_provider().install_default();
     let config = Config::from_env()?;
     tracing::info!(?config, "starting gateway");
@@ -262,6 +264,7 @@ async fn main() -> Result<()> {
     tokio::spawn(poll_markets(state.clone()));
     tokio::spawn(prune_launches(state.clone()));
     tokio::spawn(update_smart(state.clone()));
+    tokio::spawn(monitor::sample_loop(state.clone()));
     tokio::spawn(seed_smart(state.clone()));
 
     let cors = CorsLayer::new()
@@ -402,6 +405,8 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/ops/client-error", axum::routing::post(monitor::client_error))
+        .route("/admin/system", get(monitor::admin_system))
         .route("/stats", get(stats_handler))
         .route("/metrics/public", get(metrics_handler))
         .route("/ws/new-tokens", get(ws_new_tokens))

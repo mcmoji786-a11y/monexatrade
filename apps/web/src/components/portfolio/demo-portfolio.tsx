@@ -7,6 +7,7 @@ import { orderError, resetDemo, useDemo, type DemoTrade } from "@/lib/demo";
 import { pushToast } from "@/lib/toast";
 import { useFeatures } from "@/lib/features";
 import { ShareCard, type ShareTrade } from "./share-card";
+import { Achievements, WeekRecap } from "./progress-panels";
 import { compact, money, signed, tinyPrice } from "@/components/trade/trade-panel";
 
 /** The demo account as a portfolio: equity, positions at live prices and every trade. */
@@ -16,7 +17,8 @@ export function DemoPortfolio() {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sharing, setSharing] = useState<ShareTrade | null>(null);
-  const shareOn = useFeatures().share_cards;
+  const features = useFeatures();
+  const shareOn = features.share_cards;
   const closeShare = useCallback(() => setSharing(null), []);
 
   if (!account) {
@@ -96,6 +98,9 @@ export function DemoPortfolio() {
         <Mini k="Best trade" v={best?.realized_usd != null ? `${signed(best.realized_usd)} ${best.symbol}` : "—"} tone={best?.realized_usd ?? 0} />
         <Mini k="Worst trade" v={worst?.realized_usd != null ? `${signed(worst.realized_usd)} ${worst.symbol}` : "—"} tone={worst?.realized_usd ?? 0} />
       </section>
+
+      {features.weekly_recap && <WeekRecap trades={trades ?? []} />}
+      {features.achievements && <Achievements trades={trades ?? []} />}
 
       <section className="rounded-xl border border-border bg-surface">
         <h2 className="border-b border-border px-4 py-3 text-sm font-medium text-text">
@@ -221,7 +226,7 @@ export function DemoPortfolio() {
   );
 }
 
-const SOURCE: Record<string, string> = { manual: "You", sniper: "Sniper", tp: "Take profit", sl: "Stop loss" };
+const SOURCE: Record<string, string> = { manual: "You", quick: "Quick Buy", sniper: "Sniper", tp: "Take profit", sl: "Stop loss", limit_buy: "Limit buy", limit_sell: "Limit sell", trail: "Trailing stop", grid: "Grid", copy: "Copy trading" };
 
 /** When the position each sell closed from was opened: its first buy since it was last empty. */
 function openedAt(trades: DemoTrade[]) {

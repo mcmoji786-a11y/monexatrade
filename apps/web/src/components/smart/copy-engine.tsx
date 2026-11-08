@@ -45,7 +45,7 @@ async function copyBuy(cp: Copy, m: Msg, c: Ctx, recent: Map<string, { leader: s
   const skip = skipReason(cp.rules, c.safety(m.mint), buys24h) ?? (consensusMet(cp.rules, recent.get(m.mint) ?? [], now) ? null : `Waiting for ${cp.rules.consensus} of your leaders to buy it`);
   if (skip) return logCopy(cp.id, { at: now, side: "buy", mint: m.mint, symbol: sym, result: "skipped", note: skip });
   try {
-    const f = await execute(cp.venue, { mint: m.mint, symbol: sym, side: "buy", ...(cp.venue === "demo" ? { usd: cp.rules.amount } : { sol: cp.rules.amount }), solUsd: c.solUsd });
+    const f = await execute(cp.venue, { mint: m.mint, symbol: sym, side: "buy", ...(cp.venue === "demo" ? { usd: cp.rules.amount } : { sol: cp.rules.amount }), solUsd: c.solUsd, source: "copy" });
     const cost = cp.venue === "demo" ? (f.usd ?? cp.rules.amount) : f.sol;
     const leaderUsd = m.sol_usd ? m.trade.price_sol * m.sol_usd : null;
     const costPct = leaderUsd && f.priceUsd ? copyCostPct("buy", leaderUsd, f.priceUsd) : null;
@@ -74,7 +74,7 @@ async function copySell(cp: Copy, m: Msg, c: Ctx) {
       return logCopy(cp.id, { at: now, side: "sell", mint: m.mint, symbol: sym, result: "skipped", note: "Already sold outside the copy" });
     }
     const ours = Math.min(pos.tokens, held) * share;
-    const f = await execute(cp.venue, { mint: m.mint, symbol: sym, side: "sell", fraction: Math.min(1, ours / held), solUsd: c.solUsd });
+    const f = await execute(cp.venue, { mint: m.mint, symbol: sym, side: "sell", fraction: Math.min(1, ours / held), solUsd: c.solUsd, source: "copy" });
     const got = cp.venue === "demo" ? (f.usd ?? 0) : f.sol;
     const profit = got - pos.cost * share;
     const leaderUsd = m.sol_usd ? m.trade.price_sol * m.sol_usd : null;

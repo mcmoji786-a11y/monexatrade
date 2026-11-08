@@ -39,7 +39,7 @@ function SafetyBadgeInner({ safety, size = "sm" }: { safety: Safety; size?: "sm"
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-2 w-80 rounded-lg border border-border bg-surface-2 p-3 text-left opacity-0 shadow-lg transition-opacity duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
+        className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 hidden w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-2 p-3 text-left shadow-lg group-focus-within:block group-hover:block"
       >
         <span className="flex items-baseline justify-between">
           <span className="text-xs font-medium text-text">Safety {safety.score}/100</span>

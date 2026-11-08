@@ -12,15 +12,15 @@ const POINTS: { title: string; body: string }[] = [
   },
   {
     title: "Your keys stay yours",
-    body: "We never ask for your seed phrase or private key. Linking a wallet only signs a message and never moves funds",
+    body: "We never ask for your seed phrase or private key. Your Kixo wallet is made and locked with your password in your browser; we keep only the locked copy and cannot open it. Trades you sign cannot be undone",
   },
   {
     title: "What we keep",
-    body: "Your email or wallet address, how you signed in, and basic usage to run and secure Kixo. We do not sell your data",
+    body: "Your sign-in details, your demo and real trade records, settings and support messages, to run and secure Kixo. We do not sell your data. Download or delete it any time in Settings",
   },
   {
     title: "Your responsibility",
-    body: "You are 18 or older, trading is allowed where you live, and you make your own trading decisions",
+    body: "You are 18 or older, trading is allowed where you live, and you make your own trading decisions. Automatic orders, grids and copies run only while Kixo is open in your browser",
   },
 ];
 
@@ -50,7 +50,11 @@ export function TermsGate() {
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/75 px-4 py-12 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="terms-title">
       <div className="w-full max-w-[480px] rounded-2xl border border-border bg-surface p-6">
         <h2 id="terms-title" className="text-xl font-medium text-text">Before you start</h2>
-        <p className="mt-1 text-sm text-text-2">Please read and accept how Kixo works</p>
+        <p className="mt-1 text-sm text-text-2">
+          Please read and accept how Kixo works. The full{" "}
+          <a href="/terms" target="_blank" rel="noopener" className="text-text underline underline-offset-2">Terms of Use</a> and{" "}
+          <a href="/privacy" target="_blank" rel="noopener" className="text-text underline underline-offset-2">Privacy Policy</a> apply
+        </p>
         <dl className="mt-5 flex flex-col gap-4">
           {POINTS.map((p) => (
             <div key={p.title} className="border-l border-border pl-3">

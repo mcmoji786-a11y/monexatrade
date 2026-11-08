@@ -6,7 +6,7 @@
  *  path, so a feature behaves the same on both (the founder's rule: demo and real alike). */
 
 import { useAccount } from "./account";
-import { orderError, placeOrder, useMode } from "./demo";
+import { orderError, placeOrder, useMode, type TradeSource } from "./demo";
 import { useFeatures } from "./features";
 import { kixoAddress, useKixoWallet } from "./kixo-wallet";
 import { getSettings } from "./settings";
@@ -39,6 +39,8 @@ export type TradeRequest = {
   /** Sells: share of the position, 0 to 1. */
   fraction?: number;
   solUsd: number | null;
+  /** Who placed it (demo history): Quick Buy, grid or copy trading. */
+  source?: TradeSource;
 };
 
 export type Fill = {
@@ -71,7 +73,7 @@ export async function execute(venue: Venue, r: TradeRequest): Promise<Fill> {
       if (!r.sol || !r.solUsd) throw new Error("SOL price not loaded yet");
       usd = r.sol * r.solUsd;
     }
-    const res = await placeOrder(r.side === "buy" ? { mint: r.mint, side: "buy", usd } : { mint: r.mint, side: "sell", fraction: r.fraction ?? 1 });
+    const res = await placeOrder(r.side === "buy" ? { mint: r.mint, side: "buy", usd, source: r.source } : { mint: r.mint, side: "sell", fraction: r.fraction ?? 1, source: r.source });
     const f = res.fill;
     return { venue, side: r.side, symbol: res.symbol || r.symbol, sol: f.sol, usd: f.usd, tokens: f.tokens, priceUsd: f.price_usd, feeUsd: f.fee_usd, realizedUsd: res.realized_usd };
   }

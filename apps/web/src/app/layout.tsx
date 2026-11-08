@@ -4,6 +4,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ReferralCapture } from "@/components/account/referral-capture";
 import { CampaignCapture } from "@/components/marketing/marketing-ui";
+import { ErrorReporter } from "@/components/error-reporter";
 import { seo } from "@/lib/seo";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable} antialiased`}>
       <body className="min-h-screen">
+        <ErrorReporter />
         <ReferralCapture />
         <CampaignCapture />
         {children}

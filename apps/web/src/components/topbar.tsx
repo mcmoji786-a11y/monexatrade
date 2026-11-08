@@ -25,7 +25,7 @@ export function Topbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-bg/90 px-4 backdrop-blur md:px-6">
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b sm:gap-3 border-border bg-bg/90 px-4 backdrop-blur md:px-6">
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -42,7 +42,7 @@ export function Topbar() {
           <Logo />
         </div>
         <GlobalSearch key={pathname} />
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <ConnectionNotice />
           <NewsButton />
           <AccountMenu />
@@ -144,7 +144,7 @@ function NewsButton() {
       aria-pressed={news.open}
       aria-label={news.unread > 0 && !news.open ? `News, ${news.unread} new stories` : "News"}
       title="News  N"
-      className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${news.open ? "border-emerald/40 bg-surface-3 text-text" : "border-border bg-surface text-text-2 hover:bg-surface-2 hover:text-text"}`}
+      className={`relative hidden h-9 w-9 items-center justify-center rounded-lg border transition-colors sm:flex ${news.open ? "border-emerald/40 bg-surface-3 text-text" : "border-border bg-surface text-text-2 hover:bg-surface-2 hover:text-text"}`}
     >
       <Newspaper size={16} strokeWidth={1.5} />
       {news.unread > 0 && !news.open && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald" />}

@@ -52,7 +52,7 @@ export type DemoTrade = {
   price_usd: number;
   fee_usd: number;
   impact_pct: number;
-  source: "manual" | "sniper" | "tp" | "sl";
+  source: "manual" | "sniper" | "tp" | "sl" | "limit_buy" | "limit_sell" | "trail" | "quick" | "grid" | "copy";
   realized_usd: number | null;
   round: number;
   ts: string;
@@ -184,7 +184,10 @@ export function useDemo() {
   return { ...s, account: mine ? s.account : null, trades: mine ? s.trades : null, rules: mine ? s.rules : [], error: mine ? s.error : null, mode, enabled: on };
 }
 
-export type OrderInput = { mint: string; side: "buy" | "sell"; usd?: number; fraction?: number; source?: "manual" | "sniper" };
+export type OrderInput = { mint: string; side: "buy" | "sell"; usd?: number; fraction?: number; source?: TradeSource };
+
+/** Who placed a demo order: shown in the trade history. */
+export type TradeSource = "manual" | "sniper" | "quick" | "grid" | "copy";
 
 /** Prices an order without trading. */
 export const previewOrder = (o: OrderInput) => call<{ fill: DemoFill; symbol: string }>("/demo/order", { ...o, preview: true });

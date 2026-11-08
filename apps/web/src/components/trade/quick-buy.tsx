@@ -35,7 +35,7 @@ export function QuickBuy({ mint, symbol, className = "" }: { mint: string; symbo
     }
     setBusy(true);
     try {
-      const f = await execute(venue, { mint, symbol, side: "buy", ...(venue === "demo" ? { usd: amount } : { sol: amount }), solUsd });
+      const f = await execute(venue, { mint, symbol, side: "buy", ...(venue === "demo" ? { usd: amount } : { sol: amount }), solUsd, source: "quick" });
       const spent = venue === "demo" ? money(f.usd ?? amount) : `${f.sol.toFixed(3)} SOL`;
       pushToast({
         kind: "trade",

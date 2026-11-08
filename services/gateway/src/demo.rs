@@ -350,6 +350,10 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
     let source = match o.source.as_deref() {
         None | Some("manual") => "manual",
         Some("sniper") => "sniper",
+        // Sources added by migration 0009: Quick Buy, grid and copy trading.
+        Some("quick") => "quick",
+        Some("grid") => "grid",
+        Some("copy") => "copy",
         _ => return Err((StatusCode::BAD_REQUEST, "unknown order source".into())),
     };
     let lock = user_lock(&u.id);

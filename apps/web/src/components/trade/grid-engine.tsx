@@ -36,7 +36,7 @@ async function stepGrid(g: Grid, price: number, c: Ctx) {
   updateGrid(g.id, { slots, busy: true });
   try {
     if (action.kind === "buy") {
-      const f = await execute(g.venue, { mint: g.mint, symbol: g.symbol, side: "buy", ...(g.venue === "demo" ? { usd: g.amount } : { sol: g.amount }), solUsd: c.solUsd });
+      const f = await execute(g.venue, { mint: g.mint, symbol: g.symbol, side: "buy", ...(g.venue === "demo" ? { usd: g.amount } : { sol: g.amount }), solUsd: c.solUsd, source: "grid" });
       const cost = g.venue === "demo" ? (f.usd ?? g.amount) : f.sol;
       updateGrid(g.id, (cur) => ({
         busy: false,
@@ -52,7 +52,7 @@ async function stepGrid(g: Grid, price: number, c: Ctx) {
         return;
       }
       const fraction = Math.min(1, slot.tokens / held);
-      const f = await execute(g.venue, { mint: g.mint, symbol: g.symbol, side: "sell", fraction, solUsd: c.solUsd });
+      const f = await execute(g.venue, { mint: g.mint, symbol: g.symbol, side: "sell", fraction, solUsd: c.solUsd, source: "grid" });
       const got = g.venue === "demo" ? (f.usd ?? 0) : f.sol;
       const profit = got - slot.cost;
       updateGrid(g.id, (cur) => ({

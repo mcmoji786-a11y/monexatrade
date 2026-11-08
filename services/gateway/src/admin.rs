@@ -169,6 +169,14 @@ pub struct FeatureFlags {
     pub copy_trading: bool,
     /// Competition page: on-chain top memecoin traders.
     pub onchain_top: bool,
+    /// Trade page: share a coin card.
+    pub coin_share: bool,
+    /// Alerts when a demo position reaches 2x, 5x, 10x.
+    pub milestone_alerts: bool,
+    /// Portfolio: achievements and streaks.
+    pub achievements: bool,
+    /// Portfolio: weekly recap card.
+    pub weekly_recap: bool,
 }
 
 impl Default for FeatureFlags {
@@ -210,6 +218,10 @@ impl Default for FeatureFlags {
             grid_trading: true,
             copy_trading: true,
             onchain_top: true,
+            coin_share: true,
+            milestone_alerts: true,
+            achievements: true,
+            weekly_recap: true,
         }
     }
 }

@@ -145,7 +145,7 @@ function RunningGrid({ g, price }: { g: Grid; price: number | null }) {
     updateGrid(g.id, { status: "stopped" });
     try {
       const held = g.venue === "demo" ? (account?.positions.find((p) => p.mint === g.mint)?.tokens ?? tokens) : tokens;
-      const f = await execute(g.venue, { mint: g.mint, symbol: g.symbol, side: "sell", fraction: Math.min(1, tokens / held), solUsd });
+      const f = await execute(g.venue, { mint: g.mint, symbol: g.symbol, side: "sell", fraction: Math.min(1, tokens / held), solUsd, source: "grid" });
       const got = g.venue === "demo" ? (f.usd ?? 0) : f.sol;
       const cost = g.slots.reduce((t, s) => t + (s.state === "sell" ? s.cost : 0), 0);
       updateGrid(g.id, (cur) => ({ realized: cur.realized + got - cost, slots: cur.slots.map((s) => ({ ...s, state: "idle", tokens: 0, cost: 0 })) }));
