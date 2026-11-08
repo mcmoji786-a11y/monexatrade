@@ -51,6 +51,9 @@ export function Activity({
   const tradeShown = (t: TradeRow) => who === "all" || labelsOf(t.wallet, [t.dev && "dev", t.sniper && "sniper", t.whale && "whale", t.bundler && "bundler"]).has(who);
   const walletShown = (p: Position) => who === "all" || labelsOf(p.wallet, [p.dev && "dev", p.sniper && "sniper", p.bundler && "bundler", p.big_buyer && "whale"]).has(who);
   const labelsOn = useFeatures().wallet_labels;
+  // Bundlers and snipers are found at launch: only for coins Kixo watched from their
+  // first trade (a bonding curve it decoded, or any launch label already found).
+  const seenLaunch = (book.status === "live" && book.source === "curve") || Object.values(labels).some((ls) => ls.includes("bundler") || ls.includes("sniper") || ls.includes("dev"));
   const filterable = labelsOn && (tab === "trades" || tab === "holders" || tab === "traders");
   const [focus, setFocus] = useState<string | null>(null);
   const needsWallets = book.status === "live" && tab !== "trades" && tab !== "whales";
@@ -118,7 +121,12 @@ export function Activity({
         <Empty>Loading trades from this coin&apos;s pool</Empty>
       ) : (
         <div className="max-h-[520px] overflow-y-auto">
-          {tab === "trades" && <TradeTable trades={trades.filter(tradeShown)} solUsd={solUsd} now={now} empty={who === "all" ? undefined : "No trades by these wallets in the recent list"} />}
+          {tab === "trades" &&
+            (who !== "all" && !trades.some(tradeShown) ? (
+              <LabelEmpty who={who} labels={labels} smart={smart} seenLaunch={seenLaunch} />
+            ) : (
+              <TradeTable trades={trades.filter(tradeShown)} solUsd={solUsd} now={now} />
+            ))}
           {tab === "whales" && <TradeTable trades={whales} solUsd={solUsd} now={now} empty="No buys or sells of 5 SOL or more yet" />}
           {tab === "holders" && <WalletTable rows={wallets?.holders.filter(walletShown)} solUsd={solUsd} now={now} kind="holders" empty={who === "all" ? undefined : "None of the top holders have this label"} />}
           {tab === "traders" && <WalletTable rows={wallets?.top_traders.filter(walletShown)} solUsd={solUsd} now={now} kind="traders" empty={who === "all" ? undefined : "None of the top traders have this label"} />}
@@ -146,6 +154,42 @@ export function Activity({
 }
 
 const WHO_TEXT: Record<WalletLabel, string> = { dev: "Dev", smart: "Smart money", whale: "Whales", bundler: "Bundlers", sniper: "Snipers" };
+
+/** A label filter with no trades in the recent list: the labelled wallets Kixo knows
+ *  (each with Track), or why there are none for this coin. */
+function LabelEmpty({ who, labels, smart, seenLaunch }: { who: WalletLabel; labels: CoinLabels; smart: Set<string>; seenLaunch: boolean }) {
+  const wallets = Object.entries(labels)
+    .filter(([w, ls]) => (who === "smart" ? smart.has(w) : ls.includes(who)))
+    .map(([w]) => w);
+  if (wallets.length > 0)
+    return (
+      <div className="px-4 py-5">
+        <p className="text-xs text-text-2">
+          {wallets.length} {WHO_TEXT[who].toLowerCase()} {wallets.length === 1 ? "wallet" : "wallets"} on this coin. None of them is in the latest trades
+        </p>
+        <ul className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+          {wallets.slice(0, 30).map((w) => (
+            <li key={w} className="flex h-8 items-center rounded-md border border-border px-3 font-mono text-xs">
+              <WalletLink address={w} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  const reason: Record<WalletLabel, string> = {
+    bundler: seenLaunch ? "No bundled buys: no group of 3 or more wallets bought in the same block at launch" : "Kixo did not watch this coin launch, so its bundlers are not known. Coins found on Sol Radar are watched from their first trade",
+    sniper: seenLaunch ? "No wallet bought in the first seconds after launch" : "Kixo did not watch this coin launch, so its snipers are not known. Coins found on Sol Radar are watched from their first trade",
+    dev: "The dev has not traded in the latest trades",
+    whale: "No buy of 5 SOL or more, or 1% of the supply, in the latest trades",
+    smart: "No Smart Money wallet has traded this coin in the latest trades",
+  };
+  return (
+    <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+      <p className="text-sm text-text">No {WHO_TEXT[who].toLowerCase()} here</p>
+      <p className="max-w-md text-xs leading-5 text-muted">{reason[who]}</p>
+    </div>
+  );
+}
 
 /** Show only wallets with one label: the dev, smart money, whales, bundlers or snipers. */
 function WhoFilter({ who, setWho, labels, smart }: { who: WalletLabel | "all"; setWho: (w: WalletLabel | "all") => void; labels: CoinLabels; smart: Set<string> }) {
