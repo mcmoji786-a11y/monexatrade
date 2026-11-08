@@ -254,13 +254,23 @@ async fn history(state: Arc<crate::AppState>, dir: PathBuf) {
     let cursor_file = dir.join("history").join("cursor.txt");
     let _ = fs::create_dir_all(dir.join("history"));
     let mut before: Option<String> = fs::read_to_string(&cursor_file).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let url = state.config.helius_rpc_url();
-    tracing::info!(tps, resume = before.is_some(), "history backfill on");
+    // History reads go to the data-collection nodes (FALLBACK_RPC_URLS: Alchemy, QuickNode,
+    // ...), taking turns, so the live app keeps Helius. The public node and then the
+    // app's own router are the last resort.
+    let mut urls: Vec<String> = monexa_common::fallback_rpc_urls().into_iter().filter(|u| u != monexa_common::PUBLIC_RPC).collect();
+    urls.push(monexa_common::PUBLIC_RPC.to_string());
+    urls.push(state.config.helius_rpc_url());
+    let nodes = urls.len();
+    let mut turn = 0usize;
+    tracing::info!(tps, nodes, resume = before.is_some(), "history backfill on");
     // Let the live app start first.
     tokio::time::sleep(Duration::from_secs(30)).await;
     loop {
+        let url = urls[turn % nodes].clone();
         let Some(page) = crate::rpc::signatures_page(&state.http, &url, pumpfun::PROGRAM_ID, before.as_deref(), 200).await else {
-            tokio::time::sleep(Duration::from_secs(20)).await;
+            // This node failed or is out of quota: the next one.
+            turn += 1;
+            tokio::time::sleep(Duration::from_secs(if turn % nodes == 0 { 30 } else { 2 })).await;
             continue;
         };
         let Some(last) = page.last().map(|p| p.0.clone()) else {
@@ -271,7 +281,13 @@ async fn history(state: Arc<crate::AppState>, dir: PathBuf) {
         for chunk in ok.chunks(10) {
             let started = std::time::Instant::now();
             let sigs: Vec<String> = chunk.iter().map(|p| p.0.clone()).collect();
-            let txs = crate::rpc::transactions(&state.http, &url, &sigs).await;
+            turn += 1;
+            let mut txs = crate::rpc::transactions(&state.http, &urls[turn % nodes], &sigs).await;
+            // A node that answered nothing gets one retry on the next node.
+            if txs.iter().all(Option::is_none) {
+                turn += 1;
+                txs = crate::rpc::transactions(&state.http, &urls[turn % nodes], &sigs).await;
+            }
             for ((sig, ts, slot, _), tx) in chunk.iter().map(|p| (&p.0, p.1, p.2, p.3)).zip(txs) {
                 let Some(tx) = tx else { continue };
                 let logs: Vec<String> = tx["meta"]["logMessages"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(String::from)).collect()).unwrap_or_default();
