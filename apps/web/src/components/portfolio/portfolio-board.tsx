@@ -3,33 +3,40 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Loader2, RefreshCw, Wallet } from "lucide-react";
-import { activeWallet, authError, connectWallet, useAccount } from "@/lib/account";
+import { Loader2, RefreshCw } from "lucide-react";
+
 import { pct, price, sol as fmtSol, usd } from "@/lib/gateway";
 import { pnlByCoin, useActivity, usePortfolio, type CoinPnl, type Holding, type Trade } from "@/lib/portfolio";
 import { pnl as sniperPnl, useSniper } from "@/lib/sniper";
-import { pushToast } from "@/lib/toast";
 import { CopyAddress, TokenLogo } from "@/components/token/token-bits";
 import { useMode } from "@/lib/demo";
 import { DemoPortfolio } from "./demo-portfolio";
+import { KixoWalletCard } from "@/components/wallet/kixo-wallet-card";
+import { useKixoWallet } from "@/lib/kixo-wallet";
 
 const SMALL_USD = 1;
 /** Allocation colors: SOL leads in the accent, holdings in neutral steps. */
 const SHADES = ["var(--mx-emerald)", "#d4d4d8", "#a1a1aa", "#71717a", "#52525b", "#3f3f46"];
 
 export function PortfolioBoard() {
-  const account = useAccount();
   const viewing = useSearchParams().get("wallet");
   // Any wallet can be viewed read-only (from Smart Money or by address).
   const other = viewing && isAddress(viewing) ? viewing : null;
   const mode = useMode();
-  const wallet = other ?? activeWallet(account);
+  const kixo = useKixoWallet();
   if (mode === "demo" && !other) return <DemoPortfolio />;
-  if (!wallet) return <ConnectFirst />;
-  return <Board key={wallet} wallet={wallet} viewing={!!other && other !== activeWallet(account)} />;
+  const mine = kixo.info?.exists ? kixo.info.pubkey : null;
+  if (other) return <Board key={other} wallet={other} viewing={other !== mine} />;
+  if (mine) return <Board key={mine} wallet={mine} viewing={false} top={<KixoWalletCard />} />;
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-2xl font-medium text-text">Portfolio</h1>
+      <KixoWalletCard />
+    </div>
+  );
 }
 
-function Board({ wallet, viewing }: { wallet: string; viewing: boolean }) {
+function Board({ wallet, viewing, top }: { wallet: string; viewing: boolean; top?: React.ReactNode }) {
   const port = usePortfolio(wallet);
   const act = useActivity(wallet);
   const [hideSmall, setHideSmall] = useState(true);
@@ -68,6 +75,7 @@ function Board({ wallet, viewing }: { wallet: string; viewing: boolean }) {
           Refresh
         </button>
       </header>
+      {top}
 
       {port.error && !p && <Notice>{port.error}</Notice>}
 
@@ -291,10 +299,12 @@ function PaperSniper() {
   return (
     <section className="rounded-xl border border-border bg-surface px-4 py-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-text">Paper sniper</h2>
+        <h2 className="text-sm font-medium text-text">Sniper</h2>
         <Link href="/sniper" className="text-xs text-text-2 hover:text-text">Open</Link>
       </div>
-      <p className="mt-1 text-xs text-muted">Simulated trades, not part of the wallet</p>
+      <p className="mt-1 text-xs text-muted">
+        {positions.some((p) => p.account === "real") ? "Paper, demo and real SOL snipes, from their actual fills" : "Paper and demo snipes, not part of this wallet"}
+      </p>
       <dl className="mt-4 grid grid-cols-3 gap-3 text-sm tabular-nums">
         <div>
           <dt className="text-xs text-text-2">Result</dt>
@@ -310,40 +320,6 @@ function PaperSniper() {
         </div>
       </dl>
     </section>
-  );
-}
-
-function ConnectFirst() {
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-medium text-text">Portfolio</h1>
-      <div className="flex flex-col items-start gap-4 rounded-xl border border-border bg-surface px-6 py-10">
-        <Wallet size={20} strokeWidth={1.5} className="text-text-2" />
-        <div>
-          <h2 className="text-lg font-medium text-text">Connect a wallet to see your portfolio</h2>
-          <p className="mt-1 max-w-lg text-sm text-text-2">Balances, live prices, allocation and profit from your own trades, read from the chain. Connecting only shares your address</p>
-        </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await connectWallet();
-            } catch (e) {
-              pushToast({ tone: "bad", title: "Wallet not connected", body: authError(e) });
-            } finally {
-              setBusy(false);
-            }
-          }}
-          className="flex h-10 items-center gap-2 rounded-lg bg-text px-4 text-sm font-medium text-bg transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          {busy ? <Loader2 size={16} strokeWidth={1.5} className="animate-spin" /> : <Wallet size={16} strokeWidth={1.5} />}
-          Connect wallet
-        </button>
-      </div>
-    </div>
   );
 }
 

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, ShieldCheck } from "lucide-react";
-import { activeWallet, connectWallet, useAccount } from "@/lib/account";
+import { useKixoWallet } from "@/lib/kixo-wallet";
+import { WalletPanel } from "@/components/wallet/kixo-wallet-card";
 import { setMode } from "@/lib/demo";
 import { pushToast } from "@/lib/toast";
-import { getQuote, signAndSend, sol, solscan, TradeFail, usePrepare, useTradeConfig, waitForTrade, type Quote, type Stage, type TradeError } from "@/lib/trade";
+import { getQuote, signAndSend, sol, solscan, TradeFail, usePrepare, useTradeConfig, waitForTrade, type Quote, type Stage, type TradeError, receiptLine } from "@/lib/trade";
 import { compact } from "./trade-panel";
 import { useSettings } from "@/lib/settings";
 
@@ -13,13 +14,14 @@ const SLIPPAGES = [500, 1000, 2000];
 /** A quote older than this is fetched again before signing. */
 const FRESH_MS = 15_000;
 
-const STAGE: Record<Stage | "building", string> = { building: "Building and checking the trade", checking: "Checking the transaction", signing: "Approve in Phantom", sending: "Sending", confirming: "Confirming on chain" };
+const STAGE: Record<Stage | "building", string> = { building: "Building and checking the trade", checking: "Checking the transaction", signing: "Signing with your Kixo wallet", sending: "Sending", confirming: "Confirming on chain" };
 
-/** The real-money ticket: SOL from the user's own wallet, signed in Phantom. */
+/** The real-money ticket: SOL from the user's Kixo wallet, signed in the browser with
+ *  no popup. */
 export function RealTicket({ symbol, mint, side }: { symbol: string; mint: string; side: "buy" | "sell" }) {
   const cfg = useTradeConfig();
-  const account = useAccount();
-  const wallet = activeWallet(account);
+  const kw = useKixoWallet();
+  const wallet = kw.status === "unlocked" ? (kw.info?.pubkey ?? null) : null;
   const [amount, setAmount] = useState("");
   // Defaults come from Settings; a change here applies to this ticket only.
   const t = useSettings().settings.trading;
@@ -36,7 +38,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
   const [quote, setQuote] = useState<{ q: Quote; at: number; key: string } | null>(null);
   const [qErr, setQErr] = useState<TradeError | null>(null);
   const [stage, setStage] = useState<Stage | "building" | null>(null);
-  const [result, setResult] = useState<{ ok: boolean; sig?: string; err?: TradeError; ms?: number | null } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; sig?: string; err?: TradeError; ms?: number | null; route?: string | null } | null>(null);
   const seq = useRef(0);
   usePrepare(!!cfg?.enabled && !!cfg.ready && !!wallet);
 
@@ -77,7 +79,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
       const sig = await signAndSend(q, wallet, cfg, setStage);
       const s = await waitForTrade(sig);
       if (s.status === "confirmed") {
-        setResult({ ok: true, sig, ms: s.latency_ms });
+        setResult({ ok: true, sig, ms: s.latency_ms, route: receiptLine(s.receipt) });
         setAmount("");
         pushToast({ kind: "trade", tone: "good", title: `${side === "buy" ? "Bought" : "Sold"} ${symbol || "token"}`, body: s.latency_ms ? `Confirmed in ${(s.latency_ms / 1000).toFixed(1)}s` : "Confirmed", href: solscan(sig) });
       } else if (s.status === "sent") {
@@ -114,9 +116,9 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
     );
   if (!wallet)
     return (
-      <button type="button" onClick={() => connectWallet().catch((e) => pushToast({ tone: "bad", title: "Wallet not connected", body: e instanceof Error ? e.message : String(e) }))} className="mt-4 h-11 w-full rounded-full bg-text text-sm font-medium text-bg hover:opacity-90">
-        Connect Phantom to trade
-      </button>
+      <div className="mt-4 rounded-lg border border-border bg-bg/60 p-4">
+        <WalletPanel compact />
+      </div>
     );
 
   const q = quote?.key === key ? quote.q : null;
@@ -171,7 +173,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
         <dl className="mt-3 flex flex-col gap-1 rounded-lg border border-border px-3 py-2 font-mono text-xs tabular-nums">
           {!q && !qErr ? (
             <>
-              <Row k={`Platform fee ${cfg.fee_bps / 100}%`} v={side === "buy" ? `${((value * cfg.fee_bps) / 10_000).toFixed(5)} SOL` : "1% of the SOL received"} />
+              <Row k={`Platform fee ${cfg.fee_bps / 100}%`} v={side === "buy" ? `${((value * cfg.fee_bps) / 10_000).toFixed(5)} SOL` : `${cfg.fee_bps / 100}% of the SOL received`} />
               <Row k="Sender tip" v={`${sol(cfg.speeds[speed].tip).toFixed(6)} SOL`} />
               <Row k="Priority fee" v={`up to ${sol(cfg.speeds[speed].max_priority).toFixed(4)} SOL`} />
               <span className="font-sans text-[11px] text-muted">Exact amounts show when you press {side === "buy" ? "Buy" : "Sell"}, before Phantom asks you to approve</span>
@@ -181,7 +183,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
               <Row k="You get about" v={out!} />
               <Row k="At least" v={minOut!} />
               {q.price_impact_pct != null && <Row k="Price impact" v={`${q.price_impact_pct.toFixed(2)}%`} warn={q.price_impact_pct > 5} />}
-              <Row k={`Platform fee ${cfg.fee_bps / 100}%`} v={`${sol(q.platform_fee_lamports).toFixed(5)} SOL`} />
+              <Row k={`Platform fee ${(q.fee_bps ?? cfg.fee_bps) / 100}%`} v={`${sol(q.platform_fee_lamports).toFixed(5)} SOL`} />
               <Row k="Network, priority and tip" v={`${sol(q.priority_fee_lamports + q.tip_lamports + q.network_fee_lamports).toFixed(5)} SOL`} />
               <Row k="All costs" v={`${sol(costs).toFixed(5)} SOL`} />
               <Row k="Route" v={q.route.join(" › ") || "—"} />
@@ -200,6 +202,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
         <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${result.ok ? "border-positive/30 text-positive" : "border-negative/30 text-negative"}`}>
           {result.ok ? `Confirmed${result.ms ? ` in ${(result.ms / 1000).toFixed(1)}s` : ""}` : result.err?.message}
           {!result.ok && result.err?.hint && <span className="mt-0.5 block text-muted">{result.err.hint}</span>}
+          {result.ok && result.route && <span className="mt-0.5 block text-text-2">{result.route}</span>}
           {result.sig && (
             <a href={solscan(result.sig)} target="_blank" rel="noreferrer" className="mt-1 flex items-center gap-1 text-text-2 hover:text-text">
               View on Solscan <ExternalLink size={12} strokeWidth={1.5} />

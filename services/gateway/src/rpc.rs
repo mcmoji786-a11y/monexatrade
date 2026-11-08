@@ -78,6 +78,24 @@ pub async fn account_owner(http: &reqwest::Client, url: &str, pubkey: &str) -> O
     v["result"]["value"]["owner"].as_str().map(String::from)
 }
 
+/// What an account is: Some(None) when it does not exist yet, Some(Some((owner, parsed
+/// type, executable))) when it does ("mint" or "account" for token program accounts), and
+/// None when the node could not be asked (so callers never mistake a failure for an answer).
+pub async fn account_kind(http: &reqwest::Client, url: &str, pubkey: &str) -> Option<Option<(String, String, bool)>> {
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [pubkey, { "encoding": "jsonParsed" }] });
+    let v = call(http, url, &body).await?;
+    if v.get("error").is_some() {
+        return None;
+    }
+    let value = v.get("result")?.get("value")?;
+    if value.is_null() {
+        return Some(None);
+    }
+    let owner = value["owner"].as_str()?.to_string();
+    let kind = value["data"]["parsed"]["type"].as_str().unwrap_or_default().to_string();
+    Some(Some((owner, kind, value["executable"].as_bool().unwrap_or(false))))
+}
+
 /// A token's current total supply in whole tokens (burns already subtracted) and its
 /// decimals, straight from the mint account.
 pub async fn token_supply(http: &reqwest::Client, url: &str, mint: &str) -> Option<(f64, u32)> {

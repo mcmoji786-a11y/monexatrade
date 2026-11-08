@@ -1,18 +1,33 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Download, Loader2, Send, Share2, X } from "lucide-react";
+import { Copy, Download, ImageIcon, Loader2, Send, Share2, X } from "lucide-react";
 import type { DemoTrade } from "@/lib/demo";
 import { pushToast } from "@/lib/toast";
 import { money, tinyPrice } from "@/components/trade/trade-panel";
 import { refLink, useReferral } from "@/lib/growth";
 import { useFeatures } from "@/lib/features";
+import { closeShareCard, useShareCard, type ShareTrade } from "@/lib/share";
 
 /* Share card for a closed demo trade: a 1200x675 PNG (X's large image size) drawn on a
-   canvas, so it can be downloaded, copied or attached to a post. Every card says
-   "Demo account" so a virtual result is never passed off as a real one. */
+   canvas, so it can be downloaded, copied or attached to a post. The background is a
+   photo from public/share (Unsplash License, see CREDITS.txt), picked per trade and
+   changeable. Every card says "Demo account" so a virtual result is never passed off
+   as a real one. */
 
-export type ShareTrade = DemoTrade & { openedAt: string | null };
+export type { ShareTrade };
+
+/** Background photos, darkened on the left where the figures sit. */
+const BACKGROUNDS = Array.from({ length: 9 }, (_, i) => `/share/bg-${i + 1}.jpg`);
+
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+}
 
 const W = 1200;
 const H = 675;
@@ -56,7 +71,7 @@ function fonts() {
   return { sans, mono: `${mono}, ui-monospace, monospace` };
 }
 
-function draw(canvas: HTMLCanvasElement, t: ShareTrade) {
+function draw(canvas: HTMLCanvasElement, t: ShareTrade, bg: HTMLImageElement | null, site: string, mark: HTMLImageElement | null) {
   const r = tradeResult(t);
   const up = r.pnl >= 0;
   const tone = up ? C.positive : C.negative;
@@ -68,45 +83,64 @@ function draw(canvas: HTMLCanvasElement, t: ShareTrade) {
 
   g.fillStyle = C.bg;
   g.fillRect(0, 0, W, H);
+  if (bg) {
+    // Cover the card, centred.
+    const k = Math.max(W / bg.naturalWidth, H / bg.naturalHeight);
+    const w = bg.naturalWidth * k;
+    const h = bg.naturalHeight * k;
+    g.drawImage(bg, (W - w) / 2, (H - h) / 2, w, h);
+    // Shade: dark behind the figures on the left, the photo open on the right.
+    const side = g.createLinearGradient(0, 0, W, 0);
+    side.addColorStop(0, "rgba(8,9,10,0.94)");
+    side.addColorStop(0.45, "rgba(8,9,10,0.72)");
+    side.addColorStop(1, "rgba(8,9,10,0.18)");
+    g.fillStyle = side;
+    g.fillRect(0, 0, W, H);
+    const foot = g.createLinearGradient(0, H - 230, 0, H);
+    foot.addColorStop(0, "rgba(8,9,10,0)");
+    foot.addColorStop(1, "rgba(8,9,10,0.9)");
+    g.fillStyle = foot;
+    g.fillRect(0, H - 230, W, 230);
+  }
+  g.shadowColor = "rgba(0,0,0,0.45)";
+  g.shadowBlur = 14;
 
-  const base = H - 150;
-
-  // Header: logo, then the demo label on the right.
-  g.fillStyle = C.emerald;
-  g.beginPath();
-  g.roundRect(64, 60, 28, 28, 7);
-  g.fill();
+  // Header: the Kixo mark and name, large, then the demo label on the right.
+  if (mark) g.drawImage(mark, 56, 40, 76, 76);
   g.fillStyle = C.text;
-  g.font = `500 30px ${sans}`;
-  g.fillText("Kixo", 106, 85);
+  g.font = `600 56px ${sans}`;
+  g.fillText("Kixo", 146, 98);
+  g.fillStyle = C.text2;
+  g.font = `400 20px ${sans}`;
+  g.fillText("Solana memecoin terminal", 148, 126);
 
   const label = "Demo account";
   g.font = `500 22px ${sans}`;
   const lw = g.measureText(label).width + 36;
-  g.strokeStyle = "rgba(224,166,62,0.45)";
+  g.strokeStyle = "rgba(224,166,62,0.55)";
   g.lineWidth = 1.5;
   g.beginPath();
-  g.roundRect(W - 64 - lw, 54, lw, 40, 10);
+  g.roundRect(W - 64 - lw, 56, lw, 40, 10);
   g.stroke();
   g.fillStyle = C.warning;
-  g.fillText(label, W - 64 - lw + 18, 81);
+  g.fillText(label, W - 64 - lw + 18, 83);
 
   // Coin and what happened.
   g.fillStyle = C.text;
-  g.font = `500 44px ${sans}`;
+  g.font = `500 46px ${sans}`;
   const sym = `$${t.symbol || t.mint.slice(0, 4)}`;
-  g.fillText(sym, 64, 186);
+  g.fillText(sym, 64, 222);
   const sw = g.measureText(sym).width;
-  g.fillStyle = C.muted;
+  g.fillStyle = C.text2;
   g.font = `400 26px ${sans}`;
-  g.fillText(`Sold · ${new Date(t.ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`, 64 + sw + 20, 184);
+  g.fillText(`Sold · ${new Date(t.ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`, 64 + sw + 20, 220);
 
   // The figure.
   g.fillStyle = tone;
-  g.font = `500 148px ${mono}`;
-  g.fillText(pctText(r.pct), 58, 352);
-  g.font = `400 40px ${mono}`;
-  g.fillText(usdText(r.pnl), 64, 418);
+  g.font = `600 150px ${mono}`;
+  g.fillText(pctText(r.pct), 56, 382);
+  g.font = `500 42px ${mono}`;
+  g.fillText(usdText(r.pnl), 64, 444);
 
   // Facts row.
   const facts: [string, string][] = [
@@ -119,25 +153,37 @@ function draw(canvas: HTMLCanvasElement, t: ShareTrade) {
   const colW = (W - 128) / 4;
   facts.forEach(([k, v], i) => {
     const x = 64 + i * colW;
-    g.fillStyle = C.muted;
+    g.fillStyle = C.text2;
     g.font = `400 22px ${sans}`;
-    g.fillText(k, x, H - 108);
+    g.fillText(k, x, H - 138);
     g.fillStyle = C.text;
-    g.font = `400 30px ${mono}`;
-    g.fillText(v, x, H - 66);
+    g.font = `500 30px ${mono}`;
+    g.fillText(v, x, H - 100);
   });
 
-  // Footer rule and line.
-  g.strokeStyle = C.line;
-  g.beginPath();
-  g.moveTo(64, base + 0.5);
-  g.lineTo(W - 64, base + 0.5);
+  // Footer: a hairline, then what this is on the left and where to trade on the right.
+  g.shadowBlur = 0;
+  g.strokeStyle = "rgba(237,237,237,0.14)";
   g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(64, H - 70.5);
+  g.lineTo(W - 64, H - 70.5);
   g.stroke();
-  g.fillStyle = C.muted;
-  g.font = `400 22px ${sans}`;
-  const foot = "Virtual money at live market prices";
-  g.fillText(foot, W - 64 - g.measureText(foot).width, 418);
+  g.fillStyle = C.text2;
+  g.font = `400 20px ${sans}`;
+  g.fillText("Virtual money at live market prices", 64, H - 34);
+  if (site) {
+    // Only the domain: the picture cannot be clicked, and the post text carries the referral link.
+    const host = site.replace(/^https?:\/\//, "").replace(/[/?#].*$/, "");
+    g.font = `500 22px ${sans}`;
+    const hw = g.measureText(host).width;
+    g.fillStyle = C.emerald;
+    g.fillText(host, W - 64 - hw, H - 34);
+    g.fillStyle = C.text2;
+    g.font = `400 20px ${sans}`;
+    const pre = "Trade on ";
+    g.fillText(pre, W - 64 - hw - g.measureText(pre).width, H - 34);
+  }
 }
 
 function toBlob(canvas: HTMLCanvasElement) {
@@ -147,6 +193,8 @@ function toBlob(canvas: HTMLCanvasElement) {
 export function ShareCard({ trade, onClose }: { trade: ShareTrade; onClose: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
+  // A photo picked per trade; "Change background" steps through the rest.
+  const [bgIndex, setBgIndex] = useState(() => Math.abs(Number(trade.id) || 0) % BACKGROUNDS.length);
   const r = tradeResult(trade);
   const sym = trade.symbol || trade.mint.slice(0, 4);
   // The link in every post carries the sharer's referral code, so viewers who join count for them.
@@ -157,9 +205,9 @@ export function ShareCard({ trade, onClose }: { trade: ShareTrade; onClose: () =
 
   useEffect(() => {
     let alive = true;
-    document.fonts.ready.then(() => {
+    Promise.all([document.fonts.ready, loadImage(BACKGROUNDS[bgIndex]), loadImage("/brand/kixo-mark.png")]).then(([, bg, mark]) => {
       if (!alive || !canvas.current) return;
-      draw(canvas.current, trade);
+      draw(canvas.current, trade, bg, site, mark);
       setReady(true);
     });
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -168,15 +216,15 @@ export function ShareCard({ trade, onClose }: { trade: ShareTrade; onClose: () =
       alive = false;
       window.removeEventListener("keydown", esc);
     };
-  }, [trade, onClose]);
+  }, [trade, onClose, bgIndex, site]);
 
-  const file = async () => new File([await toBlob(canvas.current!)], `monexa-${sym}-${trade.id}.png`, { type: "image/png" });
+  const file = async () => new File([await toBlob(canvas.current!)], `kixo-${sym}-${trade.id}.png`, { type: "image/png" });
 
   async function download() {
     const url = URL.createObjectURL(await file());
     const a = document.createElement("a");
     a.href = url;
-    a.download = `monexa-${sym}-${trade.id}.png`;
+    a.download = `kixo-${sym}-${trade.id}.png`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -252,6 +300,9 @@ export function ShareCard({ trade, onClose }: { trade: ShareTrade; onClose: () =
         <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted">
           <span>The image is copied when you post, paste it into the post</span>
           <div className="flex shrink-0 gap-3">
+            <button type="button" onClick={() => setBgIndex((i) => (i + 1) % BACKGROUNDS.length)} disabled={!ready} className="flex items-center gap-1 text-text-2 hover:text-text">
+              <ImageIcon size={14} strokeWidth={1.5} /> Change background
+            </button>
             <button type="button" onClick={() => copy()} disabled={!ready} className="flex items-center gap-1 text-text-2 hover:text-text">
               <Copy size={14} strokeWidth={1.5} /> Copy image
             </button>
@@ -288,4 +339,11 @@ function XLogo() {
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
     </svg>
   );
+}
+
+/** The share card opened from anywhere (a sell notification), once per app. */
+export function ShareCardHost() {
+  const t = useShareCard();
+  if (!t) return null;
+  return <ShareCard trade={t} onClose={closeShareCard} />;
 }

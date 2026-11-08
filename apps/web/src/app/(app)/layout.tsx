@@ -1,14 +1,18 @@
+import { WalletTrackerDrawer } from "@/components/tracker/wallet-tracker";
 import { Suspense } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { PriceAlertWatcher } from "@/components/token/price-alerts";
 import { SniperEngine } from "@/components/sniper/sniper-engine";
 import { Toaster } from "@/components/toaster";
+import { ShareCardHost } from "@/components/portfolio/share-card";
 import { AuthGate } from "@/components/account/auth-gate";
 import { TermsGate } from "@/components/account/terms-gate";
+import { WalletSetupGate } from "@/components/wallet/kixo-wallet-card";
 import { DemoBanner } from "@/components/account/demo-banner";
 import { PageReporter } from "@/components/page-reporter";
 import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
+import { MarketingBanner, MarketingPopup } from "@/components/marketing/marketing-ui";
 import { LiveChat } from "@/components/support/live-chat";
 import { NewsDock } from "@/components/news/news-panel";
 
@@ -19,10 +23,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PriceAlertWatcher />
       <SniperEngine />
       <Toaster />
+      <ShareCardHost />
+      <WalletTrackerDrawer />
       <Suspense fallback={null}>
         <LiveChat />
       </Suspense>
       <TermsGate />
+      <WalletSetupGate />
       <Suspense fallback={null}>
         <PageReporter />
       </Suspense>
@@ -37,6 +44,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* The trade terminal runs edge to edge; other pages keep the centered column. */}
         <DemoBanner />
         <AnnouncementBar />
+        <MarketingBanner />
+        <MarketingPopup />
         <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 md:px-6 has-[.terminal]:max-w-none has-[.terminal]:p-0">
           {/* Pages the admin paused show a notice instead (lib/features.ts). */}
           <Suspense fallback={children}>

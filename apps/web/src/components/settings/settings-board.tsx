@@ -1,5 +1,6 @@
 "use client";
 
+import { useKixoWallet } from "@/lib/kixo-wallet";
 import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Download, Loader2, LogOut, TriangleAlert } from "lucide-react";
@@ -310,6 +311,7 @@ function DesktopPermission() {
 const METHOD: Record<string, string> = { google: "Google", email: "Email code", phantom: "Phantom" };
 
 function AccountCard() {
+  const kixo = useKixoWallet().info?.pubkey ?? null;
   const account = useAccount();
   const ref = useReferral();
   const me = account.me;
@@ -330,8 +332,8 @@ function AccountCard() {
           <span className="font-mono text-sm text-text-2">{me.email}</span>
         </Row>
       )}
-      <Row label="Wallet" hint={me?.login_method === "phantom" ? "The Phantom wallet you signed in with" : "Connect Phantom from the top bar when you trade. It is not saved"}>
-        <span className="font-mono text-sm text-text-2">{me?.wallet ? `${me.wallet.slice(0, 4)}…${me.wallet.slice(-4)}` : "None saved"}</span>
+      <Row label="Kixo wallet" hint="Your trading wallet. Deposit, withdraw, recovery file and 2FA are under the balance at the top">
+        <span className="font-mono text-sm text-text-2">{kixo ? `${kixo.slice(0, 4)}…${kixo.slice(-4)}` : "Not set up yet"}</span>
       </Row>
       <Row label="Referral link" hint={ref ? `Code ${ref.code} · ${ref.invited} joined` : "Your code is also your name on the competition board"}>
         {ref ? (

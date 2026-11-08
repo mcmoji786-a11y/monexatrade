@@ -1,11 +1,11 @@
 "use client";
 
+import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Bell, MessageSquare, Plus, Send, Trash2 } from "lucide-react";
 import { GATEWAY_HTTP, GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
 import { tokenHref } from "@/lib/open-token";
 import { MAX_MONITORED, useMonitor, type MonitoredWallet } from "@/lib/prefs";
-import { CopyAddress } from "@/components/token/token-bits";
 import { useNow } from "@/components/radar/use-radar-feed";
 import { Tick } from "@/components/token/tick";
 import { WalletDot } from "./wallet-dot";
@@ -218,7 +218,7 @@ function WalletList({
                   </span>
                 </td>
                 <td>
-                  <CopyAddress value={w.address} className="text-cyan" />
+                  <WalletLink address={w.address} />
                 </td>
                 <td className="px-3">
                   <span className="flex items-center gap-1.5 font-mono text-xs text-muted">

@@ -4,6 +4,8 @@ import { ButtonLink, buttonClass } from "@/components/ui/button";
 import { LoginPopup, TradeNowButton } from "@/components/account/auth-gate";
 import { LivePreview } from "@/components/landing/live-preview";
 import { SiteNav } from "@/components/landing/site-nav";
+import { MarketingBanner, MarketingPopup } from "@/components/marketing/marketing-ui";
+import { seo } from "@/lib/seo";
 import {
   ChainData,
   Faq,
@@ -15,13 +17,16 @@ import {
   SiteFooter,
 } from "@/components/landing/sections";
 
-export const metadata: Metadata = {
-  title: { absolute: "Kixo – AI-Powered Solana Memecoin Trading Terminal" },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const s = await seo();
+  return { title: { absolute: s.title }, description: s.description };
+}
 
 export default function LandingPage() {
   return (
     <>
+      <MarketingBanner />
+      <MarketingPopup />
       <SiteNav />
       <main>
         <section className="mx-auto grid max-w-300 gap-12 px-4 pb-24 pt-16 md:px-8 md:pt-24 lg:grid-cols-[1fr_1.05fr] lg:items-center">

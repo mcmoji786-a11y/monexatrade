@@ -20,6 +20,13 @@ mod portfolio;
 mod rpc;
 mod rpc_router;
 mod safe_fetch;
+mod sender;
+mod platform;
+mod ops;
+mod marketing;
+mod tracker;
+mod journal;
+mod wallet;
 mod pumpfun_tx;
 mod pumpswap_tx;
 mod launch_tx;
@@ -203,6 +210,9 @@ async fn main() -> Result<()> {
         .user_agent("monexa-gateway/0.1")
         .build()?;
 
+    // Admin settings and API keys saved on this server (data/), before anything uses them.
+    platform::load();
+
     // Every RPC call goes through our router: Helius first, our fallback nodes behind it.
     let (route, router) = rpc_router::start(&config).await?;
     monexa_common::set_rpc_route(route);
@@ -256,8 +266,13 @@ async fn main() -> Result<()> {
 
     let cors = CorsLayer::new()
         .allow_origin(config.allowed_origin.parse::<HeaderValue>()?)
-        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT])
-        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION, axum::http::HeaderName::from_static("x-admin-token")]);
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-admin-token"),
+            axum::http::HeaderName::from_static("x-owner-session"),
+        ]);
 
     // Rewards settings and creator applications (admin.rs), with their own state.
     let admin_state = admin::AdminState::load();
@@ -284,7 +299,15 @@ async fn main() -> Result<()> {
         .with_state(demo::DemoCtx { app: state.clone(), acct: acct.clone() });
     tokio::spawn(demo::watch_rules(demo::DemoCtx { app: state.clone(), acct: acct.clone() }));
     // Accounts: profile sync (account.rs).
-    let trade_ctx = trade::TradeCtx { app: state.clone(), acct: acct.clone(), admin: admin_state.clone(), t: trade::TradeState::from_env() };
+    let kixo_sender = sender::Sender::new(state.http.clone(), state.config.helius_rpc_url());
+    tokio::spawn(sender::run(kixo_sender.clone()));
+    let direct_admin = admin_state.clone();
+    let (tracker, outcomes) = tracker::Tracker::new(state.http.clone(), state.config.helius_rpc_url(), kixo_sender.clone(), Box::new(move || direct_admin.kixo_sender()));
+    tokio::spawn(tracker::run(tracker.clone()));
+    let wallet_ctx = wallet::WalletCtx { app: state.clone(), acct: acct.clone(), admin: admin_state.clone(), sender: kixo_sender.clone(), w: Default::default() };
+    let trade_ctx = trade::TradeCtx { app: state.clone(), acct: acct.clone(), admin: admin_state.clone(), t: trade::TradeState::from_env(), sender: kixo_sender, tracker };
+    tokio::spawn(trade::outcomes(trade_ctx.clone(), outcomes));
+    tokio::spawn(trade::replay_journal(trade_ctx.clone()));
     let trade_routes: Router<Arc<AppState>> = Router::new()
         .route("/trade/config", get(trade::config))
         .route("/trade/quote", axum::routing::post(trade::quote))
@@ -292,10 +315,52 @@ async fn main() -> Result<()> {
         .route("/trade/send", axum::routing::post(trade::send))
         .route("/trade/status/{sig}", get(trade::status))
         .route("/trade/history", get(trade::history))
+        .route("/trade/sender", get(trade::sender_status))
         .with_state(trade_ctx.clone());
     tokio::spawn(trade::warm_loop(trade_ctx));
+    let ops_ctx = ops::OpsCtx { acct: acct.clone(), app: state.clone(), admin: admin_state.clone() };
+    let ops_routes: Router<Arc<AppState>> = Router::new()
+        .route("/admin/users", get(ops::users))
+        .route("/admin/users/{id}", get(ops::user))
+        .route("/admin/users/{id}/pause", axum::routing::post(ops::pause))
+        .route("/admin/earnings", get(ops::earnings))
+        .route("/admin/export/{kind}", get(ops::export))
+        .with_state(ops_ctx.clone());
+    let marketing_ctx = marketing::MarketingCtx { acct: acct.clone(), ops: ops_ctx.clone() };
+    let marketing_routes: Router<Arc<AppState>> = Router::new()
+        .route("/marketing", get(marketing::public))
+        .route("/track/visit", axum::routing::post(marketing::visit))
+        .route("/track/signup", axum::routing::post(marketing::signup))
+        .route("/promo", get(marketing::promo_me))
+        .route("/promo/redeem", axum::routing::post(marketing::redeem))
+        .route("/admin/marketing", get(marketing::admin_get).put(marketing::admin_put))
+        .route("/admin/campaigns", axum::routing::post(marketing::campaign_add))
+        .route("/admin/campaigns/{code}", axum::routing::delete(marketing::campaign_delete))
+        .route("/admin/promos", axum::routing::post(marketing::promo_add))
+        .route("/admin/promos/{code}/end", axum::routing::post(marketing::promo_end))
+        .with_state(marketing_ctx);
+    let platform_ctx = platform::PlatformCtx { acct: acct.clone(), router: state.router.clone(), app: state.clone() };
+    let platform_routes: Router<Arc<AppState>> = Router::new()
+        .route("/platform", get(platform::public))
+        .route("/admin/platform", get(platform::admin_get).put(platform::admin_put))
+        .route("/admin/secrets", axum::routing::put(platform::secret_put))
+        .route("/admin/owner/code", axum::routing::post(platform::owner_code))
+        .route("/admin/owner/verify", axum::routing::post(platform::owner_verify))
+        .route("/admin/audit", get(platform::audit_list))
+        .with_state(platform_ctx);
+    let wallet_routes: Router<Arc<AppState>> = Router::new()
+        .route("/kixo-wallet", get(wallet::me).post(wallet::create))
+        .route("/kixo-wallet/code", axum::routing::post(wallet::send_code))
+        .route("/kixo-wallet/locked", axum::routing::post(wallet::locked))
+        .route("/kixo-wallet/two-fa", axum::routing::post(wallet::two_fa))
+        .route("/kixo-wallet/withdraw", axum::routing::post(wallet::withdraw))
+        .route("/kixo-wallet/withdraw/send", axum::routing::post(wallet::transfer_send))
+        .route("/kixo-wallet/deposit", axum::routing::post(wallet::deposit))
+        .route("/kixo-wallet/deposit/send", axum::routing::post(wallet::transfer_send))
+        .route("/kixo-wallet/status/{sig}", get(wallet::status))
+        .with_state(wallet_ctx);
 
-    let news_ctx = news::NewsCtx { app: state.clone(), admin: admin_state.clone(), news: news::News::new() };
+    let news_ctx = news::NewsCtx { app: state.clone(), admin: admin_state.clone(), news: news::News::stored("data/news.json") };
     tokio::spawn(news::run(news_ctx.clone()));
     let news_routes: Router<Arc<AppState>> = Router::new()
         .route("/news", get(news::list))
@@ -345,7 +410,9 @@ async fn main() -> Result<()> {
         .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))
         .route("/wallet/{address}/balance", get(balance_handler))
+        .route("/address/{address}/kind", get(address_kind_handler))
         .route("/wallet/{address}/portfolio", get(portfolio_handler))
+        .route("/wallet/{address}/live", get(live_trades_handler))
         .route("/alerts/status", get(alerts_status))
         .route("/ws/wallets", get(ws_wallets))
         .route("/ws/token/{mint}", get(ws_token))
@@ -353,6 +420,10 @@ async fn main() -> Result<()> {
         .merge(account_routes)
         .merge(demo_routes)
         .merge(trade_routes)
+        .merge(wallet_routes)
+        .merge(platform_routes)
+        .merge(ops_routes)
+        .merge(marketing_routes)
         .merge(activity_routes)
         .merge(support_routes)
         .merge(news_routes)
@@ -1601,7 +1672,7 @@ mod img_tests {
 /// Telegram needs Kixo's bot token in the environment; Discord uses each user's own
 /// webhook, delivered by the gateway once alerts are stored per account.
 async fn alerts_status() -> Json<serde_json::Value> {
-    let telegram = std::env::var("TELEGRAM_BOT_TOKEN").is_ok_and(|t| !t.trim().is_empty());
+    let telegram = monexa_common::secret("TELEGRAM_BOT_TOKEN").is_some();
     Json(json!({ "telegram": telegram, "discord": false, "server_delivery": false }))
 }
 
@@ -2038,6 +2109,58 @@ async fn balance_handler(State(state): State<Arc<AppState>>, Path(address): Path
     Ok(Json(serde_json::json!({ "sol": sol })))
 }
 
+/// `GET /address/{address}/kind`: what an address is, so the Wallet Tracker can tell a
+/// pasted coin address from a wallet. "coin" (a token mint, with what the board knows of
+/// it), "token_account", "program" or "wallet" (anything else, including a new empty one).
+/// Cached 10 minutes; an address's kind does not change.
+async fn address_kind_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
+    static CACHE: Mutex<Option<HashMap<String, (Instant, &'static str)>>> = Mutex::new(None);
+    const TOKEN_PROGRAMS: [&str; 2] = [pumpfun_tx::TOKEN, pumpfun_tx::TOKEN_2022];
+    if !account::is_solana_address(&address) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let cached = CACHE.lock().expect("kind cache").get_or_insert_with(HashMap::new).get(&address).filter(|(at, _)| at.elapsed() < Duration::from_secs(600)).map(|(_, k)| *k);
+    let kind = match cached {
+        Some(k) => k,
+        None => {
+            let url = state.config.helius_rpc_url();
+            // A failed lookup is an error, never a guess: the page then shows it as a wallet
+            // without caching anything.
+            let found = rpc::account_kind(&state.http, &url, &address).await.ok_or(StatusCode::BAD_GATEWAY)?;
+            let kind = match found {
+                Some((owner, parsed, _)) if TOKEN_PROGRAMS.contains(&owner.as_str()) => {
+                    if parsed == "mint" { "coin" } else { "token_account" }
+                }
+                Some((owner, _, executable)) if executable || owner.starts_with("BPFLoader") => "program",
+                _ => "wallet",
+            };
+            let mut c = CACHE.lock().expect("kind cache");
+            let m = c.get_or_insert_with(HashMap::new);
+            if m.len() > 10_000 {
+                m.clear();
+            }
+            m.insert(address.clone(), (Instant::now(), kind));
+            kind
+        }
+    };
+    let mut v = serde_json::json!({ "kind": kind });
+    if kind == "coin" {
+        let board = state.board.lock().expect("board lock");
+        if let Some(m) = board.markets.get(&address) {
+            v["symbol"] = m.symbol.clone().into();
+            v["name"] = m.name.clone().into();
+            v["image"] = serde_json::json!(m.image);
+            v["mc_usd"] = serde_json::json!(m.mc_usd);
+        } else if let Some(t) = board.tokens.get(&address) {
+            v["symbol"] = t.token.symbol.clone().into();
+            v["name"] = t.token.name.clone().into();
+            v["image"] = serde_json::json!(t.meta.as_ref().and_then(|x| x.image.clone()));
+            v["mc_usd"] = serde_json::json!(t.market.as_ref().and_then(|x| x.mc_usd));
+        }
+    }
+    Ok(Json(v))
+}
+
 /// `GET /wallet/{address}/portfolio`: SOL and every token held, with live prices.
 /// Cached 20 seconds per wallet.
 async fn portfolio_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<portfolio::Portfolio>, StatusCode> {
@@ -2052,6 +2175,7 @@ async fn portfolio_handler(State(state): State<Arc<AppState>>, Path(address): Pa
     }
     let (sol, das_sol_usd, mut tokens) = portfolio::holdings(&state.http, &state.config.helius_rpc_url(), &address).await.ok_or(StatusCode::BAD_GATEWAY)?;
     portfolio::enrich(&state.http, &mut tokens).await;
+    fill_from_board(&state, &mut tokens);
     tokens.sort_by(|a, b| b.value_usd.unwrap_or(0.0).total_cmp(&a.value_usd.unwrap_or(0.0)));
     let sol_usd = state.board.lock().expect("board lock").sol_usd.or(das_sol_usd);
     let p = portfolio::Portfolio { wallet: address.clone(), sol, sol_usd, tokens, updated: now_unix() };
@@ -2062,6 +2186,80 @@ async fn portfolio_handler(State(state): State<Arc<AppState>>, Path(address): Pa
     }
     m.insert(address, (Instant::now(), p.clone()));
     Ok(Json(p))
+}
+
+/// Coins Jupiter does not price yet (fresh launchpad coins) get their price, name and
+/// image from Kixo's own live feed, so a trader's newest buys are not hidden as dust.
+fn fill_from_board(state: &AppState, tokens: &mut [portfolio::Holding]) {
+    let b = state.board.lock().expect("board lock");
+    for h in tokens.iter_mut() {
+        if let Some(ft) = b.tokens.get(&h.mint) {
+            if h.symbol.is_empty() {
+                h.symbol = ft.token.symbol.clone();
+            }
+            if h.name.is_empty() {
+                h.name = ft.token.name.clone();
+            }
+            if h.image.is_none() {
+                h.image = ft.meta.as_ref().and_then(|m| m.image.clone());
+            }
+            if let Some(m) = &ft.market {
+                if h.price_usd.is_none() {
+                    h.price_usd = m.price_usd.or_else(|| b.sol_usd.map(|u| m.price_sol * u)).filter(|p| *p > 0.0);
+                }
+                if h.mcap.is_none() {
+                    h.mcap = m.mc_usd;
+                }
+                if h.change_24h.is_none() {
+                    h.change_24h = m.change_1h_pct;
+                }
+            }
+        } else if let Some(m) = b.markets.get(&h.mint) {
+            if h.symbol.is_empty() {
+                h.symbol = m.symbol.clone();
+            }
+            if h.name.is_empty() {
+                h.name = m.name.clone();
+            }
+            if h.image.is_none() {
+                h.image = m.image.clone();
+            }
+            if h.price_usd.is_none() {
+                h.price_usd = m.price_usd;
+            }
+            if h.change_24h.is_none() {
+                h.change_24h = m.change_24h_pct;
+            }
+        }
+        if h.value_usd.is_none() {
+            h.value_usd = h.price_usd.map(|p| p * h.amount);
+        }
+    }
+}
+
+/// `GET /wallet/{address}/live`: the wallet's trades that Kixo saw live on the coins it
+/// follows (newest first, up to 200). Instant, and costs no RPC: the Wallet Tracker shows
+/// these at once while the full on-chain history loads.
+async fn live_trades_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    if !account::is_solana_address(&address) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let set: std::collections::HashSet<String> = [address].into_iter().collect();
+    let rows = state.books.lock().expect("books lock").trades_by(&set, 200);
+    let b = state.board.lock().expect("board lock");
+    let out = rows
+        .into_iter()
+        .map(|(mint, t)| {
+            let (symbol, image) = b
+                .tokens
+                .get(&mint)
+                .map(|f| (f.token.symbol.clone(), f.meta.as_ref().and_then(|m| m.image.clone())))
+                .or_else(|| b.markets.get(&mint).map(|m| (m.symbol.clone(), m.image.clone())))
+                .unwrap_or_default();
+            serde_json::json!({ "mint": mint, "buy": t.is_buy, "sol": t.sol, "tokens": t.tokens, "time": t.ts, "sig": t.signature, "symbol": symbol, "image": image, "price_sol": t.price_sol })
+        })
+        .collect();
+    Ok(Json(out))
 }
 
 /// `GET /wallet/{address}/activity`: the wallet's swaps among its latest 100
@@ -2140,7 +2338,7 @@ async fn activity_handler(State(c): State<ActivityCtx>, Path(address): Path<Stri
         }
     }
     let state = &c.app;
-    let key = &state.config.helius_api_key;
+    let key = &monexa_common::helius_key(&state.config.helius_api_key);
     let since = now_unix() - HISTORY_DAYS * 86_400;
     let stored = c
         .acct

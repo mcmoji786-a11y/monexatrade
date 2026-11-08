@@ -1,5 +1,7 @@
 "use client";
 
+import { openShareCard, type ShareTrade } from "@/lib/share";
+import { pctOf, usePlatform } from "@/lib/platform";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
@@ -21,6 +23,7 @@ const SELL_PCT = ["25", "50", "75", "100"];
 /** Order ticket. Demo mode trades the virtual account at live prices; real-money
  *  trading stays off until the founder approves it after a security review. */
 export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
+  const platform = usePlatform();
   const demoPresets = useSettings().settings.demo.buy_presets_usd.map(String);
   const { mode, account } = useDemo();
   const auth = useAccount();
@@ -60,6 +63,8 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
 
   async function submit() {
     setBusy(true);
+    // When the position was opened, for the share card's "Held" figure.
+    const openedAt = held?.opened_at ?? null;
     try {
       const r = await placeOrder(
         side === "buy"
@@ -67,17 +72,45 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
           : { mint, side, fraction: value / 100 },
       );
       const f = r.fill;
-      pushToast({
-        kind: "trade",
-        tone:
-          side === "buy"
-            ? "good"
-            : r.realized_usd != null && r.realized_usd < 0
-              ? "bad"
-              : "good",
-        title: `Demo ${side === "buy" ? "bought" : "sold"} ${r.symbol || symbol}`,
-        body: `${money(f.usd)} at ${tinyPrice(f.price_usd)}${r.realized_usd != null ? ` · P&L ${signed(r.realized_usd)}` : ""}`,
-      });
+      const sym = r.symbol || symbol;
+      if (side === "sell") {
+        // The result, big, with the share card one click away.
+        const pnl = r.realized_usd ?? 0;
+        const cost = f.usd - pnl;
+        const pct = cost > 0 ? (pnl / cost) * 100 : 0;
+        const trade: ShareTrade = {
+          id: Math.round(f.tokens) + Math.round(f.usd * 100),
+          mint,
+          symbol: sym,
+          side: "sell",
+          tokens: f.tokens,
+          usd: f.usd,
+          sol: f.sol,
+          price_usd: f.price_usd,
+          fee_usd: f.fee_usd,
+          impact_pct: f.impact_pct,
+          source: "manual",
+          realized_usd: r.realized_usd,
+          round: 0,
+          ts: new Date().toISOString(),
+          openedAt: openedAt,
+        };
+        pushToast({
+          kind: "trade",
+          tone: pnl < 0 ? "bad" : "good",
+          title: `Sold ${sym} · demo`,
+          figure: `${signed(pnl)}  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`,
+          body: `Received ${money(f.usd)} at ${tinyPrice(f.price_usd)} · fee ${money(f.fee_usd)}`,
+          action: { label: "View card", onClick: () => openShareCard(trade) },
+        });
+      } else {
+        pushToast({
+          kind: "trade",
+          tone: "good",
+          title: `Bought ${sym} · demo`,
+          body: `${money(f.usd)} at ${tinyPrice(f.price_usd)} · fee ${money(f.fee_usd)}`,
+        });
+      }
       setAmount("");
       setPreview(null);
       // Exits typed with the buy are placed once it has filled.
@@ -265,7 +298,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
           ) : null}
           {demo && (
             <p className="mt-2 text-center text-[11px] text-muted">
-              Live price, 1% fee each way and real price impact, exactly as real trading would cost
+              Live price, {pctOf(platform.trade_fee_bps)} fee each way and real price impact, exactly as real trading would cost
             </p>
           )}
         </>

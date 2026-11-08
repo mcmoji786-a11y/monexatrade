@@ -1,8 +1,8 @@
 /* Checks a swap transaction from the gateway before the wallet is asked to sign it.
    The gateway builds it, but the browser does not take that on trust: the payer must be
    the user's wallet, only known programs may run at the top level, and the SOL leaving
-   the wallet by plain transfer must match what the ticket shows. Phantom then runs its
-   own simulation and shows the balance changes as a second check. */
+   the wallet by plain transfer must match what the ticket shows. Only then does the Kixo
+   wallet sign it. */
 
 import { base58 } from "./phantom";
 
@@ -90,6 +90,51 @@ export type Expect = {
   tipLamports: bigint;
   priorityLamports: bigint;
 };
+
+export type TransferExpect = {
+  /** Who pays and signs. */
+  from: string;
+  /** Where the money goes, and how much must arrive there. */
+  to: string;
+  amount: bigint;
+  /** Kixo's fee: at most `maxFeeBps` of the whole amount, to one fee wallet. */
+  maxFeeBps: number;
+};
+
+/**
+ * Checks a deposit or withdrawal before it is signed: only compute-budget settings and
+ * plain SOL transfers from `from`, exactly `amount` to `to`, at most one more transfer
+ * (Kixo's fee) of no more than `maxFeeBps`, and a priority fee under 0.0001 SOL. Returns
+ * the fee found.
+ */
+export function checkTransfer(tx: Uint8Array, e: TransferExpect): bigint {
+  const { signers, keys, ixs } = parseTx(tx);
+  if (signers !== 1 || keys[0] !== e.from) throw new Error("The transfer is not paid by the right wallet");
+  let limit = BigInt(200_000);
+  let price = BigInt(0);
+  let toTotal = BigInt(0);
+  const fees: bigint[] = [];
+  for (const ix of ixs) {
+    const key = (n: number) => (ix.accounts[n] !== undefined ? keys[ix.accounts[n]] : undefined);
+    if (ix.program === COMPUTE_BUDGET) {
+      if (ix.data[0] === 2) limit = BigInt(u32(ix.data, 1));
+      else if (ix.data[0] === 3) price = u64(ix.data, 1);
+      else throw new Error("Unexpected compute budget instruction");
+    } else if (ix.program === SYSTEM) {
+      if (ix.data.length !== 12 || u32(ix.data, 0) !== 2) throw new Error("Unexpected system instruction");
+      if (key(0) !== e.from) throw new Error("A transfer from another account");
+      const lamports = u64(ix.data, 4);
+      if (key(1) === e.to) toTotal += lamports;
+      else fees.push(lamports);
+    } else throw new Error(`Unexpected program ${ix.program.slice(0, 8)}…`);
+  }
+  if (toTotal !== e.amount) throw new Error("The amount differs from what you chose");
+  if (fees.length > 1) throw new Error("The transfer pays more than one other account");
+  const fee = fees[0] ?? BigInt(0);
+  if (fee * BigInt(10_000) > (toTotal + fee) * BigInt(e.maxFeeBps)) throw new Error("The fee is higher than shown");
+  if ((limit * price + BigInt(999_999)) / BigInt(1_000_000) > BigInt(100_000)) throw new Error("The priority fee is too high");
+  return fee;
+}
 
 /** Throws with a plain reason when the transaction is not what the ticket shows. */
 export function checkTx(tx: Uint8Array, e: Expect) {

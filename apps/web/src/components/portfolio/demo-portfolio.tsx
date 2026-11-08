@@ -38,6 +38,9 @@ export function DemoPortfolio() {
   const volume = round.reduce((a, t) => a + t.usd, 0);
   const best = sells.reduce<DemoTrade | null>((b, t) => (!b || (t.realized_usd ?? 0) > (b.realized_usd ?? 0) ? t : b), null);
   const worst = sells.reduce<DemoTrade | null>((b, t) => (!b || (t.realized_usd ?? 0) < (b.realized_usd ?? 0) ? t : b), null);
+  // What the sniper made on its own (its sells carry source "sniper").
+  const sniperSells = sells.filter((t) => t.source === "sniper");
+  const sniperPnl = sniperSells.reduce((a, t) => a + (t.realized_usd ?? 0), 0);
   const shown = allRounds ? trades ?? [] : round;
   const opened = openedAt(trades ?? []);
 
@@ -85,8 +88,9 @@ export function DemoPortfolio() {
         <Stat label="Win rate" value={sells.length ? `${Math.round((wins / sells.length) * 100)}%` : "—"} sub={`${wins} wins of ${sells.length}`} />
       </section>
 
-      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-5">
+      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3 lg:grid-cols-6">
         <Mini k="Cash" v={money(account.cash_usd)} />
+        <Mini k={`Sniper P&L · ${sniperSells.length} ${sniperSells.length === 1 ? "trade" : "trades"}`} v={sniperSells.length ? signed(sniperPnl) : "—"} tone={sniperPnl} />
         <Mini k="Volume" v={money(volume)} />
         <Mini k="Fees paid" v={money(fees)} />
         <Mini k="Best trade" v={best?.realized_usd != null ? `${signed(best.realized_usd)} ${best.symbol}` : "—"} tone={best?.realized_usd ?? 0} />

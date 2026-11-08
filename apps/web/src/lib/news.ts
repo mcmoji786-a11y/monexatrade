@@ -26,7 +26,7 @@ export type NewsItem = {
   /** Established coins the story names. */
   coins: { mint: string; symbol: string }[];
   /** On-chain alerts from Kixo's engine. */
-  alert: "rising" | "million" | "graduated" | "whale" | "dev_out" | null;
+  alert: "rising" | "million" | "graduated" | "whale" | "dev_out" | "pump" | "trending" | "sniped" | null;
   /** The coin's own X (Twitter) link. */
   x_url: string | null;
 };
@@ -122,7 +122,8 @@ export const toggleNews = () => setNewsOpen(!state.open);
 
 export const NEWS_FILTERS: { key: string; label: string; test: (i: NewsItem) => boolean }[] = [
   { key: "all", label: "All", test: () => true },
-  { key: "new", label: "New coins", test: (i) => i.alert === "rising" || i.alert === "million" || i.alert === "graduated" },
+  { key: "movers", label: "Movers", test: (i) => i.alert === "pump" || i.alert === "trending" || i.alert === "whale" },
+  { key: "new", label: "New coins", test: (i) => i.alert === "rising" || i.alert === "million" || i.alert === "graduated" || i.alert === "sniped" },
   { key: "solana", label: "Solana", test: (i) => i.tags.includes("solana") },
   { key: "memecoin", label: "Memecoins", test: (i) => i.tags.includes("memecoin") },
   { key: "coins", label: "Coins", test: (i) => i.coins.length > 0 },

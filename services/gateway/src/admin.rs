@@ -151,6 +151,14 @@ pub struct FeatureFlags {
     pub live_chat: bool,
     /// Kixo News: the live news feed and its side panel.
     pub news: bool,
+    /// Kixo Sender: real trades also go straight to the next leaders over QUIC.
+    pub kixo_sender: bool,
+    /// Wallet Tracker: any wallet's balance, coins and swaps (page and side panel).
+    pub wallet_tracker: bool,
+    /// Kixo trading wallet: created and locked in the user's browser.
+    pub kixo_wallet: bool,
+    /// Deposits into Kixo wallets (real SOL): Phantom deposits and the deposit address.
+    pub wallet_deposits: bool,
 }
 
 impl Default for FeatureFlags {
@@ -183,6 +191,10 @@ impl Default for FeatureFlags {
             support: true,
             live_chat: true,
             news: true,
+            kixo_sender: true,
+            wallet_tracker: true,
+            kixo_wallet: true,
+            wallet_deposits: true,
         }
     }
 }
@@ -288,6 +300,22 @@ impl AdminState {
         self.features.lock().expect("features lock").news
     }
 
+    /// Whether Kixo Sender (direct QUIC sends to the leaders) is switched on.
+    pub fn kixo_sender(&self) -> bool {
+        self.features.lock().expect("features lock").kixo_sender
+    }
+
+    /// Whether Kixo trading wallets are switched on.
+    pub fn kixo_wallet(&self) -> bool {
+        self.features.lock().expect("features lock").kixo_wallet
+    }
+
+    /// Whether deposits into Kixo wallets are open.
+    pub fn wallet_deposits(&self) -> bool {
+        let f = self.features.lock().expect("features lock");
+        f.kixo_wallet && f.wallet_deposits
+    }
+
     /// Whether live chat is switched on in the admin.
     pub fn live_chat(&self) -> bool {
         let f = self.features.lock().expect("features lock");
@@ -333,13 +361,21 @@ pub async fn get_features(State(a): State<Arc<AdminState>>) -> Json<FeatureFlags
     Json(a.features.lock().expect("features lock").clone())
 }
 
-pub async fn put_features(State(a): State<Arc<AdminState>>, headers: HeaderMap, Json(f): Json<FeatureFlags>) -> Result<Json<FeatureFlags>, (StatusCode, String)> {
+pub async fn put_features(State(a): State<Arc<AdminState>>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(f): Json<FeatureFlags>) -> Result<Json<FeatureFlags>, (StatusCode, String)> {
     if !is_admin(&headers) {
         return Err((StatusCode::FORBIDDEN, "admin token required".into()));
     }
     f.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let before = a.features.lock().expect("features lock").clone();
+    // Where the money goes and whether real money moves: only with the owner's code.
+    let money = before.fee_wallet.trim() != f.fee_wallet.trim() || before.real_trading != f.real_trading || before.wallet_deposits != f.wallet_deposits;
+    if money && !crate::platform::owner_ok(&headers) {
+        return Err((StatusCode::UNAUTHORIZED, "owner_code_required".into()));
+    }
     *a.features.lock().expect("features lock") = f.clone();
     save(FEATURES_FILE, &f);
+    let d = crate::platform::diff(&serde_json::to_value(&before).unwrap_or_default(), &serde_json::to_value(&f).unwrap_or_default());
+    crate::platform::audit(Some(addr), "features", d);
     tracing::info!("feature flags updated by admin");
     Ok(Json(f))
 }
@@ -353,8 +389,10 @@ pub async fn put_rewards(State(a): State<Arc<AdminState>>, headers: HeaderMap, J
         return Err((StatusCode::FORBIDDEN, "admin token required".into()));
     }
     cfg.validate().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let before = a.rewards.lock().expect("rewards lock").clone();
     *a.rewards.lock().expect("rewards lock") = cfg.clone();
     save(REWARDS_FILE, &cfg);
+    crate::platform::audit(None, "rewards", crate::platform::diff(&serde_json::to_value(&before).unwrap_or_default(), &serde_json::to_value(&cfg).unwrap_or_default()));
     tracing::info!("rewards settings updated by admin");
     Ok(Json(cfg))
 }

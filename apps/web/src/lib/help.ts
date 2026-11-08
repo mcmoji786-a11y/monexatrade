@@ -12,7 +12,7 @@ export const ARTICLES: Article[] = [
     q: "What is Kixo?",
     a: [
       "A Solana memecoin terminal: Sol Radar shows new launches the moment they appear on chain, Discover ranks coins, and each coin has a trade page with a live chart, holders, the developer's history and a safety score.",
-      "You can practise with a demo account or trade with real SOL from your own Phantom wallet.",
+      "You can practise with a demo account, or trade with real SOL from your Kixo wallet: deposit SOL from Phantom or an exchange, then buy and sell with no wallet popup.",
     ],
   },
   {
@@ -29,8 +29,8 @@ export const ARTICLES: Article[] = [
     topic: "Getting started",
     q: "How do I sign in?",
     a: [
-      "With Google, with a code sent to your email, or with Phantom. Signing in never moves funds and Kixo never asks for a seed phrase.",
-      "Google and email accounts connect Phantom only when you want to trade; the wallet is not saved.",
+      "With Google, or with a code sent to your email. Signing in never moves funds and Kixo never asks for a seed phrase. Phantom is used for deposits and for trading straight from your own wallet.",
+      "Every account gets its own Kixo wallet, set up with a wallet password right after you sign up.",
     ],
   },
   {
@@ -38,7 +38,8 @@ export const ARTICLES: Article[] = [
     topic: "Trading",
     q: "What does a trade cost?",
     a: [
-      "A 1% platform fee: taken from the SOL you spend on a buy, and from the SOL you receive on a sale (charged on the guaranteed minimum, so never more than 1% of what you get).",
+      "A small platform fee, shown on the ticket before you trade: taken from the SOL you spend on a buy, and from the SOL you receive on a sale (charged on the guaranteed minimum, so never more than the shown rate).",
+      "Deposits into your Kixo wallet are free. Withdrawals carry a small Kixo fee, shown before you confirm. The pool or launchpad also takes its own fee inside the price.",
       "Then the Solana network costs: the base fee (0.000005 SOL), a priority fee that depends on how busy the network is (capped at 0.001 SOL on Fast and 0.003 SOL on Turbo) and a small tip for the fast sending service. Every amount is shown before you approve.",
     ],
   },
@@ -99,11 +100,12 @@ export const ARTICLES: Article[] = [
     ],
   },
   {
-    id: "phantom",
+    id: "deposit",
     topic: "Wallet and safety",
-    q: "Phantom does not connect",
+    q: "How do I deposit or withdraw?",
     a: [
-      "Make sure the Phantom extension is installed and unlocked, then press Connect wallet at the top. If Phantom opened on another account, switch to the one you want in Phantom and connect again.",
+      "Click your balance at the top. Deposit: pick an amount and Phantom opens with exactly that transfer for you to approve. From an exchange, send SOL to the address shown under it.",
+      "Withdraw: pick an amount and send it to your Phantom (Connect Phantom shares only its address) or to any other Solana address.",
     ],
   },
   {
@@ -111,7 +113,7 @@ export const ARTICLES: Article[] = [
     topic: "Wallet and safety",
     q: "Does Kixo hold my funds or keys?",
     a: [
-      "No. Your SOL stays in your own wallet and every trade is signed by you in Phantom. Kixo builds the transaction, checks it, and shows every cost before you approve.",
+      "No. Your Kixo wallet's key is made and locked in your browser with your wallet password; Kixo stores only the locked copy and cannot open it. Trading straight from Phantom works too, and then you approve each trade in Phantom.",
       "Nobody from Kixo will ever ask for your seed phrase. If someone does, it is a scam.",
     ],
   },

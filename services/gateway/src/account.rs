@@ -112,6 +112,75 @@ impl AccountState {
         Ok(user)
     }
 
+    /// Inserts a row and never overwrites one: on a conflict nothing changes and the
+    /// result is an empty list.
+    pub(crate) async fn insert_new(&self, table: &str, row: Value) -> Result<Value, (StatusCode, String)> {
+        let res = self
+            .http
+            .post(format!("{}/rest/v1/{table}", self.url))
+            .header("apikey", &self.service)
+            .bearer_auth(&self.service)
+            .header("Prefer", "return=representation,resolution=ignore-duplicates")
+            .timeout(Duration::from_secs(8))
+            .json(&row)
+            .send()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "database unreachable".into()))?;
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        if !status.is_success() {
+            tracing::warn!(%status, table, "database insert failed");
+            let msg = if text.contains("PGRST205") || text.contains("does not exist") || text.contains("Could not find the table") { "not set up yet: run the latest migration" } else { "database error" };
+            return Err((StatusCode::SERVICE_UNAVAILABLE, msg.into()));
+        }
+        Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
+    }
+
+    /// One page of accounts from Supabase Auth (admin only, service key).
+    pub(crate) async fn list_auth_users(&self, page: u32, per_page: u32) -> Result<Vec<Value>, (StatusCode, String)> {
+        let res = self
+            .http
+            .get(format!("{}/auth/v1/admin/users?page={page}&per_page={per_page}", self.url))
+            .header("apikey", &self.service)
+            .bearer_auth(&self.service)
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "auth service unreachable".into()))?;
+        if !res.status().is_success() {
+            return Err((StatusCode::BAD_GATEWAY, format!("auth service answered {}", res.status())));
+        }
+        let v: Value = res.json().await.map_err(|_| (StatusCode::BAD_GATEWAY, "bad auth reply".into()))?;
+        Ok(v["users"].as_array().cloned().unwrap_or_default())
+    }
+
+    /// Emails a 6-digit code to an existing account's address (Supabase Auth).
+    pub(crate) async fn send_email_code(&self, email: &str) -> Result<(), (StatusCode, String)> {
+        let res = self
+            .http
+            .post(format!("{}/auth/v1/otp", self.url))
+            .header("apikey", &self.anon)
+            .json(&json!({ "email": email, "create_user": false }))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "email service unreachable".into()))?;
+        match res.status().as_u16() {
+            200..=299 => Ok(()),
+            429 => Err((StatusCode::TOO_MANY_REQUESTS, "too many codes sent, wait a few minutes".into())),
+            _ => Err((StatusCode::BAD_GATEWAY, "the code could not be sent".into())),
+        }
+    }
+
+    /// Whether `code` is the valid code just emailed to `email`.
+    pub(crate) async fn check_email_code(&self, email: &str, code: &str) -> bool {
+        if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+        let res = self.http.post(format!("{}/auth/v1/verify", self.url)).header("apikey", &self.anon).json(&json!({ "type": "email", "email": email, "token": code })).timeout(Duration::from_secs(10)).send().await;
+        res.is_ok_and(|r| r.status().is_success())
+    }
+
     pub(crate) async fn rest(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, (StatusCode, String)> {
         let mut req = self
             .http

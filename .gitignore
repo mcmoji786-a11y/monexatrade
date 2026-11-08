@@ -7,3 +7,4 @@ target/
 
 # Gateway runtime data (smart-money records)
 data/
+target-test/

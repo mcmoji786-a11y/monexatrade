@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronDown, ExternalLink, Loader2, Search, Stethoscope } from "lucide-react";
-import { accessToken, activeWallet, useAccount } from "@/lib/account";
+import { accessToken, useAccount } from "@/lib/account";
+import { kixoAddress } from "@/lib/kixo-wallet";
 import { useMode } from "@/lib/demo";
 import { GATEWAY_HTTP } from "@/lib/gateway";
 import { ARTICLES, TOPICS } from "@/lib/help";
@@ -354,7 +355,6 @@ function Tickets({ prefill, onPrefillUsed }: { prefill: { category: Category; su
 }
 
 function NewTicket({ prefill, onCancel, onCreated }: { prefill: { category: Category; subject: string; signature: string } | null; onCancel: () => void; onCreated: (id: number) => void }) {
-  const account = useAccount();
   const mode = useMode();
   const [f, setF] = useState({ category: prefill?.category ?? ("trade" as Category), subject: prefill?.subject ?? "", body: "", signature: prefill?.signature ?? "" });
   const [busy, setBusy] = useState(false);
@@ -367,7 +367,7 @@ function NewTicket({ prefill, onCancel, onCreated }: { prefill: { category: Cate
         setBusy(true);
         setErr(null);
         try {
-          const { id } = await createTicket({ ...f, signature: f.signature.trim() || undefined, context: ticketContext(mode, activeWallet(account)) });
+          const { id } = await createTicket({ ...f, signature: f.signature.trim() || undefined, context: ticketContext(mode, kixoAddress()) });
           onCreated(id);
         } catch (e) {
           setErr(e instanceof Error ? e.message : String(e));

@@ -1,30 +1,48 @@
 "use client";
 
+import { KixoMark } from "@/components/brand";
 import { useEffect, useState } from "react";
-import { Activity, CalendarRange, LifeBuoy, UserRound, Ban, Eye, KeySquare, PauseCircle, ClipboardList, FileClock, Gauge, KeyRound, Lock, Megaphone, ShieldCheck, SlidersHorizontal, ToggleRight, Users } from "lucide-react";
+import { Activity, CalendarRange, LifeBuoy, UserRound, ClipboardList, FileClock, Gauge, Coins, KeyRound, Lock, Megaphone, Rocket, Settings2, ShieldCheck, SlidersHorizontal, ToggleRight, Users } from "lucide-react";
+import { adminFetch, OwnerNeeded } from "@/lib/admin";
+import { EarningsAdmin, UsersAdmin } from "./ops-admin";
+import { MarketingAdmin } from "./marketing-admin";
+import { AdminGate, AdminSignOut, ApiKeys, AuditLog, OwnerUnlock, PlatformSettings } from "./platform-admin";
 import { ALL_ON, FEATURE_LIST, type Features } from "@/lib/features";
 import { GATEWAY_HTTP } from "@/lib/gateway";
 import { SupportInbox } from "./support-inbox";
 import { FALLBACK_CONFIG, type GatewayTier, type RewardsConfig } from "@/lib/rewards";
 
-type View = "overview" | "users" | "live" | "features" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
-const NAV: { key: View; label: string; icon: typeof Gauge }[] = [
+type View = "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
+/** `preview`: a design only, nothing on it saves yet. */
+const NAV: { key: View; label: string; icon: typeof Gauge; preview?: boolean }[] = [
   { key: "overview", label: "Dashboard", icon: Gauge },
   { key: "users", label: "Users", icon: UserRound },
+  { key: "earnings", label: "Earnings", icon: Coins },
+  { key: "marketing", label: "Marketing", icon: Rocket },
   { key: "live", label: "Live users and activity", icon: Activity },
   { key: "features", label: "Features", icon: ToggleRight },
+  { key: "platform", label: "Platform settings", icon: Settings2 },
+  { key: "keys", label: "API keys", icon: KeyRound },
   { key: "support", label: "Support inbox", icon: LifeBuoy },
-  { key: "review", label: "Annual review", icon: CalendarRange },
-  { key: "rewards", label: "Rewards settings", icon: SlidersHorizontal },
+  { key: "review", label: "Annual review", icon: CalendarRange, preview: true },
+  { key: "rewards", label: "Rewards settings", icon: SlidersHorizontal, preview: true },
   { key: "creators", label: "Creator requests", icon: Megaphone },
-  { key: "approvals", label: "Approvals", icon: ClipboardList },
+  { key: "approvals", label: "Approvals", icon: ClipboardList, preview: true },
   { key: "audit", label: "Audit log", icon: FileClock },
-  { key: "team", label: "Team and security", icon: Users },
+  { key: "team", label: "Team and security", icon: Users, preview: true },
 ];
 
 /** Admin workflow, design only. Reads the real rewards settings; nothing can be saved
  *  until the secure admin (separate app, login, 2FA, IP gate, audit log) exists. */
 export function AdminPreview() {
+  return (
+    <AdminGate>
+      <AdminApp />
+    </AdminGate>
+  );
+}
+
+function AdminApp() {
   const [view, setView] = useState<View>("overview");
   const [live, setLive] = useState<RewardsConfig>(FALLBACK_CONFIG);
   useEffect(() => {
@@ -38,7 +56,7 @@ export function AdminPreview() {
     <div className="flex min-h-screen bg-bg text-text">
       <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-surface">
         <div className="flex h-14 items-center gap-2 border-b border-border px-5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-emerald" />
+          <KixoMark size={22} />
           <span className="font-medium">Kixo Admin</span>
         </div>
         <nav className="flex flex-col gap-1 p-3">
@@ -50,32 +68,70 @@ export function AdminPreview() {
               className={`flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm transition-colors ${view === n.key ? "bg-surface-3 text-text" : "text-text-2 hover:bg-surface-2 hover:text-text"}`}
             >
               <n.icon size={16} strokeWidth={1.5} />
-              {n.label}
+              <span className="flex-1 text-left">{n.label}</span>
+              {n.preview && <span className="text-[10px] text-muted">Preview</span>}
             </button>
           ))}
         </nav>
-        <div className="mt-auto border-t border-border p-4 text-[11px] leading-5 text-muted">
-          Signed in as <span className="text-text-2">Owner</span>
-          <br />
-          Session ends after 30 min idle
+        <div className="mt-auto flex flex-col gap-2 border-t border-border p-4 text-[11px] leading-5 text-muted">
+          Admin session in this tab only
+          <AdminSignOut />
         </div>
       </aside>
 
       <main className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/5 px-6 py-2 text-xs text-warning">
-          <Lock size={13} strokeWidth={1.5} />
-          Design preview on this computer only. Saving is off until the secure admin is built: separate app, login with 2FA, IP gate and audit log
-        </div>
+        {NAV.find((n) => n.key === view)?.preview && (
+          <div className="flex items-center gap-2 border-b border-border bg-surface px-6 py-2 text-xs text-text-2">
+            Preview: this screen is a design, nothing on it saves yet
+          </div>
+        )}
         <div key={view} className="fade-up p-6">
           {view === "overview" && <Overview live={live} go={setView} />}
-          {view === "users" && <UsersScreen />}
+          {view === "users" && (
+            <>
+              <Title title="Users" sub="Every account with its Kixo wallet. Open one to see its balance, trades, transfers and tickets, or pause its trading" />
+              <UsersAdmin />
+            </>
+          )}
+          {view === "marketing" && (
+            <>
+              <Title title="Marketing" sub="Tracking links with their sign-up funnel, promo codes, the banner and popup, and the social links and search text" />
+              <MarketingAdmin />
+            </>
+          )}
+          {view === "earnings" && (
+            <>
+              <Title title="Earnings" sub="What Kixo earned from trade, deposit and withdrawal fees, from its own records" />
+              <EarningsAdmin />
+            </>
+          )}
           {view === "live" && <Live />}
           {view === "features" && <FeaturesEditor />}
           {view === "review" && <Review />}
           {view === "rewards" && <RewardsEditor live={live} />}
           {view === "creators" && <Creators />}
           {view === "approvals" && <Approvals />}
-          {view === "audit" && <Audit />}
+          {view === "audit" && (
+            <>
+              <Title title="Audit log" sub="Every admin change: when, what it was before and after, and from which address. Keys are never written, only their last 4 characters" />
+              <AuditLog />
+            </>
+          )}
+          {view === "platform" && (
+            <>
+              <Title title="Platform settings" sub="Fees, limits, the real trading allowlist, sending tips and Sol Radar's Lower risk rules, without touching the code" />
+              <div className="mb-6">
+                <OwnerUnlock />
+              </div>
+              <PlatformSettings />
+            </>
+          )}
+          {view === "keys" && (
+            <>
+              <Title title="API keys" sub="Helius, Jupiter, X, Reddit and Telegram. Set or replace a key here instead of editing .env" />
+              <ApiKeys />
+            </>
+          )}
           {view === "team" && <Team />}
           {view === "support" && (
             <>
@@ -361,113 +417,6 @@ function Todo({ label, value, onClick }: { label: string; value: string; onClick
 
 /* ---------------- Users ---------------- */
 
-function UsersScreen() {
-  const m = useMetrics();
-  const [tab, setTab] = useState<"live" | "accounts">("live");
-  const sessions = m?.presence.sessions ?? [];
-  return (
-    <>
-      <Title title="Users" sub="Who is on Kixo now, and, once accounts open, every registered user with their activity and controls" />
-      <div className="mb-4 flex gap-1">
-        {(
-          [
-            ["live", `Live sessions · ${sessions.length}`],
-            ["accounts", "Accounts"],
-          ] as const
-        ).map(([k, label]) => (
-          <button key={k} type="button" onClick={() => setTab(k)} aria-pressed={tab === k} className={`h-9 rounded-lg px-3 text-sm ${tab === k ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "live" ? (
-        <Card>
-          <p className="mb-3 text-xs text-text-2">Anonymous: each row is one open Kixo tab, with its page and time online. No name, address or identity is stored</p>
-          {sessions.length === 0 ? (
-            <p className="py-10 text-center text-xs text-muted">Nobody online right now</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="h-9 border-b border-border text-left text-xs text-muted">
-                  <th className="w-16 font-normal">#</th>
-                  <th className="font-normal">Page now</th>
-                  <th className="text-right font-normal">Online for</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((x, i) => (
-                  <tr key={i} className="h-10 border-b border-border last:border-0">
-                    <td className="font-mono text-xs text-muted">{i + 1}</td>
-                    <td>
-                      <span className="flex items-center gap-2">
-                        <span className="live-ring h-1.5 w-1.5 rounded-full bg-emerald" />
-                        {PAGE_NAMES[x.page] ?? x.page}
-                      </span>
-                    </td>
-                    <td className="text-right font-mono text-text-2">{dur(x.secs)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </Card>
-      ) : (
-        <Card>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <input disabled placeholder="Search by user, wallet or invite code" className="h-9 min-w-72 flex-1 rounded-lg border border-border bg-bg px-3 text-sm placeholder:text-muted disabled:opacity-60" />
-            {["All", "Active", "Suspended", "Banned"].map((f, i) => (
-              <span key={f} className={`h-9 rounded-lg px-3 text-sm leading-9 ${i === 0 ? "bg-surface-3 text-text" : "text-text-2"}`}>
-                {f}
-              </span>
-            ))}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-220 text-sm">
-              <thead>
-                <tr className="h-9 border-b border-border text-left text-xs text-muted">
-                  <th className="font-normal">User</th>
-                  <th className="font-normal">Wallet</th>
-                  <th className="font-normal">Joined</th>
-                  <th className="font-normal">Last seen</th>
-                  <th className="text-right font-normal">Volume</th>
-                  <th className="text-right font-normal">Rewards</th>
-                  <th className="font-normal">2FA</th>
-                  <th className="font-normal">Status</th>
-                  <th />
-                </tr>
-              </thead>
-            </table>
-          </div>
-          <div className="flex flex-col items-center gap-2 px-8 py-12 text-center">
-            <UserRound size={20} strokeWidth={1.5} className="text-muted" />
-            <p className="text-sm text-text-2">No accounts yet</p>
-            <p className="max-w-md text-xs text-muted">Kixo has no sign-up yet, so there are no users to list. When accounts open, every user appears here with these controls</p>
-          </div>
-          <div className="grid gap-3 border-t border-border pt-4 md:grid-cols-4">
-            <Action icon={Eye} title="View" body="Profile, trades, positions, rewards and sign-in history" />
-            <Action icon={PauseCircle} title="Suspend" body="Pause trading and rewards with a reason the user sees" />
-            <Action icon={Ban} title="Ban" body="Block the account and its wallets; needs Owner approval" />
-            <Action icon={KeySquare} title="Reset 2FA" body="After identity checks; logged and alerted" />
-          </div>
-        </Card>
-      )}
-    </>
-  );
-}
-
-function Action({ icon: Icon, title, body }: { icon: typeof Eye; title: string; body: string }) {
-  return (
-    <div className="rounded-xl border border-border p-3">
-      <p className="flex items-center gap-2 text-sm">
-        <Icon size={14} strokeWidth={1.5} className="text-muted" />
-        {title}
-      </p>
-      <p className="mt-1 text-[11px] leading-4 text-text-2">{body}</p>
-    </div>
-  );
-}
-
 function Mini({ k, v }: { k: string; v: string }) {
   return (
     <div>
@@ -747,30 +696,6 @@ function Flow({ n, title, body }: { n: number; title: string; body: string }) {
 
 /* ---------------- Audit log ---------------- */
 
-function Audit() {
-  return (
-    <>
-      <Title title="Audit log" sub="Every sign-in and every change: who, when, from where, what it was before and after. It cannot be edited or deleted" />
-      <Card>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="h-9 border-b border-border text-left text-xs text-muted">
-              <th className="font-normal">Time</th>
-              <th className="font-normal">Who</th>
-              <th className="font-normal">Action</th>
-              <th className="font-normal">Before → after</th>
-              <th className="font-normal">IP and device</th>
-            </tr>
-          </thead>
-        </table>
-        <p className="py-10 text-center text-xs text-muted">Entries appear once the secure admin is live</p>
-      </Card>
-    </>
-  );
-}
-
-/* ---------------- Team and security ---------------- */
-
 const ROLES: { role: string; can: string[] }[] = [
   { role: "Owner", can: ["Everything", "Approve money changes", "Add or remove team members"] },
   { role: "Admin", can: ["Propose settings changes", "Review creator requests", "Read the audit log"] },
@@ -924,8 +849,7 @@ function FeaturesEditor() {
   }, []);
   const set = (patch: Partial<Features>) => setDraft((d) => ({ ...d, ...patch }));
   const changed = (Object.keys(draft) as (keyof Features)[]).filter((k) => draft[k] !== live[k]);
-  // The admin key (ADMIN_TOKEN in the gateway .env) is typed for each change, never stored.
-  const [key, setKey] = useState("");
+  const [needOwner, setNeedOwner] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [trade, setTrade] = useState<{ ready: boolean; not_ready: string | null } | null>(null);
@@ -940,19 +864,15 @@ function FeaturesEditor() {
     setSaving(true);
     setMsg(null);
     try {
-      const res = await fetch(`${GATEWAY_HTTP}/admin/features`, {
-        method: "PUT",
-        headers: { "content-type": "application/json", "x-admin-token": key },
-        body: JSON.stringify({ ...draft, fee_wallet: draft.fee_wallet.trim() }),
-      });
-      const text = await res.text();
-      if (!res.ok) throw new Error(res.status === 403 ? "Wrong admin key" : text || `Failed (${res.status})`);
-      const saved = { ...ALL_ON, ...(JSON.parse(text) as Features) };
+      const out = await adminFetch<Features>("/admin/features", { method: "PUT", body: { ...draft, fee_wallet: draft.fee_wallet.trim() } });
+      const saved = { ...ALL_ON, ...out };
       setLive(saved);
       setDraft(saved);
+      setNeedOwner(false);
       setMsg({ ok: true, text: "Saved. Every visitor gets it within a minute" });
     } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+      if (e instanceof OwnerNeeded) setNeedOwner(true);
+      else setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
       setSaving(false);
     }
@@ -974,7 +894,7 @@ function FeaturesEditor() {
           </Card>
           <Card title="Real trading">
             <p className="text-xs text-text-2">
-              The 1% platform fee goes to this wallet. Paste its public address only, never a private key or seed phrase. It must already hold at least 0.01 SOL
+              Platform fees go to this wallet: 0.5% on trades, 1% on deposits and withdrawals. Paste its public address only, never a private key or seed phrase. It must already hold at least 0.01 SOL
             </p>
             <input
               value={draft.fee_wallet}
@@ -1027,14 +947,11 @@ function FeaturesEditor() {
               ))}
             </ul>
           )}
-          <input
-            type="password"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder="Admin key"
-            autoComplete="off"
-            className="mt-3 h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm outline-none placeholder:text-muted focus:border-emerald/50"
-          />
+          {needOwner && (
+            <div className="mt-3">
+              <OwnerUnlock compact />
+            </div>
+          )}
           <div className="mt-2 flex gap-2">
             <button type="button" onClick={() => setDraft(live)} disabled={!changed.length} className="h-9 flex-1 rounded-lg border border-border text-sm text-text-2 hover:text-text disabled:opacity-40">
               Discard
@@ -1042,7 +959,7 @@ function FeaturesEditor() {
             <button
               type="button"
               onClick={apply}
-              disabled={!changed.length || key.length < 16 || !walletOk || saving}
+              disabled={!changed.length || !walletOk || saving}
               className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-text text-sm font-medium text-bg disabled:opacity-40"
             >
               <KeyRound size={13} strokeWidth={1.5} />
@@ -1050,7 +967,7 @@ function FeaturesEditor() {
             </button>
           </div>
           {msg && <p className={`mt-2 text-xs ${msg.ok ? "text-positive" : "text-negative"}`}>{msg.text}</p>}
-          <p className="mt-2 text-[11px] text-muted">The admin key is ADMIN_TOKEN from the gateway .env. It is never stored. Switches apply within a minute for every visitor</p>
+          <p className="mt-2 text-[11px] text-muted">Switches apply within a minute for every visitor. The fee wallet, Real trading and Wallet deposits also need the owner code</p>
         </Card>
       </div>
     </>

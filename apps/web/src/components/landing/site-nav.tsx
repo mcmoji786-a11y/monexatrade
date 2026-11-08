@@ -1,5 +1,6 @@
 "use client";
 
+import { KixoLogo } from "@/components/brand";
 import { useState } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
@@ -20,8 +21,7 @@ export function SiteNav() {
     <header className="sticky top-0 z-30 border-b border-border bg-bg/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-300 items-center gap-8 px-4 md:px-8">
         <Link href="/" className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-emerald">
-          <span className="h-3 w-3 rounded-[3px] bg-emerald" />
-          <span className="text-[17px] font-semibold text-text">Kixo</span>
+          <KixoLogo size={26} text="text-[17px]" />
         </Link>
 
         <nav className="hidden items-center gap-6 md:flex" aria-label="Main">

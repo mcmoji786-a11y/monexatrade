@@ -29,8 +29,7 @@ use std::{
 
 pub const WSOL: &str = "So11111111111111111111111111111111111111112";
 pub const JUPITER_PROGRAM: &str = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
-/// Platform fee in basis points (founder decision: 1%).
-pub const FEE_BPS: u64 = 100;
+// The platform fee (0.5% by default) is an admin setting: see platform.rs.
 /// Largest trade in lamports (founder decision: 3 SOL), on the SOL side of the swap.
 pub const MAX_LAMPORTS: u64 = 3_000_000_000;
 const MIN_LAMPORTS: u64 = 1_000_000;
@@ -74,7 +73,9 @@ pub const FAST: Speed = Speed { name: "fast", level: "high", tip: 5_000, min_pri
 pub const TURBO: Speed = Speed { name: "turbo", level: "veryHigh", tip: 1_000_000, min_price: 100_000, max_priority: 3_000_000, swqos_only: false };
 
 pub fn speed(name: &str) -> Speed {
-    if name == "fast" { FAST } else { TURBO }
+    // Tips come from the admin settings; the rest of each speed is fixed.
+    let (fast, turbo) = crate::platform::tips();
+    if name == "fast" { Speed { tip: fast, ..FAST } } else { Speed { tip: turbo, ..TURBO } }
 }
 
 /// Priority fee in micro-lamports per CU, inside the speed's floor and total cap.
@@ -83,8 +84,18 @@ pub fn priority_price(estimate: u64, cu_limit: u32, s: Speed) -> u64 {
     estimate.max(s.min_price).min(cap)
 }
 
+tokio::task_local! {
+    /// The trade fee of the user whose quote is being built (after any promo code).
+    static USER_FEE_BPS: u64;
+}
+
+/// The fee rate in force: the current user's inside a quote, else the platform's.
+pub fn fee_bps_now() -> u64 {
+    USER_FEE_BPS.try_with(|b| *b).unwrap_or_else(|_| crate::platform::trade_fee_bps())
+}
+
 pub fn fee_of(lamports: u64) -> u64 {
-    lamports * FEE_BPS / 10_000
+    lamports * fee_bps_now() / 10_000
 }
 
 /// Why a trade failed, in words a trader understands, from the error and program logs.
@@ -125,10 +136,13 @@ pub struct TradeState {
     env_fee_wallet: Option<Pubkey>,
     /// Fee wallet balance checks (address, when, lamports).
     fee_balance: Mutex<Option<(Pubkey, Instant, u64)>>,
-    jup_key: Option<String>,
     allowlist: HashSet<String>,
     builds: Mutex<HashMap<String, Build>>,
     live: Mutex<HashMap<String, Live>>,
+    /// Trades in flight: who sent them and where their result goes.
+    meta: Mutex<HashMap<String, Meta>>,
+    /// Local record of every trade before it is sent.
+    journal: crate::journal::Journal,
     throttle: Mutex<HashMap<String, Instant>>,
     fees: Mutex<Option<(Instant, HashMap<String, u64>)>>,
     blockhash: Mutex<Option<(Instant, Pubkey, u64)>>,
@@ -146,10 +160,11 @@ impl TradeState {
         Arc::new(Self {
             env_fee_wallet,
             fee_balance: Mutex::new(None),
-            jup_key: std::env::var("JUPITER_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()),
             allowlist,
             builds: Mutex::new(HashMap::new()),
             live: Mutex::new(HashMap::new()),
+            meta: Mutex::new(HashMap::new()),
+            journal: crate::journal::Journal::open(crate::journal::FILE),
             throttle: Mutex::new(HashMap::new()),
             fees: Mutex::new(None),
             blockhash: Mutex::new(None),
@@ -167,6 +182,10 @@ pub struct TradeCtx {
     pub acct: Arc<AccountState>,
     pub admin: Arc<crate::admin::AdminState>,
     pub t: Arc<TradeState>,
+    /// Kixo Sender: direct QUIC sends to the upcoming leaders.
+    pub sender: crate::sender::SenderState,
+    /// The shared tracker for every trade in flight.
+    pub tracker: crate::tracker::TrackerState,
 }
 
 struct Build {
@@ -186,7 +205,18 @@ struct Live {
     status: &'static str,
     error: Option<(String, String, String)>,
     latency_ms: Option<u64>,
+    /// How the trade was sent and how fast it landed, shown to the user.
+    receipt: Arc<Mutex<Value>>,
     at: Instant,
+}
+
+struct Meta {
+    user: String,
+    wallet: Pubkey,
+    mint: String,
+    receipt: Arc<Mutex<Value>>,
+    /// Takes the final result to the task writing the database row.
+    done: Option<tokio::sync::oneshot::Sender<Value>>,
 }
 
 type ApiErr = (StatusCode, Json<Value>);
@@ -359,12 +389,12 @@ async fn decimals_of(c: &TradeCtx, mint: &str) -> u8 {
 
 /* ---------------- Jupiter ---------------- */
 
-fn jup_base(c: &TradeCtx) -> &'static str {
-    if c.t.jup_key.is_some() { "https://api.jup.ag/swap/v1" } else { "https://lite-api.jup.ag/swap/v1" }
+fn jup_base(_c: &TradeCtx) -> &'static str {
+    if monexa_common::secret("JUPITER_API_KEY").is_some() { "https://api.jup.ag/swap/v1" } else { "https://lite-api.jup.ag/swap/v1" }
 }
 
-async fn jup(c: &TradeCtx, req: reqwest::RequestBuilder) -> Result<Value, ApiErr> {
-    let req = match &c.t.jup_key {
+async fn jup(_c: &TradeCtx, req: reqwest::RequestBuilder) -> Result<Value, ApiErr> {
+    let req = match &monexa_common::secret("JUPITER_API_KEY") {
         Some(k) => req.header("x-api-key", k),
         None => req,
     };
@@ -411,12 +441,12 @@ pub async fn config(State(c): State<TradeCtx>) -> Json<Value> {
         "enabled": c.admin.real_trading(),
         "ready": ready.is_ok(),
         "not_ready": ready.err(),
-        "fee_bps": FEE_BPS,
-        "max_lamports": MAX_LAMPORTS,
+        "fee_bps": crate::platform::trade_fee_bps(),
+        "max_lamports": crate::platform::max_trade_lamports(),
         "min_lamports": MIN_LAMPORTS,
         "fee_wallet": c.fee_wallet().map(|w| stx::b58(&w)),
         "tip_accounts": TIP_ACCOUNTS,
-        "speeds": { "fast": { "tip": FAST.tip, "max_priority": FAST.max_priority }, "turbo": { "tip": TURBO.tip, "max_priority": TURBO.max_priority } },
+        "speeds": { "fast": { "tip": speed("fast").tip, "max_priority": FAST.max_priority }, "turbo": { "tip": speed("turbo").tip, "max_priority": TURBO.max_priority } },
         "allowlist": !c.t.allowlist.is_empty(),
     }))
 }
@@ -441,6 +471,9 @@ pub async fn prepare(State(c): State<TradeCtx>, headers: HeaderMap) -> Result<Js
     }
     let was = c.t.active();
     c.t.touch();
+    if c.admin.kixo_sender() {
+        c.sender.touch();
+    }
     if !was {
         // First ticket in a while: warm now rather than on the loop's next tick.
         tokio::spawn(warm_once(c.clone()));
@@ -492,7 +525,17 @@ pub struct QuoteIn {
 /// `POST /trade/quote`: builds and simulates the swap for the user's wallet and
 /// returns it unsigned, with every cost spelled out before the wallet asks to sign.
 pub async fn quote(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Json<QuoteIn>) -> Result<Json<Value>, ApiErr> {
+    // The fee is the user's own (a promo code may lower it), for every fee in this build.
     let user = c.acct.user(&headers).await.map_err(auth_err)?;
+    let bps = crate::marketing::trade_fee_bps_for(&user.id);
+    USER_FEE_BPS.scope(bps, quote_inner(State(c), headers, Json(q))).await
+}
+
+async fn quote_inner(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Json<QuoteIn>) -> Result<Json<Value>, ApiErr> {
+    let user = c.acct.user(&headers).await.map_err(auth_err)?;
+    if let Some(why) = crate::ops::paused(&user.id) {
+        return Err(err(StatusCode::FORBIDDEN, "paused", &format!("Trading is paused on this account{}", if why.is_empty() { String::new() } else { format!(": {why}") }), "Contact support. Withdrawals still work"));
+    }
     if !c.admin.real_trading() {
         return Err(err(StatusCode::FORBIDDEN, "off", "Real trading is not open yet", "Use the demo account meanwhile"));
     }
@@ -501,7 +544,8 @@ pub async fn quote(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Json<
     if stx::pubkey(&q.mint).is_err() || q.mint == WSOL {
         return Err(bad("not a coin address"));
     }
-    if !c.t.allowlist.is_empty() && !c.t.allowlist.contains(&q.wallet) {
+    let admin_list = crate::platform::allowlist();
+    if (!c.t.allowlist.is_empty() || !admin_list.is_empty()) && !c.t.allowlist.contains(&q.wallet) && !admin_list.contains(&q.wallet) {
         return Err(err(StatusCode::FORBIDDEN, "allowlist", "Real trading is open to selected wallets for now", "Use the demo account meanwhile"));
     }
     {
@@ -529,7 +573,7 @@ pub async fn quote(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Json<
         if lamports < MIN_LAMPORTS {
             return Err(bad("minimum trade is 0.001 SOL"));
         }
-        if lamports > MAX_LAMPORTS {
+        if lamports > crate::platform::max_trade_lamports() {
             return Err(err(StatusCode::BAD_REQUEST, "max", "At most 3 SOL per trade", "Split it into smaller trades"));
         }
     }
@@ -571,6 +615,7 @@ pub async fn quote(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Json<
         "priority_fee_lamports": priority_fee,
         "tip_lamports": sp.tip,
         "network_fee_lamports": NETWORK_FEE,
+        "fee_bps": fee_bps_now(),
         "slippage_bps": slippage,
         "speed": sp.name,
         "mev": mev,
@@ -768,7 +813,7 @@ pub fn native_plan(venue: Venue, h: &Holder, wallet: &Pubkey, mint: &Pubkey, buy
             Venue::Curve(c, _) => c.sol_for(amount),
             Venue::Pool(p, _) => p.sol_for(amount),
         };
-        if est > MAX_LAMPORTS {
+        if est > crate::platform::max_trade_lamports() {
             return Err(err(StatusCode::BAD_REQUEST, "max", "At most 3 SOL per trade", "Sell a smaller part"));
         }
         let min = keep(est);
@@ -985,7 +1030,7 @@ async fn sim_quoted_build(r: &Rpc, q: &QuoteIn, wallet: &Pubkey, fee_wallet: &Pu
     if est == 0 {
         return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "liquidity", "There is not enough liquidity for a trade this size", "Trade a smaller amount"));
     }
-    if !buy && est > MAX_LAMPORTS {
+    if !buy && est > crate::platform::max_trade_lamports() {
         return Err(err(StatusCode::BAD_REQUEST, "max", "At most 3 SOL per trade", "Sell a smaller part"));
     }
     let min = (est as u128 * (10_000 - slippage as u128) / 10_000) as u64;
@@ -1072,7 +1117,7 @@ async fn jupiter_build(c: &TradeCtx, q: &QuoteIn, wallet: &Pubkey, fee_wallet: &
         let out_amount: u128 = quote["outAmount"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
         let min_out: u128 = quote["otherAmountThreshold"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0);
         let fee_out = if buy { 0 } else { fee_of(min_out.min(u64::MAX as u128) as u64) };
-        if !buy && out_amount > MAX_LAMPORTS as u128 {
+        if !buy && out_amount > crate::platform::max_trade_lamports() as u128 {
             return Err(err(StatusCode::BAD_REQUEST, "max", "At most 3 SOL per trade", "Sell a smaller part"));
         }
         let instr_req = jup(
@@ -1210,9 +1255,15 @@ pub struct SendIn {
 }
 
 /// `POST /trade/send`: checks the signed transaction is exactly the one built for this
-/// user and wallet, records it and sends it. Each build can be sent once.
+/// user and wallet, writes it to the local journal (microseconds) and sends it on every
+/// path at once. The database row follows in the background, so no trade waits for the
+/// database. Each build can be sent once.
 pub async fn send(State(c): State<TradeCtx>, headers: HeaderMap, Json(s): Json<SendIn>) -> Result<Json<Value>, ApiErr> {
+    let t0 = Instant::now();
     let user = c.acct.user(&headers).await.map_err(auth_err)?;
+    if let Some(why) = crate::ops::paused(&user.id) {
+        return Err(err(StatusCode::FORBIDDEN, "paused", &format!("Trading is paused on this account{}", if why.is_empty() { String::new() } else { format!(": {why}") }), "Contact support. Withdrawals still work"));
+    }
     if !c.admin.real_trading() {
         return Err(err(StatusCode::FORBIDDEN, "off", "Real trading is not open", ""));
     }
@@ -1240,32 +1291,43 @@ pub async fn send(State(c): State<TradeCtx>, headers: HeaderMap, Json(s): Json<S
     let mut row = b.row.clone();
     row["signature"] = json!(signature);
     row["status"] = json!("sent");
-    if let Err(e) = c.acct.rest(reqwest::Method::POST, "real_trades", Some(row)).await {
-        // Never send a trade we could not record.
-        tracing::error!(error = %e.1, "could not record trade");
+    // Never send a trade we could not record: the journal is the record until the
+    // database row is written.
+    if let Err(e) = c.t.journal.sent(&row) {
+        tracing::error!(%e, "could not journal trade");
         return Err(err(StatusCode::SERVICE_UNAVAILABLE, "db", "Could not record the trade, nothing was sent", "Try again"));
     }
-    c.t.live.lock().expect("live lock").insert(signature.clone(), Live { user: user.id.clone(), status: "sent", error: None, latency_ms: None, at: Instant::now() });
+    let receipt = Arc::new(Mutex::new(json!({ "paths": {} })));
+    c.t.live.lock().expect("live lock").insert(signature.clone(), Live { user: user.id.clone(), status: "sent", error: None, latency_ms: None, receipt: receipt.clone(), at: Instant::now() });
+    let (done, final_rx) = tokio::sync::oneshot::channel();
+    let mint = b.row["mint"].as_str().unwrap_or("").to_string();
+    c.t.meta.lock().expect("meta lock").insert(signature.clone(), Meta { user: user.id.clone(), wallet: b.wallet, mint, receipt: receipt.clone(), done: Some(done) });
+    tokio::spawn(record(c.clone(), row, signature.clone(), final_rx));
 
-    let started = Instant::now();
-    let accepted = broadcast(&c, &raw, b.speed, b.mev).await;
-    if !accepted {
-        // Neither path took it. It may still have reached a validator, so the tracker
-        // decides from the chain; nothing is retried blindly.
-        tracing::warn!(signature, "send not acknowledged");
+    // Helius Sender, Jito and the RPC go out in the background; the direct path is
+    // awaited because it is the one Kixo runs end to end.
+    tokio::spawn(other_paths(c.clone(), raw.clone(), b.speed, b.mev, receipt.clone()));
+    let direct = if c.admin.kixo_sender() { Some(c.sender.send_many(&[&tx], t0).await) } else { None };
+    let kixo_us = direct.as_ref().and_then(|d| d.first_us);
+    {
+        let mut r = receipt.lock().expect("receipt lock");
+        r["paths"]["kixo_direct"] = direct.as_ref().map_or(Value::Null, |d| d.json());
+        r["sent_slot"] = json!(direct.as_ref().map(|d| d.slot).filter(|s| *s > 0));
+        r["kixo_us"] = json!(kixo_us);
     }
-    tokio::spawn(track(c.clone(), signature.clone(), raw, b.last_valid, started, user.id, b.wallet, b.row["mint"].as_str().unwrap_or("").to_string()));
-    Ok(Json(json!({ "signature": signature })))
+    let direct_ok = direct.as_ref().is_some_and(|d| d.reached > 0);
+    c.tracker.add(crate::tracker::Item::new(signature.clone(), raw, tx, b.last_valid, t0, direct_ok));
+    tracing::info!(signature, kixo_us, direct_ok, "trade sent");
+    Ok(Json(json!({ "signature": signature, "kixo_us": kixo_us })))
 }
 
 /// Jito's block engine: a second fast path that needs no account. It forwards the
 /// transaction to the current leader like any RPC.
 const JITO_SEND: &str = "https://mainnet.block-engine.jito.wtf/api/v1/transactions";
 
-/// Sends through Helius Sender (fast path), Jito's block engine (second fast path) and
-/// our RPC router (Helius, or a fallback node) at once. True when any accepted it.
-async fn broadcast(c: &TradeCtx, raw: &str, sp: Speed, mev: bool) -> bool {
-    let mut sender = format!("https://sender.helius-rpc.com/fast?api-key={}", c.app.config.helius_api_key);
+/// Helius Sender, Jito's block engine and our RPC router, at once. Fills in the receipt.
+async fn other_paths(c: TradeCtx, raw: String, sp: Speed, mev: bool, receipt: Arc<Mutex<Value>>) {
+    let mut sender = format!("https://sender.helius-rpc.com/fast?api-key={}", monexa_common::helius_key(&c.app.config.helius_api_key));
     if sp.swqos_only {
         sender.push_str("&swqos_only=true");
     }
@@ -1295,66 +1357,127 @@ async fn broadcast(c: &TradeCtx, raw: &str, sp: Speed, mev: bool) -> bool {
             false
         }
     };
-    a_ok || b.is_ok() || j_ok
+    let mut r = receipt.lock().expect("receipt lock");
+    r["paths"]["helius_sender"] = json!(a_ok);
+    r["paths"]["jito"] = json!(j_ok);
+    r["paths"]["rpc"] = json!(b.is_ok());
 }
 
-/// Follows a sent trade until it lands, fails or its blockhash expires, re-sending it
-/// every two seconds meanwhile. Only an expired blockhash makes a retry safe, and the
-/// chain is checked once more before calling it expired.
-#[allow(clippy::too_many_arguments)]
-async fn track(c: TradeCtx, sig: String, raw: String, last_valid: u64, started: Instant, user: String, wallet: Pubkey, mint: String) {
-    let mut last_send = Instant::now();
-    let mut last_height = Instant::now();
+/// Writes the trade's database row (retrying for about 30 s), then its final result
+/// once the tracker has one. A row that never reached the database stays in the journal
+/// and is written on the next start.
+async fn record(c: TradeCtx, row: Value, sig: String, final_rx: tokio::sync::oneshot::Receiver<Value>) {
+    let mut ok = false;
+    for i in 0..6u32 {
+        match c.acct.rest(reqwest::Method::POST, "real_trades", Some(row.clone())).await {
+            Ok(_) => {
+                ok = true;
+                break;
+            }
+            Err(e) => {
+                tracing::warn!(sig, error = %e.1, attempt = i, "trade row not written yet");
+                tokio::time::sleep(Duration::from_millis(500 << i)).await;
+            }
+        }
+    }
+    if ok {
+        c.t.journal.recorded(&sig);
+    } else {
+        tracing::error!(sig, "trade row could not be written; it stays in the journal");
+    }
+    if let Ok(fin) = final_rx.await {
+        if ok {
+            patch(&c, &sig, fin).await;
+        }
+    }
+}
+
+/// On start: writes any journalled trade whose row never reached the database.
+pub async fn replay_journal(c: TradeCtx) {
+    let rows = c.t.journal.unrecorded();
+    let mut left = Vec::new();
+    let total = rows.len();
+    for r in rows {
+        let sig = r["signature"].as_str().unwrap_or("").to_string();
+        if sig.is_empty() || !sig.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            continue;
+        }
+        match c.acct.rest(reqwest::Method::GET, &format!("real_trades?signature=eq.{sig}&select=signature"), None).await {
+            Ok(v) if v.as_array().is_some_and(|a| !a.is_empty()) => {}
+            Ok(_) => {
+                if c.acct.rest(reqwest::Method::POST, "real_trades", Some(r.clone())).await.is_err() {
+                    left.push(r);
+                }
+            }
+            Err(_) => left.push(r),
+        }
+    }
+    if total > 0 {
+        tracing::info!(total, still_pending = left.len(), "trade journal replayed");
+    }
+    c.t.journal.compact(&left);
+}
+
+/// Turns the shared tracker's outcomes into trade results: the live status, the
+/// receipt and the database row. At most 8 at once, so a burst of landings never floods
+/// the RPC with `getTransaction` calls.
+pub async fn outcomes(c: TradeCtx, mut rx: tokio::sync::mpsc::UnboundedReceiver<crate::tracker::Outcome>) {
+    let gate = Arc::new(tokio::sync::Semaphore::new(8));
+    while let Some(o) = rx.recv().await {
+        let (c, gate) = (c.clone(), gate.clone());
+        tokio::spawn(async move {
+            let _p = gate.acquire().await;
+            settle(c, o).await;
+        });
+    }
+}
+
+async fn settle(c: TradeCtx, o: crate::tracker::Outcome) {
+    use crate::tracker::Outcome;
+    let sig = match &o {
+        Outcome::Landed { sig, .. } | Outcome::Expired { sig } | Outcome::GaveUp { sig } => sig.clone(),
+    };
+    let Some(mut m) = c.t.meta.lock().expect("meta lock").remove(&sig) else { return };
     let finish = |status: &'static str, error: Option<(String, String, String)>, latency: Option<u64>| {
         let mut l = c.t.live.lock().expect("live lock");
         l.retain(|_, x| x.at.elapsed() < Duration::from_secs(600));
-        l.insert(sig.clone(), Live { user: user.clone(), status, error, latency_ms: latency, at: Instant::now() });
+        l.insert(sig.clone(), Live { user: m.user.clone(), status, error, latency_ms: latency, receipt: m.receipt.clone(), at: Instant::now() });
     };
-    loop {
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let st = rpc(&c.r(), "getSignatureStatuses", json!([[sig], { "searchTransactionHistory": false }])).await.ok();
-        let s = st.as_ref().map(|v| v["value"][0].clone()).unwrap_or(Value::Null);
-        let landed = matches!(s["confirmationStatus"].as_str(), Some("confirmed" | "finalized"));
-        if landed {
-            let latency = started.elapsed().as_millis() as u64;
-            let slot = s["slot"].as_u64();
-            if s["err"].is_null() {
-                finish("confirmed", None, Some(latency));
-                let (sol, tok) = result_of(&c, &sig, &wallet, &mint).await;
-                patch(&c, &sig, json!({ "status": "confirmed", "slot": slot, "latency_ms": latency, "sol_change_lamports": sol, "token_change": tok.map(|t| t.to_string()), "done_at": now_iso() })).await;
-                tracing::info!(sig, latency, "trade confirmed");
+    let fin = match o {
+        Outcome::Landed { slot, err: e, latency_ms, resends, .. } => {
+            {
+                let mut r = m.receipt.lock().expect("receipt lock");
+                r["landed_slot"] = json!(slot);
+                r["direct_resends"] = json!(resends);
+                if let (Some(a), Some(b)) = (r["sent_slot"].as_u64(), slot) {
+                    r["slots"] = json!(b.saturating_sub(a));
+                }
+            }
+            if e.is_null() {
+                finish("confirmed", None, Some(latency_ms));
+                tracing::info!(sig, latency_ms, "trade confirmed");
+                let (sol, tok) = result_of(&c, &sig, &m.wallet, &m.mint).await;
+                Some(json!({ "status": "confirmed", "slot": slot, "latency_ms": latency_ms, "sol_change_lamports": sol, "token_change": tok.map(|t| t.to_string()), "done_at": now_iso() }))
             } else {
                 let logs = logs_of(&c, &sig).await;
-                let (code, message, hint) = diagnose(&s["err"], &logs);
-                finish("failed", Some((code.into(), message.into(), hint.into())), Some(latency));
-                patch(&c, &sig, json!({ "status": "failed", "slot": slot, "latency_ms": latency, "error_code": code, "error_message": format!("{} | {}", s["err"], logs.iter().rev().take(4).cloned().collect::<Vec<_>>().join(" / ")).chars().take(1000).collect::<String>(), "done_at": now_iso() })).await;
+                let (code, message, hint) = diagnose(&e, &logs);
+                finish("failed", Some((code.into(), message.into(), hint.into())), Some(latency_ms));
                 tracing::info!(sig, code, "trade failed on chain");
-            }
-            return;
-        }
-        if last_height.elapsed() > Duration::from_secs(2) {
-            last_height = Instant::now();
-            let height = rpc(&c.r(), "getBlockHeight", json!([{ "commitment": "confirmed" }])).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
-            if height > last_valid {
-                // Expired: one last look at the full history before saying so.
-                let again = rpc(&c.r(), "getSignatureStatuses", json!([[sig], { "searchTransactionHistory": true }])).await.ok();
-                if again.as_ref().is_some_and(|v| !v["value"][0].is_null()) {
-                    continue;
-                }
-                finish("expired", Some(("expired".into(), "The network did not take the trade in time".into(), "Nothing was spent. Try again".into())), None);
-                patch(&c, &sig, json!({ "status": "expired", "error_code": "expired", "done_at": now_iso() })).await;
-                tracing::info!(sig, "trade expired");
-                return;
+                Some(json!({ "status": "failed", "slot": slot, "latency_ms": latency_ms, "error_code": code, "error_message": format!("{} | {}", e, logs.iter().rev().take(4).cloned().collect::<Vec<_>>().join(" / ")).chars().take(1000).collect::<String>(), "done_at": now_iso() }))
             }
         }
-        if last_send.elapsed() > Duration::from_secs(2) {
-            last_send = Instant::now();
-            let _ = rpc(&c.r(), "sendTransaction", json!([raw, { "encoding": "base64", "skipPreflight": true, "maxRetries": 0 }])).await;
+        Outcome::Expired { .. } => {
+            finish("expired", Some(("expired".into(), "The network did not take the trade in time".into(), "Nothing was spent. Try again".into())), None);
+            tracing::info!(sig, "trade expired");
+            Some(json!({ "status": "expired", "error_code": "expired", "done_at": now_iso() }))
         }
-        if started.elapsed() > Duration::from_secs(120) {
+        Outcome::GaveUp { .. } => {
             tracing::warn!(sig, "trade tracking timed out; left as sent");
-            return;
+            None
         }
+    };
+    if let (Some(fin), Some(done)) = (fin, m.done.take()) {
+        let _ = done.send(fin);
     }
 }
 
@@ -1410,7 +1533,7 @@ pub async fn status(State(c): State<TradeCtx>, headers: HeaderMap, Path(sig): Pa
             return Err(bad("not your trade"));
         }
         let e = l.error.map(|(code, message, hint)| json!({ "code": code, "message": message, "hint": hint }));
-        return Ok(Json(json!({ "signature": sig, "status": l.status, "error": e, "latency_ms": l.latency_ms })));
+        return Ok(Json(json!({ "signature": sig, "status": l.status, "error": e, "latency_ms": l.latency_ms, "receipt": l.receipt.lock().expect("receipt lock").clone() })));
     }
     if sig.len() > 100 || !sig.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return Err(bad("not a signature"));
@@ -1418,6 +1541,15 @@ pub async fn status(State(c): State<TradeCtx>, headers: HeaderMap, Path(sig): Pa
     let v = c.acct.rest(reqwest::Method::GET, &format!("real_trades?signature=eq.{sig}&user_id=eq.{}&select=signature,status,error_code,latency_ms", user.id), None).await.map_err(auth_err)?;
     let row = v.as_array().and_then(|a| a.first()).cloned().ok_or_else(|| err(StatusCode::NOT_FOUND, "unknown", "Trade not found", ""))?;
     Ok(Json(row))
+}
+
+/// `GET /trade/sender`: Kixo Sender's health (leaders known, warm connections, reach
+/// rate). Public: it holds nothing about any user.
+pub async fn sender_status(State(c): State<TradeCtx>) -> Json<Value> {
+    let mut v = c.sender.status();
+    v["enabled"] = json!(c.admin.kixo_sender());
+    v["trades_in_flight"] = json!(c.tracker.pending());
+    Json(v)
 }
 
 /// `GET /trade/history`: the user's real trades, newest first.
@@ -1464,9 +1596,9 @@ mod tests {
 
     #[test]
     fn fees_and_limits() {
-        assert_eq!(fee_of(1_000_000_000), 10_000_000, "1% of 1 SOL");
-        assert_eq!(fee_of(MAX_LAMPORTS), 30_000_000);
-        assert_eq!(fee_of(99), 0, "rounds down: never over 1%");
+        assert_eq!(fee_of(1_000_000_000), 5_000_000, "0.5% of 1 SOL");
+        assert_eq!(fee_of(MAX_LAMPORTS), 15_000_000);
+        assert_eq!(fee_of(199), 0, "rounds down: never over 0.5%");
         for t in TIP_ACCOUNTS {
             assert!(stx::pubkey(t).is_ok(), "{t}");
         }

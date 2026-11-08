@@ -54,6 +54,10 @@ function usePoll<T>(url: string | null, everyMs: number): Load<T> & { reload: ()
 export const usePortfolio = (wallet: string | null) => usePoll<Portfolio>(wallet ? `${GATEWAY_HTTP}/wallet/${wallet}/portfolio` : null, 30_000);
 export const useActivity = (wallet: string | null) => usePoll<Trade[]>(wallet ? `${GATEWAY_HTTP}/wallet/${wallet}/activity` : null, 60_000);
 
+/** A trade Kixo saw live on a coin it follows: instant, no history lookup. */
+export type LiveTrade = { mint: string; buy: boolean; sol: number; tokens: number; time: number; sig: string; symbol: string; image: string | null; price_sol: number };
+export const useLiveTrades = (wallet: string | null) => usePoll<LiveTrade[]>(wallet ? `${GATEWAY_HTTP}/wallet/${wallet}/live` : null, 5_000);
+
 export type CoinPnl = {
   mint: string;
   /** SOL paid per raw unit, from buys in the window. */

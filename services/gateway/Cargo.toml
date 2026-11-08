@@ -23,3 +23,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 feed-rs = "2"
+futures-util = "0.3"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+ring = "0.17"
+rcgen = { version = "0.13", default-features = false, features = ["ring"] }

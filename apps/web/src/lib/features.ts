@@ -36,6 +36,10 @@ export type Features = {
   support: boolean;
   live_chat: boolean;
   news: boolean;
+  kixo_sender: boolean;
+  wallet_tracker: boolean;
+  kixo_wallet: boolean;
+  wallet_deposits: boolean;
 };
 
 export const ALL_ON: Features = {
@@ -67,6 +71,10 @@ export const ALL_ON: Features = {
   support: true,
   live_chat: true,
   news: true,
+  kixo_sender: true,
+  wallet_tracker: true,
+  kixo_wallet: true,
+  wallet_deposits: true,
 };
 
 /** Admin labels for every switch, in the order the admin shows them. */
@@ -79,6 +87,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "price_alerts", label: "Price alerts", hint: "Market-cap alerts on the trade page" },
   { key: "sniper", label: "Sniper", hint: "Paper sniper and its page" },
   { key: "smart_money", label: "Smart Money", hint: "Leaderboard of profitable wallets" },
+  { key: "wallet_tracker", label: "Wallet Tracker", hint: "Any wallet's balance, coins and recent swaps, as a page and as a side panel from every wallet address" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
   { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },
@@ -91,6 +100,9 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "support", label: "Support", hint: "Transaction Doctor, help center and tickets" },
   { key: "news", label: "News", hint: "Live Solana and memecoin news panel, from news sites, Reddit, X and Kixo on-chain events" },
   { key: "live_chat", label: "Live chat", hint: "Chat button on every page; online only while an agent is active in the inbox" },
+  { key: "kixo_wallet", label: "Kixo wallet", hint: "Trading wallet made and locked in the user's browser with their wallet password; Kixo stores only the locked copy" },
+  { key: "wallet_deposits", label: "Wallet deposits", hint: "Real SOL deposits into Kixo wallets, from Phantom or an exchange. Withdrawals always stay open" },
+  { key: "kixo_sender", label: "Kixo Sender", hint: "Real trades also go straight to the next Solana leaders over QUIC, next to Helius Sender, Jito and the RPC" },
   { key: "real_trading", label: "Real trading", hint: "Real SOL trades signed in Phantom. Turn on only after the security review" },
   { key: "accounts", label: "Accounts", hint: "Sign in with Google, Phantom or email" },
 ];
@@ -134,6 +146,7 @@ export const PAGE_FLAG: Record<string, keyof Features> = {
   sniper: "sniper",
   "smart-money": "smart_money",
   wallets: "wallet_monitor",
+  tracker: "wallet_tracker",
   rewards: "rewards",
   portfolio: "portfolio",
   competition: "competition",

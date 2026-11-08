@@ -30,6 +30,50 @@ pub fn set_primary_up(up: bool) {
     PRIMARY_UP.store(up, Ordering::Relaxed);
 }
 
+/* API keys can be set from the admin (stored by the gateway in data/secrets.json) as
+   well as in .env. A key set in the admin wins, and takes effect without a restart
+   wherever the code reads it through `secret`. */
+
+static SECRETS: OnceLock<std::sync::RwLock<std::collections::HashMap<String, String>>> = OnceLock::new();
+
+fn secrets() -> &'static std::sync::RwLock<std::collections::HashMap<String, String>> {
+    SECRETS.get_or_init(Default::default)
+}
+
+/// Sets (or, with an empty value, clears) a key set from the admin.
+pub fn set_secret(name: &str, value: &str) {
+    let mut m = secrets().write().expect("secrets lock");
+    if value.trim().is_empty() {
+        m.remove(name);
+    } else {
+        m.insert(name.to_string(), value.trim().to_string());
+    }
+}
+
+/// A key set from the admin, else the environment, else nothing. Never logged.
+pub fn secret(name: &str) -> Option<String> {
+    if let Some(v) = secrets().read().expect("secrets lock").get(name) {
+        return Some(v.clone());
+    }
+    std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// Where a key comes from: "admin", "env" or none.
+pub fn secret_source(name: &str) -> Option<&'static str> {
+    if secrets().read().expect("secrets lock").contains_key(name) {
+        Some("admin")
+    } else if std::env::var(name).is_ok_and(|v| !v.trim().is_empty()) {
+        Some("env")
+    } else {
+        None
+    }
+}
+
+/// The Helius key in use (admin first, then .env).
+pub fn helius_key(fallback: &str) -> String {
+    secret("HELIUS_API_KEY").unwrap_or_else(|| fallback.to_string())
+}
+
 /// Solana's own public node: free, no key, rate limited. Used only as a fallback.
 pub const PUBLIC_RPC: &str = "https://api.mainnet-beta.solana.com";
 pub const PUBLIC_WS: &str = "wss://api.mainnet-beta.solana.com";
@@ -69,7 +113,9 @@ impl Config {
         let _ = dotenvy::dotenv();
 
         Ok(Self {
-            helius_api_key: required("HELIUS_API_KEY")?,
+            // The admin can set it later; an empty key only means Helius answers 401 and the
+            // router uses the fallback until one is set.
+            helius_api_key: std::env::var("HELIUS_API_KEY").unwrap_or_default().trim().to_string(),
             supabase_url: required("SUPABASE_URL")?.trim_end_matches('/').to_string(),
             supabase_anon_key: required("SUPABASE_ANON_KEY")?,
             supabase_service_role_key: required("SUPABASE_SERVICE_ROLE_KEY")?,
@@ -97,12 +143,12 @@ impl Config {
     pub fn helius_direct_rpc_url(&self) -> String {
         match std::env::var("HELIUS_RPC_URL") {
             Ok(u) if u.starts_with("https://") => u,
-            _ => format!("https://mainnet.helius-rpc.com/?api-key={}", self.helius_api_key),
+            _ => format!("https://mainnet.helius-rpc.com/?api-key={}", helius_key(&self.helius_api_key)),
         }
     }
 
     pub fn helius_ws_url(&self) -> String {
-        format!("wss://mainnet.helius-rpc.com/?api-key={}", self.helius_api_key)
+        format!("wss://mainnet.helius-rpc.com/?api-key={}", helius_key(&self.helius_api_key))
     }
 
     /// Live-stream nodes in order of preference: Helius, then the fallbacks.

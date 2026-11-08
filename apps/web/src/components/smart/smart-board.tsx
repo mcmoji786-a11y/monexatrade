@@ -1,7 +1,7 @@
 "use client";
 
+import { openWalletTracker } from "@/lib/tracker";
 import { Fragment, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Brain, Check, Plus } from "lucide-react";
 import { GATEWAY_HTTP, GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
 import { Move } from "@/components/discover/token-table";
@@ -195,7 +195,7 @@ export function SmartMoneyBoard() {
           </div>
           <p className="max-w-xl text-xs text-muted">
             Copy score: what you would have made copying each trade 3 seconds late, after
-            1% fees each way. A wallet can win while its copiers lose
+            0.5% fees each way. A wallet can win while its copiers lose
           </p>
         </div>
       )}
@@ -593,15 +593,18 @@ function useLeaderTrades(wallets: string[]) {
   return key ? trades : [];
 }
 
-/** Opens the wallet's holdings and P&L, read-only. */
+/** Opens the wallet in the Wallet Tracker panel. */
 function PortfolioLink({ wallet }: { wallet: string }) {
   return (
-    <Link
-      href={`/portfolio?wallet=${wallet}`}
-      onClick={(e) => e.stopPropagation()}
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        openWalletTracker(wallet);
+      }}
       className="rounded-md border border-border px-1.5 py-0.5 text-[11px] text-text-2 transition-colors hover:bg-surface-3 hover:text-text"
     >
-      Portfolio
-    </Link>
+      Track
+    </button>
   );
 }

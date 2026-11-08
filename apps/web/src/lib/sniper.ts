@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import type { FeedToken } from "./gateway";
 import { currentUserId } from "./account";
+import type { ShareTrade } from "./share";
 
 /* Sniper. It watches every new launch in the live feed, buys the ones that match the
    user's rules at the real on-chain price, and sells on take profit, stop loss or
@@ -46,6 +47,11 @@ export type SniperSettings = {
   maxPerHour: number;
   /** Paper costs: price impact plus fees, applied on entry and exit. */
   slippagePct: number;
+  /** Real money: snipes are signed by the unlocked Kixo wallet. Off unless the user turns
+   *  it on, and only when real trading is open and the wallet is unlocked. */
+  realEnabled: boolean;
+  /** Most real SOL the sniper may spend in 24 hours. */
+  realDailyCapSol: number;
 };
 
 export const DEFAULT_SNIPER: SniperSettings = {
@@ -74,6 +80,8 @@ export const DEFAULT_SNIPER: SniperSettings = {
   maxOpen: 5,
   maxPerHour: 10,
   slippagePct: 3,
+  realEnabled: false,
+  realDailyCapSol: 0.5,
 };
 
 export type ExitReason = "take profit" | "stop loss" | "trailing stop" | "time" | "manual" | "dropped";
@@ -93,6 +101,24 @@ export type SnipePosition = {
   exitPrice?: number;
   exitTs?: number;
   reason?: ExitReason;
+  /** "demo" or "real" when the snipe was also an order; its actual fills (USD for demo,
+   *  SOL for real) replace the paper estimate in the P&L. */
+  account?: "paper" | "demo" | "real";
+  entryUsd?: number;
+  exitUsd?: number;
+  pnlUsd?: number;
+  /** Demo sells: what the sell order filled, for the share card. */
+  exitTokens?: number;
+  exitPriceUsd?: number;
+  exitFeeUsd?: number;
+  exitSol?: number;
+  /** Real snipes: SOL spent and received, and the transactions. */
+  realInSol?: number;
+  realOutSol?: number;
+  buySig?: string;
+  sellSig?: string;
+  /** Why an order failed, shown in the history. */
+  error?: string;
 };
 
 type State = { settings: SniperSettings; positions: SnipePosition[] };
@@ -162,6 +188,42 @@ function closeIn(list: SnipePosition[], id: string, price: number, reason: ExitR
   return list.map((p) => (p.id === id && !p.exitTs ? { ...p, exitPrice: price * cost, exitTs: Math.floor(Date.now() / 1000), reason } : p));
 }
 
+/** Saves what an order actually did (fills, signatures, errors) on a snipe. */
+export function recordFill(id: string, patch: Partial<SnipePosition>) {
+  set({ ...get(), positions: get().positions.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+}
+
+/** A closed demo snipe as a share card trade: only from the actual sell fill, never from
+ *  the paper estimate. Null for paper and real snipes and for sells not yet filled. */
+export function snipeShare(p: SnipePosition): ShareTrade | null {
+  if (p.account !== "demo" || !p.exitTs || p.exitUsd == null || p.pnlUsd == null || !p.exitTokens || p.exitPriceUsd == null) return null;
+  return {
+    id: Math.floor(p.exitTs),
+    mint: p.mint,
+    symbol: p.symbol,
+    side: "sell",
+    tokens: p.exitTokens,
+    usd: p.exitUsd,
+    sol: p.exitSol ?? 0,
+    price_usd: p.exitPriceUsd,
+    fee_usd: p.exitFeeUsd ?? 0,
+    impact_pct: 0,
+    source: "sniper",
+    realized_usd: p.pnlUsd,
+    round: 0,
+    ts: new Date(p.exitTs * 1000).toISOString(),
+    openedAt: new Date(p.entryTs * 1000).toISOString(),
+  };
+}
+
+/** Real SOL the sniper spent in the last 24 hours. */
+export function realSpent24h(): number {
+  const now = Math.floor(Date.now() / 1000);
+  return get()
+    .positions.filter((p) => p.account === "real" && now - p.entryTs < 86_400)
+    .reduce((s, p) => s + (p.realInSol ?? p.sizeSol), 0);
+}
+
 /** Removes a position the demo account could not fill (for example, not enough balance). */
 export function dropPosition(id: string) {
   set({ ...get(), positions: get().positions.filter((p) => p.id !== id) });
@@ -169,6 +231,15 @@ export function dropPosition(id: string) {
 
 /** Profit in SOL and % for a position at `price` (exit price if closed). */
 export function pnl(p: SnipePosition, price: number | null) {
+  // A closed snipe that was an order shows what the order actually made.
+  if (p.exitTs && p.account === "real" && p.realInSol && p.realOutSol != null) {
+    const sol = p.realOutSol - p.realInSol;
+    return { sol, pct: (sol / p.realInSol) * 100 };
+  }
+  if (p.exitTs && p.account === "demo" && p.entryUsd && p.pnlUsd != null) {
+    const pct = (p.pnlUsd / p.entryUsd) * 100;
+    return { sol: (p.sizeSol * pct) / 100, pct };
+  }
   const exit = p.exitPrice ?? (price != null ? price * (1 - get().settings.slippagePct / 100) : null);
   if (exit == null || !p.entryPrice) return { sol: null as number | null, pct: null as number | null };
   const pct = (exit / p.entryPrice - 1) * 100;

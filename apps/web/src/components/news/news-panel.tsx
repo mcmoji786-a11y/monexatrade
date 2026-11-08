@@ -154,6 +154,14 @@ const ALERT: Record<string, { label: string; tone: string }> = {
   graduated: { label: "Graduated", tone: "text-cyan" },
   whale: { label: "Whale buy", tone: "text-cyan" },
   dev_out: { label: "Dev sold out", tone: "text-negative" },
+  pump: { label: "Pumping", tone: "text-emerald" },
+  trending: { label: "Trending", tone: "text-cyan" },
+  sniped: { label: "Sniped at launch", tone: "text-warning" },
+};
+
+/** On a phone the panel covers the page, so opening a coin closes it. */
+const closeOnPhone = () => {
+  if (window.matchMedia("(max-width: 1023px)").matches) setNewsOpen(false);
 };
 
 /** An alert from Kixo's own engine: the coin, its numbers and a way to trade it. */
@@ -184,18 +192,24 @@ function Alert({ it, now }: { it: NewsItem; now: number }) {
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-bg font-mono text-xs text-text-2">{coin?.symbol.slice(0, 2) ?? "?"}</span>
         )}
         <span className="min-w-0">
-          <span className="block text-sm leading-snug text-text">{it.title}</span>
+          {it.mint ? (
+            <Link href={`/token/${it.mint}`} onClick={closeOnPhone} className="block text-sm leading-snug text-text hover:underline">
+              {it.title}
+            </Link>
+          ) : (
+            <span className="block text-sm leading-snug text-text">{it.title}</span>
+          )}
           {it.summary && <span className="mt-1 block font-mono text-[11px] leading-relaxed text-text-2">{it.summary}</span>}
         </span>
       </div>
       {it.mint && (
-        <div className="mt-2.5 flex items-center gap-2">
-          <Link href={`/token/${it.mint}`} className="flex h-7 items-center rounded-md border border-emerald/30 bg-emerald/10 px-3 text-xs text-emerald transition-colors hover:bg-emerald/20">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <Link href={`/token/${it.mint}`} onClick={closeOnPhone} className="flex h-7 shrink-0 items-center rounded-md border border-emerald/30 bg-emerald/10 px-3 text-xs text-emerald transition-colors hover:bg-emerald/20">
             Trade
           </Link>
           <LiveChange mint={it.mint} />
           {it.x_url && (
-            <a href={it.x_url} target="_blank" rel="noopener noreferrer" className="flex h-7 items-center rounded-md border border-border px-2.5 text-xs text-text-2 transition-colors hover:text-text">
+            <a href={it.x_url} target="_blank" rel="noopener noreferrer" className="ml-auto flex h-7 shrink-0 items-center whitespace-nowrap rounded-md border border-border px-2.5 text-xs text-text-2 transition-colors hover:text-text">
               Coin on X
             </a>
           )}
@@ -205,13 +219,24 @@ function Alert({ it, now }: { it: NewsItem; now: number }) {
   );
 }
 
-/** A coin's live 1h change from the shared market feed, when it has one. */
+/** A coin's market cap and 5m and 1h change now, from the shared market feed. The alert
+ *  says what happened; this says where the coin stands as the reader decides. */
 function LiveChange({ mint }: { mint: string }) {
   const { markets, tokens } = useRadarFeed();
-  const change = markets[mint]?.change_1h_pct ?? tokens.find((t) => t.mint === mint)?.market?.change_1h_pct ?? null;
-  if (change == null) return null;
-  return <span className={`font-mono text-[11px] ${change >= 0 ? "text-positive" : "text-negative"}`}>{`${change >= 0 ? "+" : ""}${change.toFixed(1)}% 1h`}</span>;
+  const m = markets[mint] ?? tokens.find((t) => t.mint === mint)?.market ?? null;
+  if (!m) return null;
+  const pct = (v: number | null | undefined, label: string) =>
+    v == null ? null : <span className={v >= 0 ? "text-positive" : "text-negative"}>{`${v >= 0 ? "+" : ""}${v.toFixed(1)}% ${label}`}</span>;
+  return (
+    <span className="flex items-center gap-2 font-mono text-[11px] whitespace-nowrap text-text-2">
+      {m.mc_usd != null && <span>{`MC ${shortUsd(m.mc_usd)}`}</span>}
+      {pct(m.change_5m_pct, "5m")}
+      {pct(m.change_1h_pct, "1h")}
+    </span>
+  );
 }
+
+const shortUsd = (v: number) => (v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${Math.round(v / 1e3)}K` : `$${Math.round(v)}`);
 
 function Story({ it, now }: { it: NewsItem; now: number }) {
   const [playing, setPlaying] = useState(false);

@@ -1,5 +1,6 @@
 "use client";
 
+import { adminKey } from "@/lib/admin";
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, KeyRound, Loader2 } from "lucide-react";
 import { GATEWAY_WS } from "@/lib/gateway";
@@ -42,7 +43,7 @@ function savedName() {
 }
 
 export function SupportInbox() {
-  const [key, setKey] = useState("");
+  const [key, setKey] = useState(() => adminKey() ?? "");
   const [agent, setAgent] = useState(savedName);
   const [unlocked, setUnlocked] = useState(false);
   const [filter, setFilter] = useState("live");

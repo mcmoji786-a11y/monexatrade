@@ -24,7 +24,10 @@ use std::{
 };
 
 pub const START_USD: f64 = 10_000.0;
-const FEE: f64 = 0.01;
+/// Kixo's trade fee, the same as real trading (an admin setting, 0.5% by default).
+fn fee_rate() -> f64 {
+    crate::platform::trade_fee_bps() as f64 / 10_000.0
+}
 /// Network and priority fee per transaction, in SOL.
 const NETWORK_SOL: f64 = 0.0001;
 /// Real orders land about a second after the click.
@@ -112,7 +115,7 @@ impl Quote {
 
     /// Buy with `usd` cash. Fees come off first, the rest moves the price.
     pub fn buy(&self, usd: f64) -> Option<Fill> {
-        let fee = usd * FEE + NETWORK_SOL * self.sol_usd;
+        let fee = usd * fee_rate() + NETWORK_SOL * self.sol_usd;
         let net = usd - fee;
         if net <= 0.0 {
             return None;
@@ -139,7 +142,7 @@ impl Quote {
                 at_market * reserve_usd / (reserve_usd + at_market)
             }
         };
-        let fee = gross * FEE + NETWORK_SOL * self.sol_usd;
+        let fee = gross * fee_rate() + NETWORK_SOL * self.sol_usd;
         let usd = (gross - fee).max(0.0);
         Some(self.fill("sell", tokens, usd, fee.min(gross.max(0.0))))
     }
@@ -242,11 +245,14 @@ pub struct Position {
     pub tokens: f64,
     pub cost_usd: f64,
     pub price_usd: Option<f64>,
-    /// Tokens x the live market price, as every trading platform marks an open position.
-    /// The 1% fee and price impact of selling are paid only when the user sells.
+    /// What the position is worth to the user: what selling it all now would bring,
+    /// after the sale's fee and price impact. The P&L shown everywhere comes from this, so
+    /// selling never brings a surprise; only the market moving in between can change it.
     pub value_usd: Option<f64>,
-    /// What selling everything now would bring, after price impact and fees.
+    /// The same as `value_usd` (kept for older pages).
     pub exit_usd: Option<f64>,
+    /// Tokens x the live market price, before selling costs (for reference only).
+    pub market_value_usd: Option<f64>,
     /// The live market price these figures were computed at (scales them between refreshes).
     pub market_usd: Option<f64>,
     pub opened_at: String,
@@ -291,13 +297,15 @@ pub async fn get_account(State(c): State<DemoCtx>, headers: HeaderMap) -> Result
     for p in rows {
         let mint = p["mint"].as_str().unwrap_or("").to_string();
         let tokens = num(&p["tokens"]);
-        // Marked at the live price (the industry standard): selling costs are not taken
-        // before the user sells. `exit_usd` shows what selling now would actually bring.
+        // Valued at what selling now would bring (fee and impact included), so the P&L the
+        // user watches is the P&L they get. Founder decision 2026-11-08, after marking at
+        // the market price made every sale look like a sudden loss.
         // A coin with no price any more (rugged, delisted) is worth nothing.
         let q = quote(&c.app, &mint).await.ok();
         let held = q.as_ref().map(|q| q.held(tokens));
-        let value = Some(held.as_ref().map_or(0.0, |h| mark_value(tokens, h)));
+        let market = Some(held.as_ref().map_or(0.0, |h| mark_value(tokens, h)));
         let exit = Some(held.as_ref().and_then(|h| h.sell(tokens)).map_or(0.0, |f| f.usd));
+        let value = exit;
         positions.push(Position {
             symbol: p["symbol"].as_str().filter(|s| !s.is_empty()).map(String::from).or_else(|| q.as_ref().map(|q| q.symbol.clone())).unwrap_or_default(),
             mint,
@@ -306,6 +314,7 @@ pub async fn get_account(State(c): State<DemoCtx>, headers: HeaderMap) -> Result
             price_usd: held.as_ref().map(|h| h.price_usd),
             value_usd: value,
             exit_usd: exit,
+            market_value_usd: market,
             market_usd: q.as_ref().map(|q| q.price_usd),
             opened_at: p["opened_at"].as_str().unwrap_or("").to_string(),
         });
@@ -710,20 +719,20 @@ mod tests {
             let buy = q.buy(100.0).expect("buy");
             let back = q.held(buy.tokens).sell(buy.tokens).expect("sell");
             let round_trip = (back.usd / 100.0 - 1.0) * 100.0;
-            assert!(round_trip > -2.2 && round_trip < -1.8, "{name}: round trip {round_trip:.2}% should be about two 1% fees");
+            assert!(round_trip > -1.2 && round_trip < -0.8, "{name}: round trip {round_trip:.2}% should be about two 0.5% fees");
         }
     }
 
     #[test]
     fn a_fresh_buy_only_shows_its_entry_costs() {
         // $100 into a deep pool: right after buying, the position is marked at the market
-        // price, so the only loss shown is the buy's fee and impact (about 1%), not the
+        // price, so the only loss shown is the buy's fee and impact (about 0.5%), not the
         // fee of a sale that has not happened.
         let q = Quote { symbol: "X".into(), price_usd: 1.0, sol_usd: 150.0, depth: Depth::Pool { reserve_usd: 5_000_000.0 } };
         let buy = q.buy(100.0).expect("buy");
         let marked = mark_value(buy.tokens, &q);
         let shown = (marked - 100.0) / 100.0 * 100.0;
-        assert!(shown > -1.2 && shown < -0.9, "shown loss {shown:.2}% is the entry cost only");
+        assert!(shown > -0.7 && shown < -0.4, "shown loss {shown:.2}% is the entry cost only");
         let exit = q.sell(buy.tokens).expect("sell").usd;
         assert!(exit < marked, "selling now still costs the sale's fee and impact");
     }

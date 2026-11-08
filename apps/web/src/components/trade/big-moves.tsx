@@ -1,5 +1,6 @@
 "use client";
 
+import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { useEffect, useState } from "react";
 import { Activity, X } from "lucide-react";
 import { CopyAddress } from "@/components/token/token-bits";
@@ -155,7 +156,7 @@ function BigMovesDialog({ moves, solUsd, now, onClose }: { moves: TradeRow[]; so
                       <td className="text-right text-text-2">{solUsd ? usd(t.mc_sol * solUsd) : `${t.mc_sol.toFixed(1)} SOL`}</td>
                       <td className="pl-6">
                         {t.wallet ? (
-                          <CopyAddress value={t.wallet} title={`Copy wallet ${t.wallet}`} className="text-cyan" />
+                          <WalletLink address={t.wallet} />
                         ) : (
                           <span className="text-muted">—</span>
                         )}

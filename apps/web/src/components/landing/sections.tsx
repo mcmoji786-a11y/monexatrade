@@ -1,3 +1,5 @@
+import { KixoLogo } from "@/components/brand";
+import { SocialLinks } from "@/components/marketing/marketing-ui";
 import Link from "next/link";
 import { KeyRound, Receipt, ShieldCheck, type LucideIcon } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
@@ -131,7 +133,7 @@ export function ChainData() {
 
 const SECURITY: { icon: LucideIcon; title: string; body: string }[] = [
   { icon: KeyRound, title: "Your keys stay yours", body: "Kixo never asks for a seed phrase or private key. Funds stay in your wallet." },
-  { icon: ShieldCheck, title: "You sign every trade", body: "Each transaction is approved in your own wallet, such as Phantom, before it is sent." },
+  { icon: ShieldCheck, title: "You sign every trade", body: "Each trade is signed by your own key: your Kixo wallet, locked in your browser, or Phantom." },
   { icon: Receipt, title: "Simulated first", body: "Transactions are simulated before you sign, so obvious failures are caught early." },
 ];
 
@@ -257,10 +259,7 @@ export function SiteFooter() {
     <footer className="border-t border-border">
       <div className="mx-auto max-w-300 px-4 py-12 md:px-8">
         <div className="flex flex-col gap-8 md:flex-row md:justify-between">
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-[3px] bg-emerald" />
-            <span className="font-semibold text-text">Kixo</span>
-          </div>
+          <KixoLogo size={24} />
           <nav className="flex flex-wrap gap-x-8 gap-y-3 text-sm text-text-2" aria-label="Footer">
             <Link href="/discover" className="hover:text-text">Discover</Link>
             <Link href="/radar" className="hover:text-text">Sol Radar</Link>
@@ -269,6 +268,9 @@ export function SiteFooter() {
             <a href="#fees" className="hover:text-text">Fees</a>
             <a href="#faq" className="hover:text-text">FAQ</a>
           </nav>
+        </div>
+        <div className="mt-8">
+          <SocialLinks />
         </div>
         <p className="mt-10 max-w-3xl text-xs leading-5 text-muted">
           Trading crypto assets carries a high risk of loss. Nothing on Kixo is financial advice. Data is

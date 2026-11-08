@@ -1,5 +1,6 @@
 "use client";
 
+import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { useState } from "react";
 import { CopyAddress } from "@/components/token/token-bits";
 import { amount, positionPnl, sol, usd, type Position, type TradeRow } from "@/lib/gateway";
@@ -290,7 +291,7 @@ function WalletCell({ wallet, dev, sniper, whale }: { wallet: string; dev?: bool
   return (
     <span className="flex items-center gap-1.5">
       {wallet ? (
-        <CopyAddress value={wallet} title={`Copy wallet ${wallet}`} className="text-cyan" />
+        <WalletLink address={wallet} />
       ) : (
         // LaunchLab curves do not log the trader.
         <span className="text-muted" title="Not recorded for this coin">—</span>

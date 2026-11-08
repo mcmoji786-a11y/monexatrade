@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Loader2, MessageCircle, Stethoscope, X } from "lucide-react";
-import { activeWallet, useAccount } from "@/lib/account";
+import { useAccount } from "@/lib/account";
+import { kixoAddress } from "@/lib/kixo-wallet";
 import { useMode } from "@/lib/demo";
 import { useFeatures } from "@/lib/features";
 import { useNews } from "@/lib/news";
@@ -97,7 +98,7 @@ export function LiveChat() {
     setText("");
     try {
       if (chat) await replyTicket(chat.ticket.id, b);
-      else await startChat(b, ticketContext(mode, activeWallet(account)));
+      else await startChat(b, ticketContext(mode, kixoAddress()));
       setClosedNote(false);
       await reload(false);
     } catch (e) {

@@ -1,16 +1,17 @@
 "use client";
 
+import { KixoLogo } from "@/components/brand";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, Mail, Wallet } from "lucide-react";
-import { authError, safeNext, sendEmailCode, signInWithGoogle, signInWithPhantom, useAccount, verifyEmailCode } from "@/lib/account";
-import { phantom, PHANTOM_INSTALL } from "@/lib/phantom";
+import { ArrowLeft, Loader2, Mail } from "lucide-react";
+import { authError, safeNext, sendEmailCode, signInWithGoogle, useAccount, verifyEmailCode } from "@/lib/account";
 import { useFeatures } from "@/lib/features";
 
-type Busy = null | "google" | "phantom" | "send" | "verify";
+type Busy = null | "google" | "send" | "verify";
 
-/** Sign in with Google, Phantom or an email code. */
+/** Sign in with Google or an email code. Phantom is for deposits and direct trades,
+ *  not for signing in: each account gets its Kixo wallet on its email. */
 export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?: string; inPopup?: boolean; onDone?: () => void } = {}) {
   const router = useRouter();
   const params = useSearchParams();
@@ -22,14 +23,7 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
   const [step, setStep] = useState<"choose" | "email" | "code">("choose");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [hasPhantom, setHasPhantom] = useState(true);
   const codeInput = useRef<HTMLInputElement>(null);
-
-  // Phantom injects itself after load; check once the page is up.
-  useEffect(() => {
-    const t = setTimeout(() => setHasPhantom(!!phantom()), 300);
-    return () => clearTimeout(t);
-  }, []);
 
   useEffect(() => {
     if (account.status !== "signed-in") return;
@@ -59,7 +53,7 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
     <div className="w-full max-w-[400px]">
       {!inPopup && (
         <Link href="/" className="mb-8 flex items-center gap-2 text-sm text-text-2 hover:text-text">
-          <span className="font-medium tracking-tight text-text">Kixo</span>
+          <KixoLogo size={28} text="text-lg" />
         </Link>
       )}
 
@@ -75,18 +69,8 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
               <MethodButton onClick={() => run("google", () => signInWithGoogle(next))} busy={busy === "google"} disabled={!!busy} icon={<GoogleMark />}>
                 Continue with Google
               </MethodButton>
-              {hasPhantom ? (
-                <MethodButton onClick={() => run("phantom", signInWithPhantom)} busy={busy === "phantom"} disabled={!!busy} icon={<Wallet size={16} strokeWidth={1.5} />}>
-                  Continue with Phantom
-                </MethodButton>
-              ) : (
-                <a href={PHANTOM_INSTALL} target="_blank" rel="noopener noreferrer" className="flex h-11 items-center gap-3 rounded-lg border border-border px-4 text-sm text-text-2 transition-colors hover:bg-surface-2 hover:text-text">
-                  <Wallet size={16} strokeWidth={1.5} />
-                  Install Phantom
-                </a>
-              )}
               <MethodButton onClick={() => setStep("email")} disabled={!!busy} icon={<Mail size={16} strokeWidth={1.5} />}>
-                Use email
+                Sign up or sign in with email
               </MethodButton>
             </div>
           </>

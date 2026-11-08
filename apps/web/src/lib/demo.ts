@@ -19,8 +19,11 @@ export type DemoPosition = {
   tokens: number;
   cost_usd: number;
   price_usd: number | null;
-  /** Tokens x the live price, as trading platforms mark open positions. */
+  /** What selling it all now would bring, after the fee and price impact: the P&L shown
+   *  everywhere comes from this, so a sale brings no surprise. */
   value_usd: number | null;
+  /** Tokens x the live market price, before selling costs (reference only). */
+  market_value_usd?: number | null;
   /** What selling everything now would bring, after price impact and fees. */
   exit_usd: number | null;
   /** The live market price the figures were computed at. */

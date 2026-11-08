@@ -1,5 +1,6 @@
 "use client";
 
+import { KixoMark } from "@/components/brand";
 import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -106,8 +107,8 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/discover" aria-label="Kixo home" className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-emerald">
-      <span className="h-3 w-3 rounded-[3px] bg-emerald" />
-      {!compact && <span className="text-base font-semibold text-text">Kixo</span>}
+      <KixoMark size={22} />
+      {!compact && <span className="text-base font-semibold tracking-tight text-text">Kixo</span>}
     </Link>
   );
 }

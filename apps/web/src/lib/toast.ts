@@ -3,10 +3,21 @@
 import { useSyncExternalStore } from "react";
 import { getSettings, playTone } from "./settings";
 
-/* Small in-app notifications (bottom right). Anything can push one; they fade after a
-   few seconds or on click. */
+/* Small in-app notifications (top right). Anything can push one; they fade after a
+   few seconds or on click. A notification with an action stays longer. */
 /** `kind` ties a pop-up to a notification setting; pop-ups without one always show. */
-export type Toast = { id: number; tone: "good" | "bad" | "info"; title: string; body?: string; href?: string; kind?: "trade" | "exit" | "sniper" };
+export type Toast = {
+  id: number;
+  tone: "good" | "bad" | "info";
+  title: string;
+  body?: string;
+  href?: string;
+  kind?: "trade" | "exit" | "sniper";
+  /** A large figure under the title, such as a trade's P&L. */
+  figure?: string;
+  /** One button, such as "View card". */
+  action?: { label: string; onClick: () => void };
+};
 
 let toasts: Toast[] = [];
 let next = 1;
@@ -24,7 +35,7 @@ export function pushToast(t: Omit<Toast, "id">) {
   const id = next++;
   toasts = [{ ...t, id }, ...toasts].slice(0, MAX);
   emit();
-  setTimeout(() => dismissToast(id), LIFE_MS);
+  setTimeout(() => dismissToast(id), t.action ? 14_000 : LIFE_MS);
 }
 
 export function dismissToast(id: number) {

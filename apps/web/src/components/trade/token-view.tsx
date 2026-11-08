@@ -19,7 +19,8 @@ import { Splitter, useStoredSize } from "./splitter";
 import { useTokenBook, type BookState } from "./use-token-book";
 import { launchSignals, rowSignals, safetyScore, type Safety } from "@/lib/safety";
 import { SafetyBadge } from "@/components/token/safety-badge";
-import { TradePanel, money, signed } from "./trade-panel";
+import { money, signed } from "./trade-panel";
+import { DockableTrade } from "./floating-trade";
 import { ExitOrders } from "./exit-orders";
 import { useDemo } from "@/lib/demo";
 
@@ -91,7 +92,7 @@ export function TokenView() {
         <Splitter axis="col" value={sideW} onChange={setSideW} invert label="Resize side panel" />
         <aside className="flex flex-col lg:w-(--side-w) lg:shrink-0" style={{ "--side-w": `${sideW}px` } as React.CSSProperties}>
           <FlowStrip row={row} book={book} solUsd={feed.solUsd} now={now} />
-          <TradePanel symbol={row.symbol} mint={mint} />
+          <DockableTrade symbol={row.symbol} mint={mint} />
           <MyPosition mint={mint} livePrice={row.priceUsd} />
           <ExitOrders mint={mint} livePrice={row.priceUsd} />
           <TokenInfo row={row} launch={launch} />
@@ -469,12 +470,14 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
   const holding = pos ? (pos.value_usd ?? 0) * scale : 0;
   const pnl = mine.length ? sold + holding - bought : null;
   // Costs of the open position: the buys' fee and impact (impact_pct includes the fee),
-  // the move needed to break even after the 1% sale fee, and the sell-now value.
+  // the move needed to break even after the sale fee, and the sell-now value.
   const since = pos ? Date.parse(pos.opened_at) : 0;
   const entryCost = mine.filter((t) => t.side === "buy" && Date.parse(t.ts) >= since - 1000).reduce((a, t) => a + (Number(t.usd) * Number(t.impact_pct)) / (100 + Number(t.impact_pct)), 0);
   const sellNow = pos?.exit_usd != null ? pos.exit_usd * scale : null;
-  // The price move that would make selling now return what the position cost.
-  const breakEven = pos && sellNow && sellNow > 0 ? (pos.cost_usd / sellNow - 1) * 100 : null;
+  // The price move that would make the whole trade on this coin come out even: what was
+  // spent, minus what earlier sales already brought back, against selling the rest now.
+  const stillNeeded = bought - sold;
+  const breakEven = pos && sellNow && sellNow > 0 ? (stillNeeded <= 0 ? -100 : (stillNeeded / sellNow - 1) * 100) : null;
   const pct = pnl != null && bought > 0 ? (pnl / bought) * 100 : null;
   const tone = pnl == null || Math.abs(pnl) < 0.005 ? "text-text-2" : pnl > 0 ? "text-positive" : "text-negative";
   const cells: [string, React.ReactNode][] = [
@@ -504,7 +507,7 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
         ))}
       </div>
       {pos && (
-        <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-t border-border px-3 py-2 text-[11px] text-muted" title="P&L is marked at the live price. Entry cost is the 1% fee and price impact you paid when buying; break-even also counts the 1% fee of selling.">
+        <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-t border-border px-3 py-2 text-[11px] text-muted" title="P&L is what selling now would bring, after the sale fee and price impact, so selling holds no surprise. Entry cost is the fee and price impact you paid when buying.">
           {entryCost > 0.005 && <span>Entry cost <span className="font-mono text-text-2">{money(entryCost)}</span></span>}
           {breakEven != null && (
             <span>

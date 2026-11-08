@@ -4,7 +4,6 @@ import { useSyncExternalStore } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { GATEWAY_HTTP } from "./gateway";
 import { supabase } from "./supabase";
-import { phantom } from "./phantom";
 import { pushToast } from "./toast";
 
 /* The signed-in account, shared by every component. Supabase holds the session; the
@@ -177,30 +176,6 @@ export async function verifyEmailCode(email: string, token: string) {
   if (error) throw error;
 }
 
-/** Sign in with Solana (Phantom). Supabase checks the signature; the wallet is the account.
- *  Phantom is connected first and handed over as a plain signer, so the message format is
- *  always the standard one Supabase verifies (Phantom's own signIn output varies by version). */
-export async function signInWithPhantom() {
-  const p = phantom();
-  if (!p) throw new Error("Phantom is not installed");
-  const { publicKey } = await p.connect();
-  const address = publicKey.toString();
-  const signer = {
-    publicKey: { toBase58: () => address },
-    signMessage: async (msg: Uint8Array) => {
-      const out = await p.signMessage(msg, "utf8");
-      const sig = (out as { signature?: Uint8Array }).signature ?? (out as unknown as Uint8Array);
-      return new Uint8Array(sig);
-    },
-  };
-  const { error } = await client().auth.signInWithWeb3({
-    chain: "solana",
-    statement: "Sign in to Kixo. This does not move funds or cost anything.",
-    wallet: signer as never,
-  });
-  if (error) throw error;
-}
-
 /** Signs out on every device and browser (all sessions of this account). */
 export async function signOutEverywhere() {
   try {
@@ -214,30 +189,6 @@ export async function signOut() {
   set({ status: "signed-out", me: null, error: null, connected: null });
   try {
     await supabase()?.auth.signOut();
-  } catch {}
-  try {
-    await phantom()?.disconnect?.();
-  } catch {}
-}
-
-/** The wallet to show: a Phantom account's own wallet, otherwise the one connected now. */
-export const activeWallet = (a: Account) => (a.me?.login_method === "phantom" ? a.me.wallet : a.connected);
-
-/** Google and email accounts: connect Phantom for this visit. Phantom asks permission;
- *  nothing is signed or saved, and it is forgotten on sign-out or reload. */
-export async function connectWallet() {
-  const p = phantom();
-  if (!p) throw new Error("Phantom is not installed");
-  const { publicKey } = await p.connect();
-  const wallet = publicKey.toString();
-  set({ connected: wallet });
-  return wallet;
-}
-
-export async function disconnectWallet() {
-  set({ connected: null });
-  try {
-    await phantom()?.disconnect?.();
   } catch {}
 }
 

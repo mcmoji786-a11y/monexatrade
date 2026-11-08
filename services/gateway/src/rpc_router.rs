@@ -24,7 +24,7 @@ const FALLBACK_RPS: usize = 8;
 
 pub struct Upstream {
     pub name: String,
-    url: String,
+    url: std::sync::RwLock<String>,
     primary: bool,
     bench: Mutex<Option<(Instant, String)>>,
     sent: Mutex<VecDeque<Instant>>,
@@ -38,7 +38,18 @@ pub struct Router_ {
 pub type RouterState = Arc<Router_>;
 
 fn node(name: &str, url: String, primary: bool) -> Upstream {
-    Upstream { name: name.to_string(), url, primary, bench: Mutex::new(None), sent: Mutex::new(VecDeque::new()), served: 0.into() }
+    Upstream { name: name.to_string(), url: std::sync::RwLock::new(url), primary, bench: Mutex::new(None), sent: Mutex::new(VecDeque::new()), served: 0.into() }
+}
+
+impl Router_ {
+    /// Points the primary (Helius) at a new URL, after its key changed in the admin, and
+    /// tries it again straight away.
+    pub fn set_primary_url(&self, url: String) {
+        if let Some(p) = self.upstreams.iter().find(|u| u.primary) {
+            *p.url.write().expect("url lock") = url;
+            *p.bench.lock().expect("bench lock") = None;
+        }
+    }
 }
 
 /// Starts the router and returns its local address.
@@ -141,7 +152,8 @@ async fn forward(State(r): State<RouterState>, body: Bytes) -> impl IntoResponse
         if !u.pace(weight).await {
             continue;
         }
-        let res = r.http.post(&u.url).header("content-type", "application/json").body(body.clone()).send().await;
+        let url = u.url.read().expect("url lock").clone();
+        let res = r.http.post(&url).header("content-type", "application/json").body(body.clone()).send().await;
         match res {
             Ok(res) => {
                 let status = res.status().as_u16();
@@ -177,7 +189,8 @@ async fn probe(r: RouterState) {
             monexa_common::set_primary_up(true);
             continue;
         }
-        let ok = match r.http.post(&primary.url).header("content-type", "application/json").body(body.clone()).send().await {
+        let purl = primary.url.read().expect("url lock").clone();
+        let ok = match r.http.post(&purl).header("content-type", "application/json").body(body.clone()).send().await {
             Ok(res) => {
                 let status = res.status().as_u16();
                 let text = res.text().await.unwrap_or_default();

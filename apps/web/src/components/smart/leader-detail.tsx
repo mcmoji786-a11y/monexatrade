@@ -1,5 +1,6 @@
 "use client";
 
+import { openWalletTracker } from "@/lib/tracker";
 import Link from "next/link";
 import { usePortfolio, useActivity, type Trade } from "@/lib/portfolio";
 import { pct, sol, usd, type TradeRow } from "@/lib/gateway";
@@ -93,9 +94,9 @@ export function LeaderDetail({ wallet, live, now }: { wallet: string; live: Live
             ))}
           </ul>
         )}
-        <Link href={`/portfolio?wallet=${wallet}`} className="mt-2 inline-block text-xs text-text-2 underline-offset-2 hover:text-text hover:underline">
-          Full portfolio and 30-day history
-        </Link>
+        <button type="button" onClick={() => openWalletTracker(wallet)} className="mt-2 inline-block text-xs text-text-2 underline-offset-2 hover:text-text hover:underline">
+          Open in the Wallet Tracker
+        </button>
       </section>
     </div>
   );

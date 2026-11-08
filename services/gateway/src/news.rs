@@ -41,7 +41,7 @@ const MAX_ITEMS: usize = 400;
 const MAX_AGE_SECS: i64 = 48 * 3600;
 const SUMMARY_CHARS: usize = 220;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct NewsItem {
     pub id: String,
     /// "news" (sites and Google News), "community" (Reddit), "x" or "onchain".
@@ -61,13 +61,14 @@ pub struct NewsItem {
     pub video: Option<String>,
     /// Established coins the story names, so a trader can open them in one click.
     pub coins: Vec<CoinTag>,
-    /// On-chain alerts: "rising", "million", "graduated", "whale" or "dev_out".
+    /// On-chain alerts: "rising", "million", "graduated", "whale", "dev_out", "pump",
+    /// "trending" or "sniped".
     pub alert: Option<&'static str>,
     /// The coin's own X (Twitter) link, from its metadata.
     pub x_url: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CoinTag {
     pub mint: String,
     pub symbol: String,
@@ -79,11 +80,93 @@ pub struct News {
     items: Mutex<VecDeque<NewsItem>>,
     seen: Mutex<HashSet<String>>,
     tx: broadcast::Sender<Vec<NewsItem>>,
+    /// Where the feed is saved, so a restart keeps the last 48 hours of stories and alerts.
+    store: Option<std::path::PathBuf>,
+}
+
+/// A saved story, read back with its labels matched to the known ones.
+#[derive(Deserialize)]
+struct Saved {
+    id: String,
+    kind: String,
+    source: String,
+    title: String,
+    summary: Option<String>,
+    url: String,
+    ts: i64,
+    #[serde(default)]
+    tags: Vec<String>,
+    mint: Option<String>,
+    image: Option<String>,
+    video: Option<String>,
+    #[serde(default)]
+    coins: Vec<CoinTag>,
+    alert: Option<String>,
+    x_url: Option<String>,
+}
+
+const KINDS: [&str; 5] = ["news", "community", "x", "onchain", "video"];
+const TAGS: [&str; 2] = ["solana", "memecoin"];
+const ALERTS: [&str; 8] = ["rising", "million", "graduated", "whale", "dev_out", "pump", "trending", "sniped"];
+
+fn known(s: &str, list: &[&'static str]) -> Option<&'static str> {
+    list.iter().copied().find(|k| *k == s)
+}
+
+impl Saved {
+    fn item(self) -> Option<NewsItem> {
+        Some(NewsItem {
+            id: self.id,
+            kind: known(&self.kind, &KINDS)?,
+            source: self.source,
+            title: self.title,
+            summary: self.summary,
+            url: self.url,
+            ts: self.ts,
+            tags: self.tags.iter().filter_map(|t| known(t, &TAGS)).collect(),
+            mint: self.mint,
+            image: self.image,
+            video: self.video,
+            coins: self.coins,
+            alert: match self.alert {
+                Some(a) => Some(known(&a, &ALERTS)?),
+                None => None,
+            },
+            x_url: self.x_url,
+        })
+    }
 }
 
 impl News {
+    /// A feed that is not saved anywhere (tests).
+    #[cfg(test)]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { status: Mutex::new(HashMap::new()), items: Mutex::new(VecDeque::new()), seen: Mutex::new(HashSet::new()), tx: broadcast::channel(64).0 })
+        Arc::new(Self { status: Mutex::new(HashMap::new()), items: Mutex::new(VecDeque::new()), seen: Mutex::new(HashSet::new()), tx: broadcast::channel(64).0, store: None })
+    }
+
+    /// A feed saved to `path`, starting from what was saved there (stories older than
+    /// 48 hours are dropped).
+    pub fn stored(path: &str) -> Arc<Self> {
+        let saved: Vec<Saved> = std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let now = now_secs();
+        let items: VecDeque<NewsItem> = saved.into_iter().filter_map(Saved::item).filter(|it| now - it.ts <= MAX_AGE_SECS).collect();
+        let seen = items.iter().flat_map(seen_keys).collect();
+        tracing::info!(stories = items.len(), "news feed loaded");
+        Arc::new(Self { status: Mutex::new(HashMap::new()), items: Mutex::new(items), seen: Mutex::new(seen), tx: broadcast::channel(64).0, store: Some(path.into()) })
+    }
+
+    fn save(&self) {
+        let Some(path) = &self.store else { return };
+        let body = {
+            let items = self.items.lock().expect("news items");
+            serde_json::to_vec(&*items)
+        };
+        if let Ok(body) = body {
+            let tmp = path.with_extension("json.tmp");
+            if std::fs::write(&tmp, body).is_ok() {
+                let _ = std::fs::rename(&tmp, path);
+            }
+        }
     }
 
     /// Adds the items not seen before (same link or same headline) and tells browsers.
@@ -96,13 +179,11 @@ impl News {
                 if now - it.ts > MAX_AGE_SECS || it.ts > now + 600 {
                     continue;
                 }
-                let k1 = format!("u:{}", it.url);
-                let k2 = format!("t:{}", title_key(&it.title));
-                if seen.contains(&k1) || seen.contains(&k2) {
+                let keys = seen_keys(&it);
+                if keys.iter().any(|k| seen.contains(k)) {
                     continue;
                 }
-                seen.insert(k1);
-                seen.insert(k2);
+                seen.extend(keys);
                 fresh.push(it);
             }
             if seen.len() > 20_000 {
@@ -125,6 +206,7 @@ impl News {
             items.extend(v);
         }
         let _ = self.tx.send(fresh);
+        self.save();
     }
 
     fn note(&self, source: &str, status: impl Into<String>, kept: usize) {
@@ -133,6 +215,16 @@ impl News {
 
     fn list(&self, kind: Option<&str>, limit: usize) -> Vec<NewsItem> {
         self.items.lock().expect("news items").iter().filter(|it| kind.is_none_or(|k| k == "all" || it.kind == k)).take(limit).cloned().collect()
+    }
+}
+
+/// On-chain events all link to the coin's page, so they are told apart by id (a coin can
+/// rise, then graduate, then pump); stories by link and by headline.
+fn seen_keys(it: &NewsItem) -> Vec<String> {
+    if it.kind == "onchain" {
+        vec![format!("i:{}", it.id)]
+    } else {
+        vec![format!("u:{}", it.url), format!("t:{}", title_key(&it.title))]
     }
 }
 
@@ -227,7 +319,10 @@ fn spammy(title: &str) -> bool {
     [
         "airdrop", "giveaway", "presale", "pre-sale", "dm me", "send me", "free sol", "100x", "1000x", "guaranteed",
         "best crypto to buy", "top crypto to buy", "crypto to buy now", "next crypto to explode", "best meme coin to buy", "best memecoin to buy",
-        "could make you a millionaire", "turn $", "early investors",
+        "could make you a millionaire", "turn $", "early investors", "early buyers",
+        "altcoin to buy", "coin to buy", "crypto to buy", "coins to buy",
+        // Presales that pay for coverage under many outlets.
+        "pepeto", "remittix", "bitcoin hyper", "little pepe", "ozak ai",
         // Price-listing pages and prediction pieces, not news.
         "price today", "live chart", "price prediction", "to usd live price", "price, chart",
     ]
@@ -238,7 +333,7 @@ fn spammy(title: &str) -> bool {
 /// Press-release and paid-content outlets: mostly promotion, often for risky presales.
 fn promo_source(source: &str) -> bool {
     let s = source.to_lowercase();
-    ["openpr", "globenewswire", "prnewswire", "accesswire", "einpresswire", "newsfile", "binance square", "bitcoinethereumnews", "markets insider"]
+    ["openpr", "globenewswire", "prnewswire", "accesswire", "einpresswire", "newsfile", "binance square", "bitcoinethereumnews", "markets insider", "streetinsider"]
         .iter()
         .any(|w| s.contains(w))
 }
@@ -503,7 +598,94 @@ struct ChainSeen {
     graduated: HashSet<String>,
     million: HashSet<String>,
     dev_out: HashSet<String>,
+    sniped: HashSet<String>,
+    /// Last pump and trending alert per coin (unix seconds), for the cool-downs.
+    pump_at: HashMap<String, i64>,
+    trend_at: HashMap<String, i64>,
     whale_at: HashMap<String, Instant>,
+}
+
+/// A sudden pump: up this much in 5 minutes on real volume, any coin on the board
+/// (new launches and established Discover coins alike). One alert per coin per 30 min.
+const PUMP_5M_PCT: f64 = 25.0;
+const PUMP_VOL_5M_USD: f64 = 15_000.0;
+const PUMP_MC_USD: f64 = 50_000.0;
+const PUMP_EVERY_SECS: i64 = 1800;
+/// Suddenly trending: at least this much traded in 5 minutes, and those 5 minutes are at
+/// least TREND_SHARE of the whole last hour (about 3.5x its usual pace). One per coin per hour.
+const TREND_VOL_5M_USD: f64 = 25_000.0;
+const TREND_SHARE: f64 = 0.3;
+const TREND_EVERY_SECS: i64 = 3600;
+/// Sniped at launch: this many wallets bought in the first 3 seconds, on a coin that went
+/// on to get real traction (so it is news, not one of thousands of dead launches).
+const SNIPED_WALLETS: u32 = 10;
+/// Holders a coin needs before its graduation (or a whale buy in it) is news.
+const GRADUATED_HOLDERS: u64 = 50;
+const SNIPED_MC_USD: f64 = 25_000.0;
+const SNIPED_HOLDERS: u32 = 40;
+/// At most this many pump and trending alerts per scan, strongest first, so a market-wide
+/// move does not flood the feed.
+const MOVERS_PER_SCAN: usize = 4;
+
+/// A pump on a coin known from the market provider: real liquidity and none of the
+/// red flags we can see there (mint or freeze authority, a few wallets holding most,
+/// bot-only trading).
+fn pumping_market(m: &crate::jupiter::MarketToken) -> bool {
+    m.change_5m_pct.is_some_and(|p| p >= PUMP_5M_PCT)
+        && m.volume_5m_usd.is_some_and(|v| v >= PUMP_VOL_5M_USD)
+        && m.mc_usd.unwrap_or(0.0) >= PUMP_MC_USD
+        && m.liquidity_usd.unwrap_or(0.0) >= 15_000.0
+        && market_clean(m)
+}
+
+fn trending_market(m: &crate::jupiter::MarketToken) -> bool {
+    let (v5, v1h) = (m.volume_5m_usd.unwrap_or(0.0), m.volume_1h_usd.unwrap_or(0.0));
+    v5 >= TREND_VOL_5M_USD && v1h > 0.0 && v5 / v1h >= TREND_SHARE && m.change_5m_pct.unwrap_or(0.0) >= 0.0 && m.liquidity_usd.unwrap_or(0.0) >= 15_000.0 && market_clean(m)
+}
+
+fn market_clean(m: &crate::jupiter::MarketToken) -> bool {
+    // A brand-new coin often has no organic score yet (0); many distinct traders count instead.
+    let organic = m.organic_score.is_none_or(|o| o >= 15.0) || m.traders_1h.is_some_and(|t| t >= 250);
+    m.mint_authority_disabled && m.freeze_authority_disabled != Some(false) && m.top_holders_pct.is_none_or(|p| p <= 50.0) && organic
+}
+
+/// The same checks for coins our own engine decoded, which also knows the dev and bundles.
+fn own_clean(m: &monexa_ingest::market::MarketSnapshot) -> bool {
+    !m.dev_sold_all && m.top10_pct <= 50.0 && m.dev_pct <= 15.0 && m.bundle_pct <= 30.0
+}
+
+fn pumping_own(m: &monexa_ingest::market::MarketSnapshot, sol_usd: f64) -> bool {
+    m.change_5m_pct.is_some_and(|p| p >= PUMP_5M_PCT) && m.volume_5m_sol * sol_usd >= PUMP_VOL_5M_USD && m.mc_usd.unwrap_or(0.0) >= PUMP_MC_USD && own_clean(m)
+}
+
+fn trending_own(m: &monexa_ingest::market::MarketSnapshot, sol_usd: f64) -> bool {
+    m.volume_5m_sol * sol_usd >= TREND_VOL_5M_USD && m.volume_1h_sol > 0.0 && m.volume_5m_sol / m.volume_1h_sol >= TREND_SHARE && m.change_5m_pct.unwrap_or(0.0) >= 0.0 && own_clean(m)
+}
+
+fn sniped(age_secs: i64, m: &monexa_ingest::market::MarketSnapshot) -> bool {
+    age_secs <= RISING_MAX_AGE_SECS && m.snipers >= SNIPED_WALLETS && m.mc_usd.unwrap_or(0.0) >= SNIPED_MC_USD && m.holders >= SNIPED_HOLDERS
+}
+
+/// Whether a cool-down has passed, and if so starts the next one.
+fn cooled(map: &mut HashMap<String, i64>, mint: &str, now: i64, every: i64) -> bool {
+    if map.get(mint).is_some_and(|t| now - t < every) {
+        return false;
+    }
+    map.insert(mint.to_string(), now);
+    if map.len() > 5_000 {
+        map.retain(|_, t| now - *t < every);
+    }
+    true
+}
+
+/// "1 minute", "12 minutes", "3 hours", "2 days".
+fn span(secs: i64) -> String {
+    let (n, unit) = if secs < 3600 { ((secs / 60).max(1), "minute") } else if secs < 86_400 { (secs / 3600, "hour") } else { (secs / 86_400, "day") };
+    format!("{n} {unit}{}", if n == 1 { "" } else { "s" })
+}
+
+fn change_line(label: &str, p: Option<f64>) -> String {
+    p.map(|p| format!(" · {label} {}{:.0}%", if p >= 0.0 { "+" } else { "" }, p)).unwrap_or_default()
 }
 
 fn usd_short(v: f64) -> String {
@@ -579,25 +761,62 @@ fn rising_market(age_secs: i64, m: &crate::jupiter::MarketToken) -> bool {
 fn scan_board(c: &NewsCtx, seen: &mut ChainSeen) -> Vec<NewsItem> {
     let now = now_secs();
     let board = c.app.board.lock().expect("board lock");
+    let sol_usd = board.sol_usd.unwrap_or(0.0);
     let mut out = Vec::new();
+    // Pump and trending candidates as (strength, kind, item); the strongest few are kept.
+    let mut movers: Vec<(f64, &'static str, NewsItem)> = Vec::new();
     for m in board.markets.all() {
         if board.tokens.contains_key(&m.mint) {
             continue; // our own engine covers it, with dev data
         }
-        let Some(created) = m.created_at.as_deref().and_then(chrono_like) else { continue };
+        let sym = if m.symbol.trim().is_empty() { "A coin".to_string() } else { format!("${}", m.symbol.trim()) };
+        let image = m.image.clone().filter(|u| u.starts_with("https://"));
+        let x_url = m.twitter.clone().filter(|u| u.starts_with("https://x.com/") || u.starts_with("https://twitter.com/"));
+        let who = |alert| Chain { alert, mint: &m.mint, symbol: m.symbol.trim(), image: image.clone(), x_url: x_url.clone() };
+        let mc = m.mc_usd.unwrap_or(0.0);
+        let created = m.created_at.as_deref().and_then(chrono_like);
+        // The provider compares a coin younger than an hour with its launch price.
+        let young = created.is_some_and(|c| now - c < 3600);
+        if pumping_market(&m) && !seen.pump_at.get(&m.mint).is_some_and(|t| now - t < PUMP_EVERY_SECS) {
+            let p = m.change_5m_pct.unwrap_or(0.0);
+            movers.push((
+                p,
+                "pump",
+                chain_item(
+                    who("pump"),
+                    format!("pump:{}:{now}", m.mint),
+                    format!("{sym} is up {p:.0}% in 5 minutes"),
+                    Some(format!("Market cap {} · {} traded in 5 min{}", usd_short(mc), usd_short(m.volume_5m_usd.unwrap_or(0.0)), change_line(if young { "since launch" } else { "1h" }, m.change_1h_pct))),
+                    now,
+                ),
+            ));
+        } else if trending_market(&m) && !seen.trend_at.get(&m.mint).is_some_and(|t| now - t < TREND_EVERY_SECS) {
+            let (v5, v1h) = (m.volume_5m_usd.unwrap_or(0.0), m.volume_1h_usd.unwrap_or(1.0));
+            let traders = m.traders_1h.map(|t| format!(" · {t} traders in 1h")).unwrap_or_default();
+            movers.push((
+                v5 / v1h * 100.0,
+                "trending",
+                chain_item(
+                    who("trending"),
+                    format!("trend:{}:{now}", m.mint),
+                    format!("{sym} is suddenly trending: {} traded in the last 5 minutes", usd_short(v5)),
+                    Some(format!("{:.0}% of its last hour's volume · market cap {}{traders}", v5 / v1h * 100.0, usd_short(mc))),
+                    now,
+                ),
+            ));
+        }
+        let Some(created) = created else { continue };
         let age = (now - created).max(0);
         if !(rising_market(age, &m) && seen.rising.insert(m.mint.clone()) && (seen.started || age <= 900)) {
             continue;
         }
-        let sym = if m.symbol.trim().is_empty() { "A new coin".to_string() } else { format!("${}", m.symbol.trim()) };
+        let sym = if m.symbol.trim().is_empty() { "A new coin".to_string() } else { sym };
         let mins = (age / 60).max(1);
-        let image = m.image.clone().filter(|u| u.starts_with("https://"));
-        let x_url = m.twitter.clone().filter(|u| u.starts_with("https://x.com/") || u.starts_with("https://twitter.com/"));
         let vol = m.volume_1h_usd.map(|v| format!(" · {} volume", usd_short(v))).unwrap_or_default();
         out.push(chain_item(
-            Chain { alert: "rising", mint: &m.mint, symbol: m.symbol.trim(), image, x_url },
+            who("rising"),
             format!("rise:{}", m.mint),
-            format!("{sym} is taking off: {} market cap {mins} min after launch", usd_short(m.mc_usd.unwrap_or(0.0))),
+            format!("{sym} is taking off: {} market cap {mins} min after launch", usd_short(mc)),
             Some(format!("{} holders · top 10 hold {:.0}%{vol}", m.holders.unwrap_or(0), m.top_holders_pct.unwrap_or(0.0))),
             now,
         ));
@@ -613,6 +832,8 @@ fn scan_board(c: &NewsCtx, seen: &mut ChainSeen) -> Vec<NewsItem> {
         let x_url = t.meta.as_ref().and_then(|x| x.twitter.clone()).filter(|u| u.starts_with("https://x.com/") || u.starts_with("https://twitter.com/"));
         let who = |alert| Chain { alert, mint, symbol: t.token.symbol.trim(), image: image.clone(), x_url: x_url.clone() };
         let rugged_before = t.dev_report.as_ref().is_some_and(|d| d.rugged > 0);
+        // Our own count only sees trades since this gateway started; the market provider counts from launch.
+        let holders = board.markets.get(mint).and_then(|j| j.holders).unwrap_or(m.holders as u64);
         // On start-up, coins already taking off are still news while they are young.
         if rising(age, m, rugged_before) && seen.rising.insert(mint.clone()) && (seen.started || age <= 900) {
             let vol = m.volume_1h_usd.map(|v| format!(" · {} volume", usd_short(v))).unwrap_or_default();
@@ -620,18 +841,71 @@ fn scan_board(c: &NewsCtx, seen: &mut ChainSeen) -> Vec<NewsItem> {
                 who("rising"),
                 format!("rise:{mint}"),
                 format!("{sym} is taking off: {} market cap {mins} min after launch", usd_short(mc)),
-                Some(format!("{} holders · top 10 hold {:.0}% · dev {:.1}%{vol}", m.holders, m.top10_pct, m.dev_pct)),
+                Some(format!("{} holders · top 10 hold {:.0}% · dev {:.1}%{vol}", holders, m.top10_pct, m.dev_pct)),
                 now,
             ));
         }
-        if m.complete && seen.graduated.insert(mint.clone()) && seen.started {
-            out.push(chain_item(who("graduated"), format!("grad:{mint}"), format!("{sym} graduated from its bonding curve"), Some(format!("Market cap {} after {mins} minutes, {} holders", usd_short(mc), m.holders)), now));
+        // A curve filled within a minute by a handful of wallets is the dev's own bundle, not
+        // news: graduation and milestones need a real crowd and a clean dev and bundle record.
+        let crowd = |n: u64| holders >= n && own_clean(m);
+        if m.complete && crowd(GRADUATED_HOLDERS) && seen.graduated.insert(mint.clone()) && seen.started {
+            out.push(chain_item(who("graduated"), format!("grad:{mint}"), format!("{sym} graduated from its bonding curve"), Some(format!("Market cap {} · {} holders · launched {} ago", usd_short(mc), holders, span(age))), now));
         }
-        if mc >= 1_000_000.0 && seen.million.insert(mint.clone()) && seen.started {
-            out.push(chain_item(who("million"), format!("1m:{mint}"), format!("{sym} passed $1M market cap"), Some(format!("{mins} minutes after launch, {} holders", m.holders)), now));
+        if mc >= 1_000_000.0 && crowd(100) && seen.million.insert(mint.clone()) && seen.started {
+            out.push(chain_item(who("million"), format!("1m:{mint}"), format!("{sym} passed $1M market cap"), Some(format!("{} after launch, {} holders", span(age), holders)), now));
         }
         if m.dev_sold_all && mc >= 100_000.0 && seen.dev_out.insert(mint.clone()) && seen.started {
             out.push(chain_item(who("dev_out"), format!("dev:{mint}"), format!("The dev of {sym} sold everything"), Some(format!("Market cap {}", usd_short(mc))), now));
+        }
+        if sniped(age, m) && seen.sniped.insert(mint.clone()) && (seen.started || age <= 900) {
+            // Honest either way: snipers still holding a lot is a risk, snipers gone is not.
+            let hold = if m.sniper_pct >= 5.0 { format!("Snipers still hold {:.0}%", m.sniper_pct) } else { "Snipers have mostly sold".to_string() };
+            out.push(chain_item(
+                who("sniped"),
+                format!("snipe:{mint}"),
+                format!("{sym} was sniped at launch: {} wallets bought in the first 3 seconds", m.snipers),
+                Some(format!("{hold} · market cap {} · {} holders", usd_short(mc), holders)),
+                now,
+            ));
+        }
+        if sol_usd > 0.0 && pumping_own(m, sol_usd) && !seen.pump_at.get(mint).is_some_and(|t| now - t < PUMP_EVERY_SECS) {
+            let p = m.change_5m_pct.unwrap_or(0.0);
+            movers.push((
+                p,
+                "pump",
+                chain_item(
+                    who("pump"),
+                    format!("pump:{mint}:{now}"),
+                    format!("{sym} is up {p:.0}% in 5 minutes"),
+                    Some(format!("Market cap {} · {} traded in 5 min · {} holders", usd_short(mc), usd_short(m.volume_5m_sol * sol_usd), holders)),
+                    now,
+                ),
+            ));
+        } else if sol_usd > 0.0 && trending_own(m, sol_usd) && !seen.trend_at.get(mint).is_some_and(|t| now - t < TREND_EVERY_SECS) {
+            let share = m.volume_5m_sol / m.volume_1h_sol * 100.0;
+            movers.push((
+                share,
+                "trending",
+                chain_item(
+                    who("trending"),
+                    format!("trend:{mint}:{now}"),
+                    format!("{sym} is suddenly trending: {} traded in the last 5 minutes", usd_short(m.volume_5m_sol * sol_usd)),
+                    Some(format!("{share:.0}% of its last hour's volume · market cap {}", usd_short(mc))),
+                    now,
+                ),
+            ));
+        }
+    }
+    drop(board);
+    for kind in ["pump", "trending"] {
+        let mut these: Vec<_> = movers.iter().filter(|(_, k, _)| *k == kind).collect();
+        these.sort_by(|a, b| b.0.total_cmp(&a.0));
+        for (_, _, it) in these.into_iter().take(MOVERS_PER_SCAN) {
+            let mint = it.mint.as_deref().unwrap_or_default();
+            let (map, every) = if kind == "pump" { (&mut seen.pump_at, PUMP_EVERY_SECS) } else { (&mut seen.trend_at, TREND_EVERY_SECS) };
+            if cooled(map, mint, now, every) {
+                out.push(it.clone());
+            }
         }
     }
     seen.started = true;
@@ -718,10 +992,24 @@ fn tag_coins(c: &NewsCtx, items: &mut [NewsItem]) {
 pub async fn run(c: NewsCtx) {
     let mut due: Vec<Instant> = SOURCES.iter().enumerate().map(|(i, _)| Instant::now() + Duration::from_secs(i as u64 * 4)).collect();
     let mut x_due = Instant::now();
-    let x_token = std::env::var("X_BEARER_TOKEN").ok().filter(|t| t.len() > 20);
-    let reddit_keys = std::env::var("REDDIT_CLIENT_ID").ok().zip(std::env::var("REDDIT_CLIENT_SECRET").ok()).filter(|(a, b)| !a.is_empty() && !b.is_empty());
+    let x_token = monexa_common::secret("X_BEARER_TOKEN").filter(|t| t.len() > 20);
+    let reddit_keys = monexa_common::secret("REDDIT_CLIENT_ID").zip(monexa_common::secret("REDDIT_CLIENT_SECRET")).filter(|(a, b)| !a.is_empty() && !b.is_empty());
     let mut reddit_auth = RedditAuth::default();
     let mut chain = ChainSeen::default();
+    // Alerts restored from the saved feed keep their cool-downs, so a restart does not
+    // post the same coin's pump again a few minutes later.
+    for it in c.news.list(Some("onchain"), MAX_ITEMS) {
+        let Some(mint) = it.mint.clone() else { continue };
+        match it.alert {
+            Some("pump") => {
+                chain.pump_at.entry(mint).and_modify(|t| *t = (*t).max(it.ts)).or_insert(it.ts);
+            }
+            Some("trending") => {
+                chain.trend_at.entry(mint).and_modify(|t| *t = (*t).max(it.ts)).or_insert(it.ts);
+            }
+            _ => {}
+        }
+    }
     let mut trades = c.app.trades.subscribe();
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     loop {
@@ -832,7 +1120,11 @@ pub async fn run(c: NewsCtx) {
                 if chain.whale_at.len() > 5_000 {
                     chain.whale_at.retain(|_, t| t.elapsed() < Duration::from_secs(600));
                 }
-                let found = c.app.board.lock().expect("board lock").tokens.get(&mint).map(|t| {
+                let found = c.app.board.lock().expect("board lock").tokens.get(&mint).filter(|t| {
+                    // Same bar as graduation: a 38 SOL buy into a one-minute coin with a dozen
+                    // holders is usually the dev's own wallet, not a whale.
+                    t.market.as_ref().is_some_and(|m| m.holders as u64 >= GRADUATED_HOLDERS && own_clean(m))
+                }).map(|t| {
                     (
                         t.token.symbol.trim().to_string(),
                         t.meta.as_ref().and_then(|x| x.image.clone()).filter(|u| u.starts_with("https://")),
@@ -863,7 +1155,7 @@ pub async fn list(State(c): State<NewsCtx>, Query(q): Query<ListQuery>) -> Json<
     let items = c.news.list(q.kind.as_deref(), q.limit.unwrap_or(100).min(MAX_ITEMS));
     let mut sources: Vec<Value> = c.news.status.lock().expect("news status").iter().map(|(k, (s, n, at))| json!({ "source": k, "status": s, "kept": n, "at": at })).collect();
     sources.sort_by(|a, b| a["source"].as_str().cmp(&b["source"].as_str()));
-    Json(json!({ "enabled": true, "x": std::env::var("X_BEARER_TOKEN").is_ok_and(|t| t.len() > 20), "sources": sources, "items": items }))
+    Json(json!({ "enabled": true, "x": monexa_common::secret("X_BEARER_TOKEN").is_some_and(|t| t.len() > 20), "sources": sources, "items": items }))
 }
 
 /// `/ws/news`: the latest items, then each new batch as it arrives.
@@ -908,6 +1200,65 @@ mod tests {
     use super::*;
 
     #[test]
+    fn movers_and_snipes_follow_the_rules() {
+        use crate::jupiter::MarketToken;
+        let clean = MarketToken { mint: "M".into(), mc_usd: Some(2e6), liquidity_usd: Some(1e5), mint_authority_disabled: true, top_holders_pct: Some(20.0), organic_score: Some(60.0), ..Default::default() };
+        let pump = MarketToken { change_5m_pct: Some(40.0), volume_5m_usd: Some(50_000.0), ..clean.clone() };
+        assert!(pumping_market(&pump));
+        assert!(!pumping_market(&MarketToken { volume_5m_usd: Some(2_000.0), ..pump.clone() }), "thin volume is not a pump");
+        assert!(!pumping_market(&MarketToken { mint_authority_disabled: false, ..pump.clone() }), "mint authority still on");
+        assert!(!pumping_market(&MarketToken { top_holders_pct: Some(80.0), ..pump.clone() }), "a few wallets hold most");
+        assert!(!pumping_market(&MarketToken { organic_score: Some(0.0), traders_1h: Some(40), ..pump.clone() }), "bot trading");
+        assert!(pumping_market(&MarketToken { organic_score: Some(0.0), traders_1h: Some(600), ..pump.clone() }), "no score yet, many traders");
+        let trend = MarketToken { volume_5m_usd: Some(40_000.0), volume_1h_usd: Some(100_000.0), change_5m_pct: Some(3.0), ..clean.clone() };
+        assert!(trending_market(&trend));
+        assert!(!trending_market(&MarketToken { volume_1h_usd: Some(1_000_000.0), ..trend.clone() }), "steady volume is not sudden");
+        assert!(!trending_market(&MarketToken { change_5m_pct: Some(-12.0), ..trend.clone() }), "a dump is not trending");
+
+        use monexa_ingest::market::MarketSnapshot;
+        let s = MarketSnapshot { mc_usd: Some(60_000.0), holders: 120, snipers: 14, sniper_pct: 22.0, ..Default::default() };
+        assert!(sniped(300, &s));
+        assert!(!sniped(300, &MarketSnapshot { snipers: 3, ..s.clone() }));
+        assert!(!sniped(300, &MarketSnapshot { mc_usd: Some(4_000.0), ..s.clone() }), "dead launches are not news");
+        assert!(!sniped(7_200, &s), "old coins are not news");
+        let own = MarketSnapshot { change_5m_pct: Some(30.0), volume_5m_sol: 300.0, volume_1h_sol: 500.0, mc_usd: Some(300_000.0), top10_pct: 25.0, ..Default::default() };
+        assert!(pumping_own(&own, 150.0) && trending_own(&own, 150.0));
+        assert!(!pumping_own(&MarketSnapshot { dev_sold_all: true, ..own.clone() }, 150.0));
+
+        let mut at = HashMap::new();
+        assert!(cooled(&mut at, "M", 1000, 1800));
+        assert!(!cooled(&mut at, "M", 2000, 1800));
+        assert!(cooled(&mut at, "M", 2900, 1800));
+    }
+
+    #[test]
+    fn one_coin_can_have_several_onchain_events() {
+        let n = News::new();
+        let ev = |id: &str| NewsItem { id: id.into(), kind: "onchain", source: "Kixo on-chain".into(), title: format!("$X {id}"), summary: None, url: "/token/X".into(), ts: now_secs(), tags: vec![], mint: Some("X".into()), image: None, video: None, coins: vec![], alert: Some("pump"), x_url: None };
+        n.add(vec![ev("rise:X")]);
+        n.add(vec![ev("grad:X")]);
+        n.add(vec![ev("grad:X")]);
+        assert_eq!(n.list(None, 10).len(), 2, "same link, different events; repeats dropped");
+    }
+
+    #[test]
+    fn the_feed_survives_a_restart() {
+        let path = std::env::temp_dir().join(format!("kixo-news-{}.json", std::process::id()));
+        let p = path.to_str().unwrap();
+        let _ = std::fs::remove_file(&path);
+        let a = News::stored(p);
+        let pump = NewsItem { id: "pump:X:1".into(), kind: "onchain", source: "Kixo on-chain".into(), title: "$X is up 40% in 5 minutes".into(), summary: Some("Market cap $1M".into()), url: "/token/X".into(), ts: now_secs(), tags: vec!["solana"], mint: Some("X".into()), image: None, video: None, coins: vec![CoinTag { mint: "X".into(), symbol: "X".into() }], alert: Some("pump"), x_url: None };
+        let old = NewsItem { id: "old".into(), kind: "news", ts: now_secs() - MAX_AGE_SECS - 10, url: "https://a.b/old".into(), title: "Old".into(), alert: None, ..pump.clone() };
+        a.add(vec![pump.clone()]);
+        let b = News::stored(p);
+        let back = b.list(None, 10);
+        assert_eq!(back, vec![pump.clone()], "restored as it was");
+        b.add(vec![pump, old]);
+        assert_eq!(b.list(None, 10).len(), 1, "a restored alert is not posted twice, a stale story is not added");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn text_is_cleaned_and_topics_found() {
         assert_eq!(plain("<p>Solana&#8217;s <b>memecoin</b> run &amp; more</p>"), "Solana\u{2019}s memecoin run & more");
         assert_eq!(clip("one two three four", 9), "one two\u{2026}");
@@ -917,6 +1268,10 @@ mod tests {
         assert!(spammy("FREE SOL AIRDROP claim now"));
         assert!(spammy("4 Best Crypto To Buy In November 2026 as Solana ETFs shed"));
         assert!(promo_source("openPR.com") && !promo_source("CoinDesk"));
+        assert!(promo_source("StreetInsider"));
+        assert!(spammy("Best Altcoin to Buy: Ether Funds Shed $93 Million as Early Buyers Pick Pepeto Before the Crowd"));
+        assert!(spammy("Remittix Earn, Zcash or Solana? $1.3M TVL in Four Days"));
+        assert!(!spammy("Whales buy the dip as Solana memecoins rebound"));
         assert!(spammy("Catecoin (cate.meme) price today, CATE to USD live price, marketcap and chart"));
         assert!(spammy("Solana Price Prediction: SOL to $500?"));
         assert!(chrono_like("2026-11-07T10:00:00.000Z").is_some_and(|t| t > 1_700_000_000), "X times parse");

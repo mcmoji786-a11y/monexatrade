@@ -1,0 +1,14 @@
+Share card backgrounds, from Unsplash under the Unsplash License
+(free for commercial use, no permission needed): https://unsplash.com/license
+
+bg-1.jpg  Yacht past the Dubai skyline   https://unsplash.com/photos/wyYBeVi19KI  (amein shareef77)
+bg-2.jpg  New York at night, from above  https://unsplash.com/photos/wxskcYSJ570
+bg-3.jpg  Rooftop pool at sunset         https://unsplash.com/photos/KgybDitNR18
+bg-4.jpg  Infinity pool at dusk          https://unsplash.com/photos/UA0p9yPn-QQ
+bg-5.jpg  Medellin from a penthouse      https://unsplash.com/photos/Iqa-WlbNjqs
+bg-6.jpg  Matte black supercar in the rain https://unsplash.com/photos/4-MxVqPiPk0
+bg-7.jpg  Black supercar at night, in motion https://unsplash.com/photos/pQ0_oAtnDqI
+bg-8.jpg  Private jet at sunset            https://unsplash.com/photos/6w_dYdazo20  (Chris Leipelt)
+bg-9.jpg  Supercar in a dark studio        https://unsplash.com/photos/0xySZZ8OK1o
+
+Picked so that no car maker's badge, name or logo is readable on the card.

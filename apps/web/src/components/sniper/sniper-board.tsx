@@ -1,10 +1,13 @@
 "use client";
 
+import { useSniperAccount } from "./sniper-engine";
 import Link from "next/link";
-import { Crosshair, RotateCcw, X } from "lucide-react";
+import { Crosshair, Image as ImageIcon, RotateCcw, X } from "lucide-react";
+import { openShareCard } from "@/lib/share";
+import { useFeatures } from "@/lib/features";
 import { sol } from "@/lib/gateway";
 import { tokenHref } from "@/lib/open-token";
-import { activePreset, DEFAULT_SNIPER, pnl, PRESETS, useSniper, useSniperScan, type SniperSettings, type SnipePosition } from "@/lib/sniper";
+import { activePreset, DEFAULT_SNIPER, pnl, PRESETS, snipeShare, useSniper, useSniperScan, type SniperSettings, type SnipePosition } from "@/lib/sniper";
 import { useMode } from "@/lib/demo";
 import { useAccount } from "@/lib/account";
 import { formatAge, useNow, useRadarFeed } from "@/components/radar/use-radar-feed";
@@ -19,6 +22,7 @@ export function SniperBoard() {
   const mode = useMode();
   const account = useAccount();
   const onDemo = mode === "demo" && account.status === "signed-in";
+  const where = useSniperAccount();
   const { tokens, solUsd } = useRadarFeed();
   const now = useNow();
   const s = sn.settings;
@@ -41,7 +45,9 @@ export function SniperBoard() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-medium text-text">Sniper</h1>
-            {onDemo ? (
+            {where.account === "real" ? (
+              <span className="rounded-md border border-emerald/40 px-2 py-0.5 text-xs text-emerald">Real SOL</span>
+            ) : onDemo ? (
               <span className="rounded-md border border-cyan/30 px-2 py-0.5 text-xs text-cyan">Demo account</span>
             ) : (
               <span className="rounded-md border border-warning/30 px-2 py-0.5 text-xs text-warning">Paper mode</span>
@@ -49,9 +55,11 @@ export function SniperBoard() {
           </div>
           <p className="mt-1 max-w-2xl text-sm text-text-2">
             Buys new launches that pass your rules the moment they qualify, and sells on your take profit, stop loss or time limit.{" "}
-            {onDemo
-              ? "Every buy and sell is an order on your demo account, filled at live prices with fees. It runs while Kixo is open in this browser"
-              : "Prices are real; buys are simulated until real trading is approved. Switch to Demo to trade the sniper on your demo balance"}
+            {where.account === "real"
+              ? "Every buy and sell is a real trade from your Kixo wallet, checked and signed in this browser. It runs while Kixo is open and the wallet is unlocked"
+              : onDemo
+                ? "Every buy and sell is an order on your demo account, filled at live prices with fees. It runs while Kixo is open in this browser"
+                : (where.why ?? "Prices are real; buys are simulated. Switch to Demo to trade the sniper on your demo balance")}
           </p>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
@@ -60,6 +68,35 @@ export function SniperBoard() {
           <Switch on={s.enabled} onChange={() => sn.update({ enabled: !s.enabled })} label="Sniper on" />
         </div>
       </div>
+
+      {mode === "real" && account.status === "signed-in" && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface px-4 py-3">
+          <div className="max-w-2xl">
+            <p className="text-sm text-text">Use real SOL</p>
+            <p className="mt-0.5 text-xs text-text-2">
+              The sniper buys and sells from your Kixo wallet, with the same checks as a manual trade. Real money can be lost fast on new launches. It only trades while this tab is open and the wallet is unlocked
+            </p>
+            {s.realEnabled && where.why && <p className="mt-1 text-xs text-warning">{where.why}</p>}
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-text-2">
+              Most per 24 h
+              <span className="flex h-8 items-center gap-1 rounded-lg border border-border bg-bg px-2">
+                <input type="number" min={0.01} step={0.1} value={s.realDailyCapSol} onChange={(e) => sn.update({ realDailyCapSol: Math.max(0.01, Number(e.target.value) || 0.01) })} className="w-16 bg-transparent font-mono text-sm tabular-nums text-text outline-none" />
+                <span className="text-muted">SOL</span>
+              </span>
+            </label>
+            <Switch
+              on={s.realEnabled}
+              onChange={() => {
+                if (!s.realEnabled && !confirm(`Let the sniper trade real SOL from your Kixo wallet, up to ${s.realDailyCapSol} SOL a day? You can turn it off at any time`)) return;
+                sn.update({ realEnabled: !s.realEnabled });
+              }}
+              label="Use real SOL"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Dashboard */}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -176,6 +213,7 @@ function Positions({
                             Sell
                           </button>
                         )}
+                        {!onClose && <CardButton p={p} />}
                         <TradeLink mint={p.mint} />
                       </span>
                     </td>
@@ -187,6 +225,25 @@ function Positions({
         </div>
       )}
     </div>
+  );
+}
+
+/** The share card of a closed demo snipe, from its actual sell fill. Paper and real
+ *  snipes have none (the card says "Demo account"). */
+function CardButton({ p }: { p: SnipePosition }) {
+  const shareOn = useFeatures().share_cards;
+  const card = snipeShare(p);
+  if (!shareOn || !card) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => openShareCard(card)}
+      aria-label={`Share card for ${p.symbol || "this snipe"}`}
+      className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-text-2 hover:bg-surface-3 hover:text-text"
+    >
+      <ImageIcon size={12} strokeWidth={1.5} />
+      Card
+    </button>
   );
 }
 
