@@ -190,6 +190,12 @@ body {
   }
 }
 
+/* Streamer mode (lib/streamer.ts): balances, P&L and the user's own addresses blurred. */
+:root[data-streamer="1"] [data-private] {
+  filter: blur(7px);
+  user-select: none;
+}
+
 /* Sidebar scroll: a hairline thumb that only shows while the pointer is over it. */
 .nav-scroll {
   scrollbar-width: thin;

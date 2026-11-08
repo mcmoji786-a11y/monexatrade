@@ -120,7 +120,7 @@ function DemoChip() {
   const { account } = useDemo();
   return (
     <Link href="/portfolio" className="flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-surface px-3 text-sm transition-colors hover:bg-surface-2" title="Demo account value at live prices">
-      <span className="font-mono text-xs tabular-nums text-text">
+      <span data-private className="font-mono text-xs tabular-nums text-text">
         {account ? account.equity_usd.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "…"}
       </span>
       <span className="text-[11px] text-warning">Demo</span>

@@ -184,7 +184,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
       {demo && (
         <div className="mt-3 flex items-center justify-between text-xs">
           <span className="text-warning">Demo account</span>
-          <span className="font-mono tabular-nums text-text-2">
+          <span data-private className="font-mono tabular-nums text-text-2">
             {side === "buy"
               ? `${account ? money(account.cash_usd) : "…"} available`
               : held

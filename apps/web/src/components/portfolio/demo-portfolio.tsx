@@ -258,7 +258,7 @@ function Stat({ label, value, sub, big, tone: t }: { label: string; value: strin
   return (
     <div className="bg-surface px-4 py-4">
       <div className="text-xs text-text-2">{label}</div>
-      <div className={`mt-1 font-medium tabular-nums ${big ? "text-3xl text-text" : `text-xl ${color}`}`}>{value}</div>
+      <div data-private className={`mt-1 font-medium tabular-nums ${big ? "text-3xl text-text" : `text-xl ${color}`}`}>{value}</div>
       {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
     </div>
   );
@@ -268,7 +268,7 @@ function Mini({ k, v, tone: t }: { k: string; v: string; tone?: number }) {
   return (
     <div className="bg-surface px-4 py-3">
       <div className="text-[11px] text-muted">{k}</div>
-      <div className={`mt-1 truncate font-mono text-sm tabular-nums ${tone(t ?? null)}`}>{v}</div>
+      <div data-private className={`mt-1 truncate font-mono text-sm tabular-nums ${tone(t ?? null)}`}>{v}</div>
     </div>
   );
 }

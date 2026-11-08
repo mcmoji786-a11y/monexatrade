@@ -83,7 +83,7 @@ export function WalletButton() {
         className={`flex h-9 items-center gap-2 rounded-lg px-3 text-sm transition-colors ${w.status === "none" ? "bg-text font-medium text-bg hover:opacity-90" : "border border-border bg-surface text-text hover:bg-surface-2"}`}
       >
         {w.status === "locked" ? <Lock size={14} strokeWidth={1.5} className="text-text-2" /> : <Wallet size={14} strokeWidth={1.5} className={w.status === "none" ? "" : "text-text-2"} />}
-        <span className={w.status === "none" ? "" : "font-mono text-xs tabular-nums"}>{label}</span>
+        <span data-private={w.status === "none" ? undefined : true} className={w.status === "none" ? "" : "font-mono text-xs tabular-nums"}>{label}</span>
       </button>
       {open && (
         <div className="absolute right-0 top-11 z-40 w-[380px] max-w-[calc(100vw-32px)] rounded-xl border border-border bg-surface p-5 shadow-lg shadow-black/40">
@@ -240,7 +240,7 @@ function Recovery({ address, text }: { address: string; text: string }) {
   return (
     <div className="flex flex-col gap-4">
       <Header title="Save your recovery file" sub="If you forget your wallet password, this file is the only way back in. Kixo cannot reset it, because Kixo never has your key" />
-      <p className="font-mono text-xs text-cyan">{shortAddress(address)}</p>
+      <p data-private className="font-mono text-xs text-cyan">{shortAddress(address)}</p>
       <button
         type="button"
         className={`${quiet} w-fit`}
