@@ -30,8 +30,6 @@ fn fee_rate() -> f64 {
 }
 /// Network and priority fee per transaction, in SOL.
 const NETWORK_SOL: f64 = 0.0001;
-/// Real orders land about a second after the click.
-const LATENCY: Duration = Duration::from_millis(1000);
 /// pump.fun curves: virtual SOL x virtual tokens is constant (30 SOL x 1.073B tokens).
 const PUMP_K: f64 = 30.0 * 1_073_000_000.0;
 const MIN_ORDER_USD: f64 = 1.0;
@@ -269,13 +267,18 @@ pub struct Account {
 }
 
 async fn account_rows(c: &DemoCtx, user: &str) -> Result<(f64, f64, i64, Vec<Value>), (StatusCode, String)> {
-    let acc = c.acct.rest(reqwest::Method::GET, &format!("demo_accounts?user_id=eq.{user}&select=cash_usd,start_usd,resets"), None).await?;
+    // Balance and positions load side by side.
+    let (acc_q, pos_q) = (
+        format!("demo_accounts?user_id=eq.{user}&select=cash_usd,start_usd,resets"),
+        format!("demo_positions?user_id=eq.{user}&select=mint,symbol,tokens,cost_usd,opened_at&order=opened_at.desc"),
+    );
+    let (acc, pos) = tokio::join!(c.acct.rest(reqwest::Method::GET, &acc_q, None), c.acct.rest(reqwest::Method::GET, &pos_q, None));
+    let (acc, pos) = (acc?, pos?);
     let (cash, start, round) = acc
         .as_array()
         .and_then(|a| a.first())
         .map(|a| (num(&a["cash_usd"]), num(&a["start_usd"]), a["resets"].as_i64().unwrap_or(0)))
         .unwrap_or((START_USD, START_USD, 0));
-    let pos = c.acct.rest(reqwest::Method::GET, &format!("demo_positions?user_id=eq.{user}&select=mint,symbol,tokens,cost_usd,opened_at&order=opened_at.desc"), None).await?;
     Ok((cash, start, round, pos.as_array().cloned().unwrap_or_default()))
 }
 
@@ -351,13 +354,12 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
     };
     let lock = user_lock(&u.id);
     let _guard = if o.preview { None } else { Some(lock.lock().await) };
-    let (cash, _, _, rows) = account_rows(&c, &u.id).await?;
+    // The fill is priced the moment the order arrives: balance, positions and the live
+    // quote load side by side, so a demo order answers in one database round trip.
+    let (acct, q) = tokio::join!(account_rows(&c, &u.id), quote(&c.app, &o.mint));
+    let (cash, _, _, rows) = acct?;
     let held = rows.iter().find(|p| p["mint"].as_str() == Some(&o.mint)).map(|p| num(&p["tokens"])).unwrap_or(0.0);
-
-    if !o.preview {
-        tokio::time::sleep(LATENCY).await;
-    }
-    let q = quote(&c.app, &o.mint).await?.held(held);
+    let q = q?.held(held);
     let fill = match o.side.as_str() {
         "buy" => {
             let usd = o.usd.filter(|v| v.is_finite()).ok_or((StatusCode::BAD_REQUEST, "enter an amount".into()))?;
@@ -394,7 +396,9 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
         )
         .await?;
     if fill.side == "sell" && o.fraction.unwrap_or(0.0) >= 0.999 {
-        cancel_open(&c, &u.id, Some(&o.mint), "position closed").await;
+        // Closing the position cancels its sell orders; the answer does not wait for it.
+        let (c2, uid, mint) = (c.clone(), u.id.clone(), o.mint.clone());
+        tokio::spawn(async move { cancel_open(&c2, &uid, Some(&mint), "position closed").await });
     }
     Ok(Json(json!({ "fill": fill, "symbol": q.symbol, "cash_usd": num(&res["cash_usd"]), "realized_usd": res["realized_usd"] })))
 }

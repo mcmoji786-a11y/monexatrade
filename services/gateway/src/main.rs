@@ -411,6 +411,8 @@ async fn main() -> Result<()> {
         .route("/token/{mint}/dex", get(dex_handler))
         .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))
+        .route("/competition/onchain", get(onchain_top_handler))
+        .route("/wallet/{address}/kixo-pnl", get(kixo_pnl_handler))
         .route("/wallet/{address}/balance", get(balance_handler))
         .route("/address/{address}/kind", get(address_kind_handler))
         .route("/wallet/{address}/portfolio", get(portfolio_handler))
@@ -1012,11 +1014,28 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
         .get(&mint)
         .is_some_and(|t| t.market.as_ref().is_some_and(|m| m.complete));
     let known = state.books.lock().expect("books lock").contains(&mint);
-    let watching = if (graduated || !known) && is_memecoin(&state, &mint).await {
-        watch_pool(&state, &mint).await
-    } else {
-        false
-    };
+    let needs_pool = graduated || !known;
+    // The pool's 1 minute history loads while the pool is being set up, so the first
+    // snapshot already has a chart instead of an empty one that fills seconds later.
+    let (history, watching) = tokio::join!(
+        async {
+            if needs_pool {
+                tokio::time::timeout(Duration::from_secs(4), dex::history(&state.http, &state.dex, &mint)).await.ok().flatten()
+            } else {
+                None
+            }
+        },
+        async {
+            if needs_pool && is_memecoin(&state, &mint).await {
+                watch_pool(&state, &mint).await
+            } else {
+                false
+            }
+        }
+    );
+    if let Some(h) = history {
+        seed_candles(&state, &mint, &h);
+    }
     let _viewer = watching.then(|| Viewer::new(state.clone(), mint.clone()));
     let snapshot = state.books.lock().expect("books lock").snapshot(&mint);
     let msg = match snapshot {
@@ -1343,39 +1362,34 @@ async fn backfill_candles(state: Arc<AppState>, mint: String) {
             let Some(h) = dex::history(&state.http, &state.dex, &mint).await else {
                 continue;
             };
-            let Some(sol_usd) = state.board.lock().expect("board lock").sol_usd else {
-                continue;
-            };
-            if h.candles.is_empty() {
-                continue;
+            if seed_candles(&state, &mint, &h) {
+                let _ = state.refresh.send(mint.clone());
+                return;
             }
-            let supply = state
-                .books
-                .lock()
-                .expect("books lock")
-                .supply(&mint)
-                .unwrap_or(1_000_000_000.0);
-            let k = supply / sol_usd;
-            let candles = h
-                .candles
-                .iter()
-                .map(|c| book::Candle {
-                    t: c.t,
-                    o: c.o * k,
-                    h: c.h * k,
-                    l: c.l * k,
-                    c: c.c * k,
-                    v: c.v / sol_usd,
-                })
-                .collect();
-            state
-                .books
-                .lock()
-                .expect("books lock")
-                .backfill_candles(&mint, candles);
-            let _ = state.refresh.send(mint.clone());
-            return;
         }
+}
+
+/// Puts a pool's USD price history in front of a book's candles (market cap in SOL).
+/// Only candles older than the book's first are added, so running it twice is harmless.
+fn seed_candles(state: &AppState, mint: &str, h: &dex::DexHistory) -> bool {
+    let Some(sol_usd) = state.board.lock().expect("board lock").sol_usd else {
+        return false;
+    };
+    if h.candles.is_empty() {
+        return false;
+    }
+    let mut books = state.books.lock().expect("books lock");
+    let Some(supply) = books.supply(mint) else {
+        return false;
+    };
+    let k = supply / sol_usd;
+    let candles = h
+        .candles
+        .iter()
+        .map(|c| book::Candle { t: c.t, o: c.o * k, h: c.h * k, l: c.l * k, c: c.c * k, v: c.v / sol_usd })
+        .collect();
+    books.backfill_candles(mint, candles);
+    true
 }
 
 /// A decoded swap as a book trade, its quote converted to lamports of equal value.
@@ -1596,6 +1610,49 @@ async fn smart_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::V
     let oldest = state.smart.lock().expect("smart lock").oldest().unwrap_or(now);
     let tracking = (now - oldest).max(state.started.elapsed().as_secs() as i64);
     Json(json!({ "tracking_secs": tracking, "min_copy_coins": devs::MIN_COPY_COINS, "leaders": leaders, "symbols": symbols }))
+}
+
+/// `GET /wallet/{address}/kixo-pnl`: the wallet's profit over the last week on the coins
+/// our engine read (devs.rs). Instant and costs no RPC; `null` when we saw no sale.
+async fn kixo_pnl_handler(State(state): State<Arc<AppState>>, Path(address): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !account::is_solana_address(&address) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let r = {
+        let books = state.books.lock().expect("books lock");
+        let smart = state.smart.lock().expect("smart lock");
+        smart.wallet_result(&address, books.all_positions())
+    };
+    let now = now_unix();
+    let since = state.smart.lock().expect("smart lock").oldest().unwrap_or(now).max(now - 7 * 86_400);
+    Ok(Json(json!({ "since": since, "result": r })))
+}
+
+/// `GET /competition/onchain?window=24h|7d`: Solana memecoin traders ranked by the
+/// profit they took on chain, from the trades our engine read (devs.rs). Known bots are
+/// left out. Cached a minute.
+async fn onchain_top_handler(State(state): State<Arc<AppState>>, Query(q): Query<HashMap<String, String>>) -> Json<serde_json::Value> {
+    static CACHE: Mutex<Option<HashMap<String, (Instant, serde_json::Value)>>> = Mutex::new(None);
+    let window = if q.get("window").map(String::as_str) == Some("7d") { "7d" } else { "24h" };
+    if let Some((at, v)) = CACHE.lock().expect("top cache").get_or_insert_with(HashMap::new).get(window) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return Json(v.clone());
+        }
+    }
+    let now = now_unix();
+    let since = now - if window == "7d" { 7 * 86_400 } else { 86_400 };
+    let ranked = {
+        let books = state.books.lock().expect("books lock");
+        let smart = state.smart.lock().expect("smart lock");
+        smart.top_traders(books.all_positions(), since, 80)
+    };
+    let bots: std::collections::HashSet<String> = state.bot_checks.lock().expect("bot lock").iter().filter(|(_, (_, b))| *b).map(|(w, _)| w.clone()).collect();
+    let traders: Vec<devs::TopTrader> = ranked.into_iter().filter(|t| !bots.contains(&t.wallet)).take(50).collect();
+    let sol_usd = state.board.lock().expect("board lock").sol_usd;
+    let oldest = state.smart.lock().expect("smart lock").oldest().unwrap_or(now);
+    let v = json!({ "window": window, "since": since.max(oldest), "now": now, "sol_usd": sol_usd, "traders": traders });
+    CACHE.lock().expect("top cache").get_or_insert_with(HashMap::new).insert(window.to_string(), (Instant::now(), v.clone()));
+    Json(v)
 }
 
 /// Largest image the proxy passes on.

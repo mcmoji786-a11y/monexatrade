@@ -86,7 +86,7 @@ impl AccountState {
             .filter(|t| t.len() > 20 && t.len() < 4096)
             .ok_or((StatusCode::UNAUTHORIZED, "sign in first".into()))?;
         if let Some((at, u)) = self.users.lock().expect("users lock").get(token) {
-            if at.elapsed() < Duration::from_secs(15) {
+            if at.elapsed() < Duration::from_secs(60) {
                 return Ok(u.clone());
             }
         }
@@ -106,7 +106,7 @@ impl AccountState {
         let user = parse_user(&v).ok_or((StatusCode::UNAUTHORIZED, "unknown user".into()))?;
         let mut cache = self.users.lock().expect("users lock");
         if cache.len() > 5_000 {
-            cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(15));
+            cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
         }
         cache.insert(token.to_string(), (Instant::now(), user.clone()));
         Ok(user)

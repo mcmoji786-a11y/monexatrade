@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Bell, BellOff, Check, Copy, ExternalLink, Eye, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
 import { useWalletLabels, type WalletLabel } from "@/lib/labels";
 import { useFeatures } from "@/lib/features";
-import { pnlByCoin, useActivity, useLiveTrades, usePortfolio, type Holding, type Trade } from "@/lib/portfolio";
+import { pnlByCoin, pnlFromLive, useActivity, useKixoPnl, useLiveTrades, usePortfolio, type Holding, type Trade } from "@/lib/portfolio";
 import { useMonitor } from "@/lib/prefs";
 import { closeWalletTracker, openWalletTracker, useAddressKind, useOpenWallet, type AddressKind } from "@/lib/tracker";
 import { shortAddress } from "@/lib/gateway";
@@ -217,6 +217,7 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
   const headerLabels = useWalletLabels(address);
   const act = useActivity(address);
   const live = useLiveTrades(address);
+  const kixo = useKixoPnl(address);
   const now = useNow();
   const monitor = useMonitor();
   const tracked = monitor.has(address);
@@ -228,7 +229,16 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
   const solUsd = p?.sol_usd ?? null;
   const tokens = useMemo(() => (p?.tokens ?? []).slice().sort((a, b) => (b.value_usd ?? 0) - (a.value_usd ?? 0)), [p]);
   const trades = useMemo(() => (act.data ?? []).slice().sort((a, b) => b.time - a.time), [act.data]);
-  const coins = useMemo(() => pnlByCoin(trades, tokens, solUsd), [trades, tokens, solUsd]);
+  // The on-chain history when it can be read; otherwise the trades Kixo saw live, so the
+  // P&L never waits on a slow or unavailable history service.
+  const fromHistory = trades.length > 0;
+  const liveRows = useMemo(() => live.data ?? [], [live.data]);
+  const coins = useMemo(() => (fromHistory ? pnlByCoin(trades, tokens, solUsd) : pnlFromLive(liveRows, tokens, solUsd)), [fromHistory, trades, liveRows, tokens, solUsd]);
+  // Without the history: the week Kixo's engine saw (all coins it read), else the
+  // live trades only.
+  const seen = !fromHistory ? kixo.data?.result ?? null : null;
+  const pnlSwaps = fromHistory ? trades.length : seen ? seen.trades : liveRows.length;
+  const pnlReady = fromHistory || !!seen || liveRows.length > 0 || (!act.loading && act.data != null) || !!act.error || (kixo.data != null && live.data != null && !act.loading);
   // Recent swaps: the on-chain history plus what Kixo saw live (instant), one row per
   // transaction. Live rows show up first while the history is still loading.
   const swaps = useMemo(() => {
@@ -242,9 +252,12 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
   const solValue = p && solUsd ? p.sol * solUsd : null;
   const tokensUsd = tokens.reduce((s, t) => s + (t.value_usd ?? 0), 0);
   const total = solValue != null ? solValue + tokensUsd : null;
-  const realizedSol = [...coins.values()].reduce((s, c) => s + c.realizedSol, 0);
-  const closed = [...coins.values()].filter((c) => c.soldSol > 0 && c.avgCost != null);
-  const wins = closed.filter((c) => c.realizedSol > 0).length;
+  const realizedSol = seen ? seen.realized_sol : [...coins.values()].reduce((s, c) => s + c.realizedSol, 0);
+  const openSol = [...coins.values()].reduce((s, c) => s + (c.unrealizedSol ?? 0), 0);
+  const hasOpen = [...coins.values()].some((c) => c.unrealizedSol != null);
+  const closedCoins = [...coins.values()].filter((c) => c.soldSol > 0 && c.avgCost != null);
+  const closedN = seen ? seen.coins : closedCoins.length;
+  const wins = seen ? seen.wins : closedCoins.filter((c) => c.realizedSol > 0).length;
   const lastActive = swaps[0]?.time ?? null;
 
   const shown = tokens.filter((t) => dust || (t.value_usd ?? 0) >= 1);
@@ -290,6 +303,7 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
             onClick={() => {
               port.reload();
               act.reload();
+              kixo.reload();
             }}
             aria-label="Refresh"
             className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-2 hover:bg-surface-2 hover:text-text"
@@ -299,14 +313,22 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
           <button
             type="button"
             onClick={() => (tracked ? monitor.remove(address) : monitor.add(address))}
-            title={tracked ? "Stop alerts for this wallet" : "Get an alert when this wallet trades (Wallet Monitor)"}
+            title={tracked ? "Stop monitoring: no more alerts for this wallet" : "Add to Wallet Monitor: get an alert every time this wallet buys or sells"}
             className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition-colors ${tracked ? "border border-emerald/40 bg-emerald/5 text-text" : "bg-text font-medium text-bg hover:opacity-90"}`}
           >
             {tracked ? <BellOff size={13} strokeWidth={1.5} /> : <Bell size={13} strokeWidth={1.5} />}
-            {tracked ? "Tracking" : "Track"}
+            {tracked ? "Monitoring" : "Monitor"}
           </button>
         </div>
       </div>
+      {tracked && (
+        <p className="-mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald/20 bg-emerald/5 px-3 py-2 text-xs text-text-2">
+          <span>In your Wallet Monitor: an alert when it buys {monitor.prefs.wallets.find((w) => w.address === address)?.minBuySol ?? 1} SOL or more{monitor.prefs.wallets.find((w) => w.address === address)?.sells === false ? "" : ", and when it sells"}</span>
+          <Link href="/wallets" onClick={() => closeWalletTracker()} className="text-text underline underline-offset-2">
+            Open Wallet Monitor
+          </Link>
+        </p>
+      )}
 
       {port.error && !p && <p className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-xs text-warning">{port.error}</p>}
 
@@ -324,9 +346,18 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
 
       {/* 30-day results from its swaps */}
       <section className="grid grid-cols-3 gap-3">
-        <Stat label="Realized P&L, 30d" value={act.data ? `${realizedSol >= 0 ? "+" : "−"}${solFmt(Math.abs(realizedSol))}` : "…"} sub={act.data && solUsd ? signedUsd(realizedSol * solUsd) : ""} tone={realizedSol > 0 ? "good" : realizedSol < 0 ? "bad" : undefined} />
-        <Stat label="Win rate" value={closed.length ? `${Math.round((wins / closed.length) * 100)}%` : "—"} sub={closed.length ? `${wins} of ${closed.length} coins sold in profit` : "No sales seen"} />
-        <Stat label="Swaps, 30d" value={act.data ? String(trades.length) : "…"} sub={act.data ? `${trades.filter((t) => t.buy).length} buys · ${trades.filter((t) => !t.buy).length} sells` : ""} />
+        <Stat
+          label={fromHistory ? "Realized P&L, 30d" : seen ? "Realized P&L, 7d" : "Realized P&L, seen by Kixo"}
+          value={!pnlReady ? "…" : pnlSwaps === 0 ? "—" : `${realizedSol >= 0 ? "+" : "−"}${solFmt(Math.abs(realizedSol))}`}
+          sub={!pnlReady ? "Reading swaps" : pnlSwaps === 0 ? "No swaps found" : `${solUsd ? signedUsd(realizedSol * solUsd) : ""}${hasOpen ? ` · open ${openSol >= 0 ? "+" : "−"}${solFmt(Math.abs(openSol))}` : ""}`}
+          tone={pnlSwaps && realizedSol > 0 ? "good" : pnlSwaps && realizedSol < 0 ? "bad" : undefined}
+        />
+        <Stat label="Win rate" value={closedN ? `${Math.round((wins / closedN) * 100)}%` : "—"} sub={closedN ? `${wins} of ${closedN} coins sold in profit` : "No sales seen"} />
+        <Stat
+          label={fromHistory ? "Swaps, 30d" : seen ? "Swaps, 7d" : "Swaps seen"}
+          value={pnlReady ? String(pnlSwaps) : "…"}
+          sub={!pnlReady ? "" : seen ? `on ${seen.coins} coins Kixo read` : `${(fromHistory ? trades : liveRows).filter((t) => t.buy).length} buys · ${(fromHistory ? trades : liveRows).filter((t) => !t.buy).length} sells`}
+        />
       </section>
 
       {/* Holdings */}

@@ -167,6 +167,8 @@ pub struct FeatureFlags {
     pub grid_trading: bool,
     /// Copy trading: follow Smart Money wallets, demo first.
     pub copy_trading: bool,
+    /// Competition page: on-chain top memecoin traders.
+    pub onchain_top: bool,
 }
 
 impl Default for FeatureFlags {
@@ -207,6 +209,7 @@ impl Default for FeatureFlags {
             quick_buy: true,
             grid_trading: true,
             copy_trading: true,
+            onchain_top: true,
         }
     }
 }

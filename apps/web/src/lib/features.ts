@@ -38,6 +38,7 @@ export type Features = {
   news: boolean;
   kixo_sender: boolean;
   wallet_tracker: boolean;
+  onchain_top: boolean;
   copy_trading: boolean;
   grid_trading: boolean;
   quick_buy: boolean;
@@ -77,6 +78,7 @@ export const ALL_ON: Features = {
   news: true,
   kixo_sender: true,
   wallet_tracker: true,
+  onchain_top: true,
   copy_trading: true,
   grid_trading: true,
   quick_buy: true,
@@ -100,6 +102,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "quick_buy", label: "Quick Buy", hint: "One-click buy button on Discover and Sol Radar rows (demo and real)" },
   { key: "grid_trading", label: "Grid trading", hint: "Grid bots on the trade page: buy each dip to a level, sell one level up (demo and real, while Kixo is open)" },
   { key: "copy_trading", label: "Copy trading", hint: "Copy a Smart Money wallet's buys and sells: starts on demo, moves to real once profitable (runs while Kixo is open)" },
+  { key: "onchain_top", label: "On-chain top traders", hint: "Competition page: Solana memecoin traders ranked by on-chain profit, while Kixo has few demo traders" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
   { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },

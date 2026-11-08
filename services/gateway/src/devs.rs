@@ -309,6 +309,101 @@ impl SmartMoney {
     }
 }
 
+/// A memecoin trader ranked by the profit it took on chain (the competition page shows
+/// these while Kixo has few demo traders). Every result is from trades our engine read.
+#[derive(Debug, Clone, Serialize)]
+pub struct TopTrader {
+    pub wallet: String,
+    pub coins: u32,
+    pub wins: u32,
+    pub win_rate: f64,
+    pub realized_sol: f64,
+    pub trades: u32,
+    /// Best single coin, SOL taken.
+    pub best_sol: f64,
+    pub last_trade: i64,
+}
+
+/// At least this many coins sold in the window to be ranked.
+const TOP_MIN_COINS: u32 = 3;
+/// A person trades a few coins an hour at most over the time they are active; a wallet
+/// that sells 270 coins a day is a bot, however calm each trade looks.
+const TOP_MAX_COINS_PER_HOUR: f64 = 4.0;
+const TOP_MAX_COINS_PER_DAY: f64 = 40.0;
+
+impl SmartMoney {
+    /// Wallets ranked by profit taken on coins they traded since `since` (unix seconds).
+    /// Bots are left out with the same rules as smart money (scalping speed, too many
+    /// trades per coin, a new coin every two minutes, dozens of live coins touched).
+    pub fn top_traders<'a>(&self, live: impl Iterator<Item = (&'a str, Vec<&'a Position>)>, since: i64, limit: usize) -> Vec<TopTrader> {
+        let mut results: HashMap<&str, HashMap<&str, CoinResult>> = self
+            .closed
+            .iter()
+            .map(|(w, coins)| (w.as_str(), coins.iter().filter(|(_, r)| r.last_ts >= since).map(|(m, r)| (m.as_str(), *r)).collect()))
+            .collect();
+        let mut touched: HashMap<&str, usize> = HashMap::new();
+        let live: Vec<(&str, Vec<&Position>)> = live.collect();
+        for (mint, ps) in &live {
+            for p in ps.iter() {
+                *touched.entry(p.wallet.as_str()).or_default() += 1;
+                if p.sells > 0 && p.last_ts >= since {
+                    results.entry(p.wallet.as_str()).or_default().insert(mint, CoinResult::of(p));
+                }
+            }
+        }
+        let mut out: Vec<TopTrader> = results
+            .iter()
+            .filter_map(|(w, coins)| {
+                let mut s = Stat::default();
+                coins.values().for_each(|r| s.add(r));
+                let hours = ((s.last_ts - s.first_ts).max(0) as f64 / 3600.0).max(1.0);
+                let days = (hours / 24.0).max(1.0);
+                let human_pace = s.coins as f64 / hours <= TOP_MAX_COINS_PER_HOUR && s.coins as f64 / days <= TOP_MAX_COINS_PER_DAY;
+                let ok = s.coins >= TOP_MIN_COINS && s.realized_sol > 0.0 && human_pace && !s.looks_automated() && touched.get(w).copied().unwrap_or(0) <= SMART_MAX_LIVE_TOUCHED;
+                ok.then(|| TopTrader {
+                    wallet: w.to_string(),
+                    coins: s.coins,
+                    wins: s.wins,
+                    win_rate: (s.wins as f64 / s.coins as f64 * 1000.0).round() / 10.0,
+                    realized_sol: (s.realized_sol * 1000.0).round() / 1000.0,
+                    trades: s.trades,
+                    best_sol: (coins.values().map(|r| r.realized_sol).fold(0.0, f64::max) * 1000.0).round() / 1000.0,
+                    last_trade: s.last_ts,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| b.realized_sol.total_cmp(&a.realized_sol));
+        out.truncate(limit);
+        out
+    }
+
+    /// One wallet's results over the last week on the coins our engine read, closed and
+    /// live: the Wallet Tracker's P&L when the on-chain history cannot be read.
+    pub fn wallet_result<'a>(&self, wallet: &str, live: impl Iterator<Item = (&'a str, Vec<&'a Position>)>) -> Option<TopTrader> {
+        let mut coins: HashMap<String, CoinResult> = self.closed.get(wallet).cloned().unwrap_or_default();
+        for (mint, ps) in live {
+            if let Some(p) = ps.into_iter().find(|p| p.wallet == wallet && p.sells > 0) {
+                coins.insert(mint.to_string(), CoinResult::of(p));
+            }
+        }
+        if coins.is_empty() {
+            return None;
+        }
+        let mut s = Stat::default();
+        coins.values().for_each(|r| s.add(r));
+        Some(TopTrader {
+            wallet: wallet.to_string(),
+            coins: s.coins,
+            wins: s.wins,
+            win_rate: (s.wins as f64 / s.coins as f64 * 1000.0).round() / 10.0,
+            realized_sol: (s.realized_sol * 1000.0).round() / 1000.0,
+            trades: s.trades,
+            best_sol: (coins.values().map(|r| r.realized_sol).fold(0.0, f64::max) * 1000.0).round() / 1000.0,
+            last_trade: s.last_ts,
+        })
+    }
+}
+
 /// One smart wallet on the leaderboard.
 #[derive(Debug, Clone, Serialize)]
 pub struct Leader {
@@ -401,5 +496,29 @@ mod tests {
         let books: Vec<(String, Vec<Position>)> = (0..12).map(|i| (format!("M{i}"), vec![pos("bot", 0.0, 1.0)])).collect();
         let (held, _) = s.evaluate(books.iter().map(|(m, ps)| (m.as_str(), ps.iter().collect())), 2_000);
         assert!(held.is_empty(), "{held:?}");
+    }
+
+    #[test]
+    fn top_traders_rank_people_by_profit_and_skip_bots() {
+        let mut s = SmartMoney::default();
+        for i in 0..4 {
+            s.fold(&format!("C{i}"), [pos("big", 3.0, 0.0), pos("small", 1.0, 0.0)].iter());
+        }
+        // 300 coins inside one hour: a bot, even with calm trades and big profit.
+        for i in 0..300 {
+            let p = Position { wallet: "bot".into(), buys: 1, sells: 1, realized_sol: 1.0, first_ts: 1_000 + i, last_ts: 1_600 + i, ..Default::default() };
+            s.fold(&format!("B{i}"), [p].iter());
+        }
+        // Old results fall outside the window.
+        let old = Position { wallet: "old".into(), buys: 1, sells: 1, realized_sol: 50.0, first_ts: 10, last_ts: 70, ..Default::default() };
+        for i in 0..3 {
+            s.fold(&format!("O{i}"), [old.clone()].iter());
+        }
+        let top = s.top_traders(std::iter::empty(), 500, 10);
+        let names: Vec<&str> = top.iter().map(|t| t.wallet.as_str()).collect();
+        assert_eq!(names, vec!["big", "small"]);
+        assert_eq!(top[0].coins, 4);
+        assert!((top[0].realized_sol - 12.0).abs() < 1e-9);
+        assert!((top[0].best_sol - 3.0).abs() < 1e-9);
     }
 }

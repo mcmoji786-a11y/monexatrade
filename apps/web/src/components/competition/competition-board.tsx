@@ -7,6 +7,8 @@ import { useLeaderboard, type BoardRow } from "@/lib/growth";
 import { useAccount, openLogin } from "@/lib/account";
 import { useNow } from "@/components/radar/use-radar-feed";
 import { money, signed } from "@/components/trade/trade-panel";
+import { useFeatures } from "@/lib/features";
+import { OnchainTop } from "./onchain-top";
 
 const PLACES = ["1st", "2nd", "3rd"];
 
@@ -28,6 +30,7 @@ export function CompetitionBoard() {
   const [week, setWeek] = useState<"current" | "last">("current");
   const { board, failed } = useLeaderboard(week);
   const account = useAccount();
+  const features = useFeatures();
   const now = useNow();
   const me = board?.leaders.find((l) => l.you);
   const ends = board ? board.to - Math.floor((now || board.now * 1000) / 1000) : null;
@@ -109,6 +112,8 @@ export function CompetitionBoard() {
         <li>3 closed trades a week to be ranked. Names are referral codes, never emails or wallets</li>
         <li>Demo results use virtual money at live prices. They are not real profits</li>
       </ul>
+
+      {features.onchain_top && <OnchainTop />}
     </section>
   );
 }

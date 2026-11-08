@@ -100,8 +100,21 @@ export function useTokenBook(mint: string): BookState {
       };
     };
     connect();
+    // A coin whose pool is still being set up answers after a few seconds. Show its
+    // pool history meanwhile, so the chart is never empty on open; the live book
+    // replaces it as soon as it arrives.
+    const early = setTimeout(async () => {
+      try {
+        const res = await fetch(`${GATEWAY_HTTP}/token/${encodeURIComponent(mint)}/dex`);
+        const history = res.ok ? ((await res.json()) as DexHistory | null) : null;
+        if (!closed && history?.candles?.length) set((b) => (b.status === "loading" ? { status: "dex", history } : b));
+      } catch {
+        // the live book will come
+      }
+    }, 400);
     return () => {
       closed = true;
+      clearTimeout(early);
       clearTimeout(retry);
       clearInterval(dexTimer);
       // Closing a socket that is still connecting logs a browser error (React's
