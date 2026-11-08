@@ -165,6 +165,8 @@ pub struct FeatureFlags {
     pub quick_buy: bool,
     /// Grid trading: buy each dip to a level and sell one level up.
     pub grid_trading: bool,
+    /// Copy trading: follow Smart Money wallets, demo first.
+    pub copy_trading: bool,
 }
 
 impl Default for FeatureFlags {
@@ -204,6 +206,7 @@ impl Default for FeatureFlags {
             wallet_labels: true,
             quick_buy: true,
             grid_trading: true,
+            copy_trading: true,
         }
     }
 }

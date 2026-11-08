@@ -1,6 +1,7 @@
 "use client";
 
 import { WalletLink } from "@/components/tracker/wallet-tracker";
+import { CopyButton, CopyTrades } from "./copy-trading";
 
 import { openWalletTracker } from "@/lib/tracker";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -201,6 +202,8 @@ export function SmartMoneyBoard() {
         </div>
       )}
 
+      <CopyTrades leaders={leaders} />
+
       {/* Top three */}
       {leaders.length > 0 && (
         <div className="grid gap-3 lg:grid-cols-3">
@@ -265,6 +268,7 @@ export function SmartMoneyBoard() {
                         <WalletDot address={l.wallet} />
                         <WalletLink address={l.wallet} badges={false} />
                         <PortfolioLink wallet={l.wallet} />
+                        <CopyButton leader={l} />
                       </span>
                     </td>
                     <td className="px-3 text-right font-mono text-positive">
@@ -351,6 +355,7 @@ function Podium({
           <WalletDot address={l.wallet} size={28} />
           <WalletLink address={l.wallet} badges={false} />
           <PortfolioLink wallet={l.wallet} />
+                        <CopyButton leader={l} />
         </span>
         <span className="flex items-center gap-2 font-mono text-xs text-muted">
           <Move by={move} />#{rank}
