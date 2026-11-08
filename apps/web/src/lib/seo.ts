@@ -4,8 +4,9 @@
 import { cacheLife } from "next/cache";
 import { GATEWAY_HTTP } from "./gateway";
 
-export const DEFAULT_TITLE = "Kixo – AI-Powered Solana Memecoin Trading Terminal";
-export const DEFAULT_DESCRIPTION = "See every new Solana token the second it launches, priced from on-chain trades.";
+export const DEFAULT_TITLE = "Kixo – Solana Memecoin Trading Terminal";
+export const DEFAULT_DESCRIPTION =
+  "Fast Solana memecoin trading terminal: every new launch the second it lands, safety scores, a sniper, smart money and wallet tracking, live on-chain news, and a free demo account at live prices.";
 
 export async function seo(): Promise<{ title: string; description: string }> {
   "use cache";

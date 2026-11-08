@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { NewsFeed } from "@/components/news/news-panel";
 
-export const metadata: Metadata = { title: "News" };
+export const metadata: Metadata = {
+  title: "News",
+  description: "Live Solana memecoin news: pumps, trending coins, graduations and whale buys from on-chain data, plus crypto news and videos",
+  alternates: { canonical: "/news" }, openGraph: { title: "Solana memecoin news · Kixo", description: "Live Solana memecoin news: pumps, trending coins, graduations and whale buys from on-chain data, plus crypto news and videos", url: "/news" },
+};
 
 /** The news feed as a page (phones, and direct links). On desktop it also opens as a
  *  panel beside any page. */

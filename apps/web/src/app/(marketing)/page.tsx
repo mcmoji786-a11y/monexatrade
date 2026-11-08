@@ -5,9 +5,12 @@ import { LoginPopup, TradeNowButton } from "@/components/account/auth-gate";
 import { LivePreview } from "@/components/landing/live-preview";
 import { SiteNav } from "@/components/landing/site-nav";
 import { MarketingBanner, MarketingPopup } from "@/components/marketing/marketing-ui";
-import { seo } from "@/lib/seo";
+import { DEFAULT_DESCRIPTION, seo } from "@/lib/seo";
+import { SITE_URL } from "@/lib/site";
+import { JsonLd } from "@/components/seo/json-ld";
 import {
   ChainData,
+  FAQ,
   Faq,
   Features,
   Fees,
@@ -19,22 +22,50 @@ import {
 
 export async function generateMetadata(): Promise<Metadata> {
   const s = await seo();
-  return { title: { absolute: s.title }, description: s.description };
+  return { title: { absolute: s.title }, description: s.description, alternates: { canonical: "/" } };
 }
+
+const STRUCTURED = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Kixo",
+    url: SITE_URL,
+    applicationCategory: "FinanceApplication",
+    operatingSystem: "Web browser",
+    description: DEFAULT_DESCRIPTION,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free to use; 0.5% fee per trade" },
+    featureList: [
+      "Real-time new Solana token launches",
+      "Memecoin safety score",
+      "Sniper bot",
+      "Smart money and wallet tracking",
+      "Live on-chain news",
+      "Demo trading account at live prices",
+    ],
+  },
+  { "@context": "https://schema.org", "@type": "Organization", name: "Kixo", url: SITE_URL, logo: `${SITE_URL}/brand/kixo-mark.png` },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+  },
+];
 
 export default function LandingPage() {
   return (
     <>
+      <JsonLd data={STRUCTURED} />
       <MarketingBanner />
       <MarketingPopup />
       <SiteNav />
       <main>
         <section className="mx-auto grid max-w-300 gap-12 px-4 pb-24 pt-16 md:px-8 md:pt-24 lg:grid-cols-[1fr_1.05fr] lg:items-center">
           <div>
-            <div className="flex items-center gap-2 font-mono text-xs text-text-2">
+            <p className="flex items-center gap-2 font-mono text-xs text-text-2">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
-              Solana mainnet
-            </div>
+              Solana memecoin trading terminal
+            </p>
             <h1 className="mt-6 text-4xl font-medium leading-[1.06] tracking-[-0.02em] text-text md:text-6xl md:tracking-[-0.03em]">
               See every new Solana token the second it launches
             </h1>

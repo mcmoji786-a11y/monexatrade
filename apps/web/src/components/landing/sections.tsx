@@ -5,6 +5,7 @@ import { KeyRound, Receipt, ShieldCheck, type LucideIcon } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { FEATURE_COUNTS, FeatureExplorer } from "./feature-explorer";
 import { Reveal } from "./reveal";
+import { GUIDES } from "@/lib/guides";
 
 /* ---------- shared ---------- */
 
@@ -192,14 +193,27 @@ export function Fees() {
 
 /* ---------- FAQ ---------- */
 
-const FAQ = [
+/** Also published as FAQ structured data on the landing page, so keep each answer true. */
+export const FAQ = [
+  {
+    q: "What is Kixo?",
+    a: "Kixo is a Solana memecoin trading terminal. It shows every new token the second it launches, scores each coin on checks it can verify, and puts trading, a sniper, smart money, wallet tracking and live on-chain news on one screen.",
+  },
   {
     q: "What can I use today?",
-    a: "Sol Radar is live: new Solana tokens from every major launchpad, with price, market cap, volume, holders, curve progress and concentration. Trading, token pages and the wallet tracker are in development.",
+    a: "Discover, Sol Radar, coin pages with charts and safety scores, the sniper, Smart Money, the Wallet Tracker and Monitor, live news and a free demo account that trades at live prices with real fees. Real-SOL trading opens after its security review.",
+  },
+  {
+    q: "Can I practise without real money?",
+    a: "Yes. Every account starts with a demo balance that buys and sells at live market prices, with the same fees and price impact as a real trade, so the result you see is what the trade would really have made.",
   },
   {
     q: "Does Kixo hold my funds?",
-    a: "No. Kixo is non-custodial. You trade from your own wallet and approve each transaction there. We never ask for a seed phrase.",
+    a: "No. Your Kixo trading wallet is created in your own browser and locked with a wallet password only you know. Kixo stores only the locked copy, which it cannot open, and never asks for a seed phrase.",
+  },
+  {
+    q: "What does Kixo charge?",
+    a: "0.5% per trade and 0.5% on withdrawals. Deposits are free. Solana network fees are separate and shown before you confirm.",
   },
   {
     q: "Which tokens appear on Sol Radar?",
@@ -244,7 +258,7 @@ export function FinalCta() {
       <div className="mx-auto flex max-w-300 flex-col items-start gap-6 px-4 py-20 md:flex-row md:items-center md:justify-between md:px-8">
         <div>
           <h2 className="text-3xl font-medium text-text">Watch the next launch land</h2>
-          <p className="mt-2 text-text-2">Sol Radar is free to use. No account needed.</p>
+          <p className="mt-2 text-text-2">Free to use. Sign up with Google or email and start with a demo account.</p>
         </div>
         <ButtonLink href="/discover" size="lg">
           Trade now
@@ -263,12 +277,25 @@ export function SiteFooter() {
           <nav className="flex flex-wrap gap-x-8 gap-y-3 text-sm text-text-2" aria-label="Footer">
             <Link href="/discover" className="hover:text-text">Discover</Link>
             <Link href="/radar" className="hover:text-text">Sol Radar</Link>
-            <a href="#features" className="hover:text-text">Features</a>
-            <a href="#security" className="hover:text-text">Security</a>
-            <a href="#fees" className="hover:text-text">Fees</a>
-            <a href="#faq" className="hover:text-text">FAQ</a>
+            <Link href="/#features" className="hover:text-text">Features</Link>
+            <Link href="/#security" className="hover:text-text">Security</Link>
+            <Link href="/#fees" className="hover:text-text">Fees</Link>
+            <Link href="/learn" className="hover:text-text">Learn</Link>
+            <Link href="/#faq" className="hover:text-text">FAQ</Link>
           </nav>
         </div>
+        <nav className="mt-10 border-t border-border pt-8" aria-label="Guides">
+          <p className="text-xs text-muted">Guides</p>
+          <ul className="mt-3 grid gap-x-8 gap-y-2 text-sm text-text-2 sm:grid-cols-2 lg:grid-cols-3">
+            {GUIDES.map((g) => (
+              <li key={g.slug}>
+                <Link href={`/learn/${g.slug}`} className="hover:text-text">
+                  {g.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
         <div className="mt-8">
           <SocialLinks />
         </div>
