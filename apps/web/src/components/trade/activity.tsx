@@ -2,6 +2,7 @@
 
 import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { useState } from "react";
+import { useFeatures } from "@/lib/features";
 import { CoinLabelsContext, LABEL_ORDER, useCoinLabels, useSmartWallets, type CoinLabels, type WalletLabel } from "@/lib/labels";
 import { CopyAddress } from "@/components/token/token-bits";
 import { amount, positionPnl, sol, usd, type Position, type TradeRow } from "@/lib/gateway";
@@ -49,7 +50,8 @@ export function Activity({
   };
   const tradeShown = (t: TradeRow) => who === "all" || labelsOf(t.wallet, [t.dev && "dev", t.sniper && "sniper", t.whale && "whale", t.bundler && "bundler"]).has(who);
   const walletShown = (p: Position) => who === "all" || labelsOf(p.wallet, [p.dev && "dev", p.sniper && "sniper", p.bundler && "bundler", p.big_buyer && "whale"]).has(who);
-  const filterable = tab === "trades" || tab === "holders" || tab === "traders";
+  const labelsOn = useFeatures().wallet_labels;
+  const filterable = labelsOn && (tab === "trades" || tab === "holders" || tab === "traders");
   const [focus, setFocus] = useState<string | null>(null);
   const needsWallets = book.status === "live" && tab !== "trades" && tab !== "whales";
   const wallets = useWallets(mint, needsWallets, tab === "positions" ? focus : null);

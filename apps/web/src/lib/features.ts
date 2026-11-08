@@ -38,6 +38,8 @@ export type Features = {
   news: boolean;
   kixo_sender: boolean;
   wallet_tracker: boolean;
+  quick_buy: boolean;
+  wallet_labels: boolean;
   kixo_wallet: boolean;
   wallet_deposits: boolean;
 };
@@ -73,6 +75,8 @@ export const ALL_ON: Features = {
   news: true,
   kixo_sender: true,
   wallet_tracker: true,
+  quick_buy: true,
+  wallet_labels: true,
   kixo_wallet: true,
   wallet_deposits: true,
 };
@@ -88,6 +92,8 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "sniper", label: "Sniper", hint: "Paper sniper and its page" },
   { key: "smart_money", label: "Smart Money", hint: "Leaderboard of profitable wallets" },
   { key: "wallet_tracker", label: "Wallet Tracker", hint: "Any wallet's balance, coins and recent swaps, as a page and as a side panel from every wallet address" },
+  { key: "wallet_labels", label: "Wallet labels", hint: "Dev, Smart, Whale, Bundler and Sniper tags on wallet addresses, and the Show filter on the trade page" },
+  { key: "quick_buy", label: "Quick Buy", hint: "One-click buy button on Discover and Sol Radar rows (demo and real)" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
   { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },

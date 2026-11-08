@@ -70,6 +70,9 @@ export function SettingsBoard() {
             <Row label="Sell buttons" hint="Up to four shares of the position">
               <Presets values={t.sell_presets} unit="%" max={4} step={1} onChange={(v) => trading({ sell_presets: v })} />
             </Row>
+            <Row label="Quick Buy" hint="The one-click buy on Discover and Sol Radar rows, in real mode">
+              <Segmented value={t.quick_buy_sol} options={[0.05, 0.1, 0.25, 0.5, 1].map((v) => ({ value: v, label: v + " SOL" }))} onChange={(v) => trading({ quick_buy_sol: v })} />
+            </Row>
             <Row label="Confirm large buys" hint={t.confirm_above_sol > 0 ? `Buys of ${t.confirm_above_sol} SOL or more need a second click` : "Never asks twice"}>
               <Segmented value={t.confirm_above_sol} options={[0, 0.5, 1, 2].map((v) => ({ value: v, label: v === 0 ? "Off" : `${v} SOL` }))} onChange={(v) => trading({ confirm_above_sol: v })} />
             </Row>
@@ -77,7 +80,10 @@ export function SettingsBoard() {
 
           <Card id="demo" title="Demo account" sub="Virtual money traded at live prices">
             <Row label="Buy buttons" hint="Up to four amounts in USD">
-              <Presets values={s.demo.buy_presets_usd} unit="$" max={4} step={1} prefix onChange={(v) => up((x) => ({ ...x, demo: { buy_presets_usd: v } }))} />
+              <Presets values={s.demo.buy_presets_usd} unit="$" max={4} step={1} prefix onChange={(v) => up((x) => ({ ...x, demo: { ...x.demo, buy_presets_usd: v } }))} />
+            </Row>
+            <Row label="Quick Buy" hint="The one-click buy on Discover and Sol Radar rows">
+              <Segmented value={s.demo.quick_buy_usd} options={[10, 25, 50, 100, 250].map((v) => ({ value: v, label: "$" + v }))} onChange={(v) => up((x) => ({ ...x, demo: { ...x.demo, quick_buy_usd: v } }))} />
             </Row>
             <Row label="After signing in, open" hint="Which account the app starts in">
               <Segmented value={s.general.start_mode} options={[{ value: "last", label: "Last used" }, { value: "demo", label: "Demo" }, { value: "real", label: "Real" }]} onChange={(v) => up((x) => ({ ...x, general: { start_mode: v } }))} />

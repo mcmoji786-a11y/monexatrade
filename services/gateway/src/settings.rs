@@ -28,11 +28,13 @@ pub struct Trading {
     pub sell_presets: Vec<f64>,
     /// Ask once more before buying at least this much SOL (0: never).
     pub confirm_above_sol: f64,
+    /// The Quick Buy button on Discover and Sol Radar rows, in SOL.
+    pub quick_buy_sol: f64,
 }
 
 impl Default for Trading {
     fn default() -> Self {
-        Self { slippage_bps: 1_000, speed: "turbo".into(), mev: true, buy_presets: vec![0.05, 0.1, 0.25, 0.5, 1.0], sell_presets: vec![25.0, 50.0, 75.0, 100.0], confirm_above_sol: 1.0 }
+        Self { slippage_bps: 1_000, speed: "turbo".into(), mev: true, buy_presets: vec![0.05, 0.1, 0.25, 0.5, 1.0], sell_presets: vec![25.0, 50.0, 75.0, 100.0], confirm_above_sol: 1.0, quick_buy_sol: 0.1 }
     }
 }
 
@@ -41,11 +43,13 @@ impl Default for Trading {
 pub struct Demo {
     /// Demo buy buttons, in USD.
     pub buy_presets_usd: Vec<f64>,
+    /// The Quick Buy button on demo, in USD.
+    pub quick_buy_usd: f64,
 }
 
 impl Default for Demo {
     fn default() -> Self {
-        Self { buy_presets_usd: vec![10.0, 50.0, 100.0, 500.0] }
+        Self { buy_presets_usd: vec![10.0, 50.0, 100.0, 500.0], quick_buy_usd: 25.0 }
     }
 }
 
@@ -112,6 +116,8 @@ impl Settings {
         t.buy_presets = presets(&t.buy_presets, 0.001, crate::trade::MAX_LAMPORTS as f64 / 1e9, 5, &d.trading.buy_presets);
         t.sell_presets = presets(&t.sell_presets, 1.0, 100.0, 4, &d.trading.sell_presets);
         t.confirm_above_sol = if t.confirm_above_sol.is_finite() { t.confirm_above_sol.clamp(0.0, 3.0) } else { d.trading.confirm_above_sol };
+        t.quick_buy_sol = if t.quick_buy_sol.is_finite() { t.quick_buy_sol.clamp(0.001, crate::trade::MAX_LAMPORTS as f64 / 1e9) } else { d.trading.quick_buy_sol };
+        self.demo.quick_buy_usd = if self.demo.quick_buy_usd.is_finite() { self.demo.quick_buy_usd.clamp(1.0, 10_000.0) } else { d.demo.quick_buy_usd };
         self.demo.buy_presets_usd = presets(&self.demo.buy_presets_usd, 1.0, 10_000.0, 4, &d.demo.buy_presets_usd);
         if !matches!(self.general.start_mode.as_str(), "last" | "demo" | "real") {
             self.general.start_mode = d.general.start_mode;
@@ -199,8 +205,8 @@ mod tests {
     #[test]
     fn settings_are_kept_in_range() {
         let wild = Settings {
-            trading: Trading { slippage_bps: 99_000, speed: "warp".into(), mev: false, buy_presets: vec![0.0, 0.5, 9.0, f64::NAN, 1.0, 2.0, 0.2, 0.3], sell_presets: vec![0.0, 150.0], confirm_above_sol: 40.0 },
-            demo: Demo { buy_presets_usd: vec![] },
+            trading: Trading { slippage_bps: 99_000, speed: "warp".into(), mev: false, buy_presets: vec![0.0, 0.5, 9.0, f64::NAN, 1.0, 2.0, 0.2, 0.3], sell_presets: vec![0.0, 150.0], confirm_above_sol: 40.0, quick_buy_sol: 99.0 },
+            demo: Demo { buy_presets_usd: vec![], quick_buy_usd: f64::NAN },
             notifications: Notifications::default(),
             general: General { start_mode: "moon".into() },
         }
@@ -212,6 +218,8 @@ mod tests {
         assert_eq!(wild.trading.sell_presets, Trading::default().sell_presets, "nothing valid left: defaults");
         assert_eq!(wild.trading.confirm_above_sol, 3.0);
         assert_eq!(wild.demo.buy_presets_usd, Demo::default().buy_presets_usd);
+        assert_eq!(wild.trading.quick_buy_sol, crate::trade::MAX_LAMPORTS as f64 / 1e9, "Quick Buy capped at the trade limit");
+        assert_eq!(wild.demo.quick_buy_usd, Demo::default().quick_buy_usd, "not a number: default");
         assert_eq!(wild.general.start_mode, "last");
         // Missing fields read as defaults.
         let partial: Settings = serde_json::from_value(json!({ "trading": { "slippage_bps": 500 } })).unwrap();

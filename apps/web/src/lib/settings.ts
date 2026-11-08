@@ -9,15 +9,15 @@ import { accessToken, currentUserId, useAccount } from "./account";
    once; the gateway's copy wins when it arrives. */
 
 export type Settings = {
-  trading: { slippage_bps: number; speed: "fast" | "turbo"; mev: boolean; buy_presets: number[]; sell_presets: number[]; confirm_above_sol: number };
-  demo: { buy_presets_usd: number[] };
+  trading: { slippage_bps: number; speed: "fast" | "turbo"; mev: boolean; buy_presets: number[]; sell_presets: number[]; confirm_above_sol: number; quick_buy_sol: number };
+  demo: { buy_presets_usd: number[]; quick_buy_usd: number };
   notifications: { trades: boolean; exits: boolean; sniper: boolean; sound: boolean };
   general: { start_mode: "last" | "demo" | "real" };
 };
 
 export const DEFAULTS: Settings = {
-  trading: { slippage_bps: 1000, speed: "turbo", mev: true, buy_presets: [0.05, 0.1, 0.25, 0.5, 1], sell_presets: [25, 50, 75, 100], confirm_above_sol: 1 },
-  demo: { buy_presets_usd: [10, 50, 100, 500] },
+  trading: { slippage_bps: 1000, speed: "turbo", mev: true, buy_presets: [0.05, 0.1, 0.25, 0.5, 1], sell_presets: [25, 50, 75, 100], confirm_above_sol: 1, quick_buy_sol: 0.1 },
+  demo: { buy_presets_usd: [10, 50, 100, 500], quick_buy_usd: 25 },
   notifications: { trades: true, exits: true, sniper: true, sound: false },
   general: { start_mode: "last" },
 };

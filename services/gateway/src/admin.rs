@@ -159,6 +159,10 @@ pub struct FeatureFlags {
     pub kixo_wallet: bool,
     /// Deposits into Kixo wallets (real SOL): Phantom deposits and the deposit address.
     pub wallet_deposits: bool,
+    /// Wallet labels: dev, smart money, whale, bundler and sniper tags on addresses.
+    pub wallet_labels: bool,
+    /// Quick Buy: the one-click buy on Discover and Sol Radar rows.
+    pub quick_buy: bool,
 }
 
 impl Default for FeatureFlags {
@@ -195,6 +199,8 @@ impl Default for FeatureFlags {
             wallet_tracker: true,
             kixo_wallet: true,
             wallet_deposits: true,
+            wallet_labels: true,
+            quick_buy: true,
         }
     }
 }

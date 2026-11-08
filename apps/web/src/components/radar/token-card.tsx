@@ -1,6 +1,7 @@
 "use client";
 import { memo } from "react";
 import { TradeLink } from "@/components/token/trade-link";
+import { QuickBuy } from "@/components/trade/quick-buy";
 
 import { useRadarFilters } from "@/lib/prefs";
 import { ArrowUpRight, EyeOff, Brain, History, Fish, Globe, Send, TrendingDown, Users, type LucideIcon } from "lucide-react";
@@ -260,6 +261,7 @@ function TokenCardView({
         </span>
         <span className="ml-auto flex items-center gap-1.5">
           <AiButton input={() => inputFromLaunch(token)} safety={safety} compact />
+          <QuickBuy mint={token.mint} symbol={token.symbol} />
           <TradeLink mint={token.mint} />
         </span>
       </div>

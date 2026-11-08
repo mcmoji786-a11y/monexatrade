@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Bell, BellOff, Check, Copy, ExternalLink, Eye, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
 import { useWalletLabels, type WalletLabel } from "@/lib/labels";
+import { useFeatures } from "@/lib/features";
 import { pnlByCoin, useActivity, useLiveTrades, usePortfolio, type Holding, type Trade } from "@/lib/portfolio";
 import { useMonitor } from "@/lib/prefs";
 import { closeWalletTracker, openWalletTracker, useAddressKind, useOpenWallet, type AddressKind } from "@/lib/tracker";
@@ -75,9 +76,10 @@ export function WalletLink({
 }) {
   const [copied, setCopied] = useState(false);
   const labels = useWalletLabels(address, extra);
+  const labelsOn = useFeatures().wallet_labels;
   return (
     <span className="inline-flex items-center gap-1">
-      {badges && labels.map((l) => <LabelChip key={l} label={l} />)}
+      {badges && labelsOn && labels.map((l) => <LabelChip key={l} label={l} />)}
       <button
         type="button"
         title={`Open ${address} in the Wallet Tracker`}

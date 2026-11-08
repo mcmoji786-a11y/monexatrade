@@ -1,5 +1,6 @@
 "use client";
 import { TradeLink } from "@/components/token/trade-link";
+import { QuickBuy } from "@/components/trade/quick-buy";
 import { useOpenToken } from "@/lib/open-token";
 import { Socials } from "@/components/token/socials";
 import { AiButton } from "@/components/token/ai-analysis";
@@ -235,6 +236,7 @@ export function TokenTable({
               <td className="pr-4 pl-4 text-right">
                 <span className="inline-flex items-center gap-1.5">
                   <AiButton input={() => inputFromRow(r)} safety={safetyOf(r)} compact />
+                  <QuickBuy mint={r.mint} symbol={r.symbol} />
                   <TradeLink mint={r.mint} />
                 </span>
               </td>
