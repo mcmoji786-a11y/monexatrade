@@ -296,6 +296,7 @@ async fn main() -> Result<()> {
         .route("/demo/trades", get(demo::trades))
         .route("/demo/orders", get(demo::list_rules).post(demo::create_rule))
         .route("/demo/orders/{id}/cancel", axum::routing::post(demo::cancel_rule))
+        .route("/price", get(demo::prices))
         .with_state(demo::DemoCtx { app: state.clone(), acct: acct.clone() });
     tokio::spawn(demo::watch_rules(demo::DemoCtx { app: state.clone(), acct: acct.clone() }));
     // Accounts: profile sync (account.rs).

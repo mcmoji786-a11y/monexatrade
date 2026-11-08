@@ -138,15 +138,17 @@ export function refreshDemo() {
   return inflight;
 }
 
-/** A toast for each take profit or stop loss that filled since the last refresh. */
+const FILLED: Record<DemoRule["kind"], string> = { tp: "Take profit hit", limit_sell: "Limit sell filled", sl: "Stop loss hit", trail: "Trailing stop hit", limit_buy: "Limit buy filled" };
+
+/** A toast for each demo order that filled since the last refresh. */
 function announceFills(before: DemoRule[], after: DemoRule[]) {
   const wasOpen = new Set(before.filter((r) => r.status === "open").map((r) => r.id));
   for (const r of after) {
     if (r.status !== "filled" || !wasOpen.has(r.id)) continue;
     pushToast({
       kind: "exit",
-      tone: r.kind === "tp" ? "good" : "bad",
-      title: `${r.kind === "tp" ? "Take profit" : "Stop loss"} hit on ${r.symbol || "your coin"}`,
+      tone: r.kind === "sl" ? "bad" : "good",
+      title: `${FILLED[r.kind] ?? "Order filled"} on ${r.symbol || "your coin"} · demo`,
       body: r.note ?? undefined,
       href: `/token/${r.mint}`,
     });

@@ -99,7 +99,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "portfolio", label: "Portfolio", hint: "Wallet holdings, allocation and P&L" },
   { key: "demo", label: "Demo account", hint: "Virtual $10,000 traded at live prices" },
   { key: "share_cards", label: "Share P&L cards", hint: "Trade result image to share on X, Reddit and Telegram" },
-  { key: "demo_orders", label: "Take profit / Stop loss", hint: "Automatic exits on demo positions" },
+  { key: "demo_orders", label: "Orders", hint: "Limit buy and sell, stop loss and trailing stop on the trade page: demo watched by the gateway around the clock, real while Kixo is open" },
   { key: "competition", label: "Weekly competition", hint: "Demo trading leaderboard and badges" },
   { key: "referrals", label: "Referral links", hint: "Personal invite links and share-card links" },
   { key: "settings", label: "Settings", hint: "Trading defaults, notifications, data export and account deletion" },

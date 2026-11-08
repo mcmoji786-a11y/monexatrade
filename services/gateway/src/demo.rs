@@ -429,22 +429,31 @@ pub async fn trades(State(c): State<DemoCtx>, headers: HeaderMap, Query(q): Quer
     Ok(Json(v))
 }
 
-/* ---------------- Take profit / stop loss ---------------- */
+/* ---------------- Orders: limit, take profit, stop loss, trailing ---------------- */
 
 /// Open orders per account.
 const MAX_OPEN_ORDERS: usize = 20;
 /// How often the gateway checks open orders against live prices.
 const ORDER_CHECK: Duration = Duration::from_secs(2);
+/// A trailing stop's highest price is saved when the price beats it by this share, so a
+/// rising coin does not cost a database write every two seconds.
+const PEAK_STEP: f64 = 0.005;
 
 #[derive(Deserialize)]
 pub struct OrderRuleIn {
     mint: String,
-    /// "tp" or "sl".
+    /// "tp", "sl", "limit_buy", "limit_sell" or "trail".
     kind: String,
-    /// Move from the average entry price in %: +1 to +10000 for tp, -1 to -95 for sl.
-    pct: f64,
-    /// Share of the position to sell, 0 to 1 (default all).
+    /// Take profit / stop loss: move from the average entry price in %.
+    pct: Option<f64>,
+    /// Limit orders: the price that fires the order, in USD.
+    price_usd: Option<f64>,
+    /// Sells: share of the position to sell, 0 to 1 (default all).
     fraction: Option<f64>,
+    /// Limit buys: cash to spend.
+    usd: Option<f64>,
+    /// Trailing stops: sell when the price falls this % below its highest since placing.
+    trail_pct: Option<f64>,
 }
 
 /// Checks a take-profit / stop-loss request; returns (kind, pct, fraction).
@@ -465,59 +474,151 @@ pub fn check_rule(kind: &str, pct: f64, fraction: Option<f64>) -> Result<(&'stat
     }
 }
 
-/// Has the market crossed an order's trigger?
+/// A checked order: what fires it and what it does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrderSpec {
+    pub kind: &'static str,
+    pub trigger_price: f64,
+    pub trigger_pct: f64,
+    pub fraction: f64,
+    pub usd: Option<f64>,
+    pub trail_pct: Option<f64>,
+    pub peak: Option<f64>,
+}
+
+/// Turns a request into an order, given the live price and (for sells) the average entry
+/// price. The same rules the browser's real-order engine follows (lib/orders.ts).
+pub fn check_order(o: &OrderRuleIn, price: f64, entry: Option<f64>, cash: f64) -> Result<OrderSpec, String> {
+    if !(price.is_finite() && price > 0.0) {
+        return Err("this coin has no live price".into());
+    }
+    let fraction = o.fraction.unwrap_or(1.0);
+    if !(fraction > 0.0 && fraction <= 1.0) {
+        return Err("choose how much to sell".into());
+    }
+    let need_entry = || entry.filter(|e| *e > 0.0).ok_or_else(|| "buy the coin first".to_string());
+    let target = || o.price_usd.filter(|p| p.is_finite() && *p > 0.0).ok_or_else(|| "enter a price".to_string());
+    match o.kind.as_str() {
+        // By percent from the entry (the buy ticket's TP/SL fields).
+        "tp" | "sl" if o.pct.is_some() => {
+            let entry = need_entry()?;
+            let (kind, pct, fraction) = check_rule(&o.kind, o.pct.unwrap_or(0.0), Some(fraction))?;
+            Ok(OrderSpec { kind, trigger_price: entry * (1.0 + pct / 100.0), trigger_pct: pct, fraction, usd: None, trail_pct: None, peak: None })
+        }
+        // By price (the Orders card): the same rule as real orders, relative to the market,
+        // so a stop loss above the entry (locking in profit) is allowed.
+        "tp" | "sl" => {
+            let entry = need_entry()?;
+            let p = target()?;
+            let tp = o.kind == "tp";
+            if tp && p <= price {
+                return Err("a take profit must be above the current price".into());
+            }
+            if !tp && p >= price {
+                return Err("a stop loss must be below the current price".into());
+            }
+            Ok(OrderSpec { kind: if tp { "tp" } else { "sl" }, trigger_price: p, trigger_pct: (p / entry - 1.0) * 100.0, fraction, usd: None, trail_pct: None, peak: None })
+        }
+        "limit_sell" => {
+            let entry = need_entry()?;
+            let p = target()?;
+            if p <= price {
+                return Err("a limit sell must be above the current price".into());
+            }
+            Ok(OrderSpec { kind: "limit_sell", trigger_price: p, trigger_pct: (p / entry - 1.0) * 100.0, fraction, usd: None, trail_pct: None, peak: None })
+        }
+        "limit_buy" => {
+            let p = target()?;
+            if p >= price {
+                return Err("a limit buy must be below the current price".into());
+            }
+            let usd = o.usd.filter(|u| u.is_finite()).ok_or("enter an amount")?;
+            if usd < MIN_ORDER_USD {
+                return Err("minimum order is $1".into());
+            }
+            if usd > cash + 1e-9 {
+                return Err(format!("not enough demo balance (${cash:.2} available)"));
+            }
+            Ok(OrderSpec { kind: "limit_buy", trigger_price: p, trigger_pct: (p / price - 1.0) * 100.0, fraction: 1.0, usd: Some(usd), trail_pct: None, peak: None })
+        }
+        "trail" => {
+            need_entry()?;
+            let t = o.trail_pct.filter(|t| t.is_finite() && (1.0..=90.0).contains(t)).ok_or("trailing stop must be between 1% and 90%")?;
+            Ok(OrderSpec { kind: "trail", trigger_price: price * (1.0 - t / 100.0), trigger_pct: -t, fraction, usd: None, trail_pct: Some(t), peak: Some(price) })
+        }
+        _ => Err("unknown order type".into()),
+    }
+}
+
+/// Has the market crossed an order's trigger? Trailing stops pass their (updated) trigger.
 pub fn triggered(kind: &str, trigger: f64, price: f64) -> bool {
     match kind {
-        "tp" => price >= trigger,
-        "sl" => price <= trigger,
+        "tp" | "limit_sell" => price >= trigger,
+        "sl" | "limit_buy" | "trail" => price <= trigger,
         _ => false,
     }
 }
 
-/// `POST /demo/orders`: place a take profit or stop loss on a held coin.
+/// A trailing stop after a new price: (highest price, trigger, whether the peak moved
+/// enough to save).
+pub fn trail_step(peak: f64, trail_pct: f64, price: f64) -> (f64, f64, bool) {
+    let high = peak.max(price);
+    (high, high * (1.0 - trail_pct / 100.0), price > peak * (1.0 + PEAK_STEP))
+}
+
+/// `POST /demo/orders`: place a limit buy or sell, take profit, stop loss or trailing stop.
 pub async fn create_rule(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<OrderRuleIn>) -> Result<Json<Value>, (StatusCode, String)> {
     let u = c.acct.user(&headers).await?;
     if !crate::account::is_solana_address(&o.mint) {
         return Err((StatusCode::BAD_REQUEST, "not a coin address".into()));
     }
-    let (kind, pct, fraction) = check_rule(&o.kind, o.pct, o.fraction).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let (_, _, round, rows) = account_rows(&c, &u.id).await?;
-    let pos = rows.iter().find(|p| p["mint"].as_str() == Some(&o.mint)).ok_or((StatusCode::BAD_REQUEST, "buy the coin first".into()))?;
-    let (tokens, cost) = (num(&pos["tokens"]), num(&pos["cost_usd"]));
-    if tokens <= 0.0 || cost <= 0.0 {
-        return Err((StatusCode::BAD_REQUEST, "buy the coin first".into()));
-    }
+    let (cash, _, round, rows) = account_rows(&c, &u.id).await?;
+    let pos = rows.iter().find(|p| p["mint"].as_str() == Some(&o.mint));
+    let entry = pos.map(|p| (num(&p["tokens"]), num(&p["cost_usd"]))).filter(|(t, c)| *t > 0.0 && *c > 0.0).map(|(t, c)| c / t);
+    let q = quote(&c.app, &o.mint).await?;
+    let spec = check_order(&o, q.price_usd, entry, cash).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let open = c.acct.rest(reqwest::Method::GET, &format!("demo_orders?user_id=eq.{}&status=eq.open&select=id", u.id), None).await?;
     if open.as_array().map_or(0, Vec::len) >= MAX_OPEN_ORDERS {
         return Err((StatusCode::BAD_REQUEST, format!("at most {MAX_OPEN_ORDERS} open orders")));
     }
-    let entry = cost / tokens;
-    let trigger = entry * (1.0 + pct / 100.0);
-    let v = c
-        .acct
-        .rest(
-            reqwest::Method::POST,
-            "demo_orders",
-            Some(json!({
-                "user_id": u.id, "mint": o.mint, "symbol": pos["symbol"].as_str().unwrap_or(""), "kind": kind,
-                "trigger_pct": pct, "trigger_price_usd": trigger, "fraction": fraction, "round": round
-            })),
-        )
-        .await?;
+    let symbol = pos.and_then(|p| p["symbol"].as_str()).filter(|s| !s.is_empty()).unwrap_or(&q.symbol);
+    let mut row = json!({
+        "user_id": u.id, "mint": o.mint, "symbol": symbol, "kind": spec.kind,
+        "trigger_pct": spec.trigger_pct, "trigger_price_usd": spec.trigger_price, "fraction": spec.fraction, "round": round
+    });
+    // Only the newer kinds use the newer columns, so take profit and stop loss keep
+    // working on a database without migration 0009.
+    if let Some(v) = spec.usd {
+        row["usd"] = json!(v);
+    }
+    if let Some(v) = spec.trail_pct {
+        row["trail_pct"] = json!(v);
+    }
+    if let Some(v) = spec.peak {
+        row["peak_price_usd"] = json!(v);
+    }
+    // The database's own error is not passed on; the newer kinds failing means the
+    // database has not had update 0009 yet.
+    let newer = matches!(spec.kind, "limit_buy" | "limit_sell" | "trail");
+    let v = c.acct.rest(reqwest::Method::POST, "demo_orders", Some(row)).await.map_err(|(s, e)| {
+        if newer {
+            (StatusCode::SERVICE_UNAVAILABLE, "limit buys, limit sells and trailing stops need database update 0009 (supabase/migrations/0009_orders.sql)".to_string())
+        } else {
+            (s, e)
+        }
+    })?;
     Ok(Json(v.as_array().and_then(|a| a.first()).cloned().unwrap_or(Value::Null)))
 }
 
 /// `GET /demo/orders`: the latest orders, open and done.
 pub async fn list_rules(State(c): State<DemoCtx>, headers: HeaderMap) -> Result<Json<Value>, (StatusCode, String)> {
     let u = c.acct.user(&headers).await?;
-    let v = c
-        .acct
-        .rest(
-            reqwest::Method::GET,
-            &format!("demo_orders?user_id=eq.{}&select=id,mint,symbol,kind,trigger_pct,trigger_price_usd,fraction,status,note,created_at,done_at&order=created_at.desc&limit=100", u.id),
-            None,
-        )
-        .await?;
+    let path = |cols: &str| format!("demo_orders?user_id=eq.{}&select=id,mint,symbol,kind,trigger_pct,trigger_price_usd,fraction,status,note,created_at,done_at{cols}&order=created_at.desc&limit=100", u.id);
+    // Before migration 0009 the newer columns do not exist yet.
+    let v = match c.acct.rest(reqwest::Method::GET, &path(",usd,trail_pct,peak_price_usd"), None).await {
+        Ok(v) => v,
+        Err(_) => c.acct.rest(reqwest::Method::GET, &path(""), None).await?,
+    };
     Ok(Json(v))
 }
 
@@ -538,13 +639,30 @@ pub async fn cancel_rule(State(c): State<DemoCtx>, headers: HeaderMap, Path(id):
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+pub struct PriceQuery {
+    mints: String,
+}
+
+/// `GET /price?mints=a,b`: the live price the demo order engine fills against, so the
+/// browser's real-order engine fires on exactly the same price. At most 20 coins.
+pub async fn prices(State(c): State<DemoCtx>, Query(q): Query<PriceQuery>) -> Json<Value> {
+    let mut out = serde_json::Map::new();
+    for mint in q.mints.split(',').map(str::trim).filter(|m| crate::account::is_solana_address(m)).take(20) {
+        let p = quote(&c.app, mint).await.ok().map(|q| q.price_usd);
+        out.insert(mint.to_string(), json!(p));
+    }
+    Json(Value::Object(out))
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
-/// Cancels a user's open orders: all of them (reset) or one coin's (position closed).
+/// Cancels a user's open orders: all of them (reset) or one coin's sells (position
+/// closed; a limit buy on that coin stays, it does not need the position).
 async fn cancel_open(c: &DemoCtx, user: &str, mint: Option<&str>, note: &str) {
-    let filter = mint.map(|m| format!("&mint=eq.{m}")).unwrap_or_default();
+    let filter = mint.map(|m| format!("&mint=eq.{m}&kind=neq.limit_buy")).unwrap_or_default();
     let _ = c
         .acct
         .rest(
@@ -555,20 +673,22 @@ async fn cancel_open(c: &DemoCtx, user: &str, mint: Option<&str>, note: &str) {
         .await;
 }
 
-/// Background task: every two seconds, sells at the live market any demo position whose
-/// take profit or stop loss the price has crossed. An order is claimed (status set)
-/// before it fills, so it can never fire twice.
+/// Background task: every two seconds, fills at the live market any open demo order whose
+/// trigger the price has crossed, and moves trailing stops up. An order is claimed
+/// (status set) before it fills, so it can never fire twice.
 pub async fn watch_rules(c: DemoCtx) {
     let mut tick = tokio::time::interval(ORDER_CHECK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tick.tick().await;
-        let Ok(open) = c
-            .acct
-            .rest(reqwest::Method::GET, "demo_orders?status=eq.open&select=id,user_id,mint,kind,trigger_price_usd,fraction&order=id.asc&limit=2000", None)
-            .await
-        else {
-            continue;
+        let base = "demo_orders?status=eq.open&select=id,user_id,mint,kind,trigger_price_usd,fraction";
+        let open = match c.acct.rest(reqwest::Method::GET, &format!("{base},usd,trail_pct,peak_price_usd&order=id.asc&limit=2000"), None).await {
+            Ok(v) => v,
+            // Database without migration 0009: take profit and stop loss only.
+            Err(_) => match c.acct.rest(reqwest::Method::GET, &format!("{base}&order=id.asc&limit=2000"), None).await {
+                Ok(v) => v,
+                Err(_) => continue,
+            },
         };
         let open = open.as_array().cloned().unwrap_or_default();
         let mut prices: HashMap<String, Option<f64>> = HashMap::new();
@@ -579,12 +699,29 @@ pub async fn watch_rules(c: DemoCtx) {
                 prices.insert(mint.clone(), p);
             }
             let Some(price) = prices[&mint] else { continue };
+            let id = o["id"].as_i64().unwrap_or(0);
             let kind = o["kind"].as_str().unwrap_or("").to_string();
-            if !triggered(&kind, num(&o["trigger_price_usd"]), price) {
+            let mut trigger = num(&o["trigger_price_usd"]);
+            if kind == "trail" {
+                let (peak, t) = (num(&o["peak_price_usd"]), num(&o["trail_pct"]));
+                if peak <= 0.0 || t <= 0.0 {
+                    continue;
+                }
+                let (high, trig, save) = trail_step(peak, t, price);
+                trigger = trig;
+                if save {
+                    let _ = c
+                        .acct
+                        .rest(reqwest::Method::PATCH, &format!("demo_orders?id=eq.{id}&status=eq.open"), Some(json!({ "peak_price_usd": high, "trigger_price_usd": trig })))
+                        .await;
+                }
+            }
+            if !triggered(&kind, trigger, price) {
                 continue;
             }
-            let (id, user) = (o["id"].as_i64().unwrap_or(0), o["user_id"].as_str().unwrap_or("").to_string());
-            if let Err(e) = fire(&c, id, &user, &mint, &kind, num(&o["fraction"])).await {
+            let user = o["user_id"].as_str().unwrap_or("").to_string();
+            let usd = o["usd"].as_f64().or_else(|| o["usd"].as_str().and_then(|s| s.parse().ok()));
+            if let Err(e) = fire(&c, id, &user, &mint, &kind, num(&o["fraction"]), usd).await {
                 tracing::warn!(id, %mint, error = %e.1, "demo order failed");
             }
         }
@@ -595,7 +732,7 @@ async fn mark(c: &DemoCtx, id: i64, status: &str, note: String) {
     let _ = c.acct.rest(reqwest::Method::PATCH, &format!("demo_orders?id=eq.{id}"), Some(json!({ "status": status, "note": note }))).await;
 }
 
-async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction: f64) -> Result<(), (StatusCode, String)> {
+async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction: f64, usd: Option<f64>) -> Result<(), (StatusCode, String)> {
     let lock = user_lock(user);
     let _guard = lock.lock().await;
     // Claim it first: only one fill per order, even if two checks overlap.
@@ -610,9 +747,10 @@ async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction
     if claimed.as_array().is_none_or(Vec::is_empty) {
         return Ok(());
     }
-    let (_, _, _, rows) = account_rows(c, user).await?;
+    let (cash, _, _, rows) = account_rows(c, user).await?;
     let held = rows.iter().find(|p| p["mint"].as_str() == Some(mint)).map(|p| num(&p["tokens"])).unwrap_or(0.0);
-    if held <= 0.0 {
+    let buying = kind == "limit_buy";
+    if !buying && held <= 0.0 {
         mark(c, id, "cancelled", "position already closed".into()).await;
         return Ok(());
     }
@@ -623,8 +761,18 @@ async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction
             return Err(e);
         }
     };
-    let Some(fill) = q.held(held).sell(held * fraction) else {
-        mark(c, id, "cancelled", "nothing to sell".into()).await;
+    let fill = if buying {
+        let want = usd.unwrap_or(0.0);
+        if want > cash + 1e-9 {
+            mark(c, id, "cancelled", format!("not enough demo balance (${cash:.2} available)")).await;
+            return Ok(());
+        }
+        q.held(held).buy(want)
+    } else {
+        q.held(held).sell(held * fraction)
+    };
+    let Some(fill) = fill else {
+        mark(c, id, "cancelled", if buying { "amount too small after fees" } else { "nothing to sell" }.into()).await;
         return Ok(());
     };
     let res = c
@@ -633,7 +781,7 @@ async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction
             reqwest::Method::POST,
             "rpc/demo_fill",
             Some(json!({
-                "p_user": user, "p_mint": mint, "p_symbol": q.symbol, "p_side": "sell", "p_tokens": fill.tokens,
+                "p_user": user, "p_mint": mint, "p_symbol": q.symbol, "p_side": fill.side, "p_tokens": fill.tokens,
                 "p_usd": fill.usd, "p_sol": fill.sol, "p_price_usd": fill.price_usd, "p_fee_usd": fill.fee_usd,
                 "p_impact": fill.impact_pct, "p_source": kind, "p_start": START_USD
             })),
@@ -641,10 +789,14 @@ async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction
         .await;
     match res {
         Ok(r) => {
-            let pnl = num(&r["realized_usd"]);
-            let size = if fraction >= 0.999 { "all".to_string() } else { format!("{:.0}%", fraction * 100.0) };
-            mark(c, id, "filled", format!("sold {size} for ${:.2}, P&L {:+.2}", fill.usd, pnl)).await;
-            if fraction >= 0.999 {
+            let note = if buying {
+                format!("bought ${:.2} at ${}", fill.usd, fill.price_usd)
+            } else {
+                let size = if fraction >= 0.999 { "all".to_string() } else { format!("{:.0}%", fraction * 100.0) };
+                format!("sold {size} for ${:.2}, P&L {:+.2}", fill.usd, num(&r["realized_usd"]))
+            };
+            mark(c, id, "filled", note).await;
+            if !buying && fraction >= 0.999 {
                 cancel_open(c, user, Some(mint), "position closed").await;
             }
             tracing::info!(id, mint, kind, usd = fill.usd, "demo order filled");
@@ -749,6 +901,56 @@ mod tests {
         assert!(check_rule("buy", 5.0, None).is_err());
         assert!(triggered("tp", 1.5, 1.5) && !triggered("tp", 1.5, 1.49));
         assert!(triggered("sl", 0.8, 0.79) && !triggered("sl", 0.8, 0.81));
+    }
+
+    fn req(kind: &str) -> OrderRuleIn {
+        OrderRuleIn { mint: "M".into(), kind: kind.into(), pct: None, price_usd: None, fraction: None, usd: None, trail_pct: None }
+    }
+
+    #[test]
+    fn limit_and_trailing_orders() {
+        // Live price 1.0, bought at 0.8, $500 cash.
+        let (price, entry, cash) = (1.0, Some(0.8), 500.0);
+        let buy = check_order(&OrderRuleIn { price_usd: Some(0.7), usd: Some(100.0), ..req("limit_buy") }, price, None, cash).unwrap();
+        assert_eq!((buy.kind, buy.trigger_price, buy.usd), ("limit_buy", 0.7, Some(100.0)));
+        assert!((buy.trigger_pct + 30.0).abs() < 1e-9, "-30% from the price when placed");
+        assert!(check_order(&OrderRuleIn { price_usd: Some(1.2), usd: Some(100.0), ..req("limit_buy") }, price, None, cash).is_err(), "a buy limit above the market");
+        assert!(check_order(&OrderRuleIn { price_usd: Some(0.7), usd: Some(900.0), ..req("limit_buy") }, price, None, cash).is_err(), "more than the balance");
+        assert!(check_order(&OrderRuleIn { price_usd: Some(0.7), ..req("limit_buy") }, price, None, cash).is_err(), "no amount");
+
+        let sell = check_order(&OrderRuleIn { price_usd: Some(1.6), fraction: Some(0.5), ..req("limit_sell") }, price, entry, cash).unwrap();
+        assert_eq!((sell.kind, sell.trigger_price, sell.fraction), ("limit_sell", 1.6, 0.5));
+        assert!((sell.trigger_pct - 100.0).abs() < 1e-9, "+100% from the entry");
+        assert!(check_order(&OrderRuleIn { price_usd: Some(0.9), ..req("limit_sell") }, price, entry, cash).is_err(), "a sell limit below the market");
+        assert!(check_order(&OrderRuleIn { price_usd: Some(1.6), ..req("limit_sell") }, price, None, cash).is_err(), "nothing held");
+
+        // Take profit and stop loss by price follow the market, like real orders.
+        let tp = check_order(&OrderRuleIn { price_usd: Some(1.2), ..req("tp") }, price, entry, cash).unwrap();
+        assert!((tp.trigger_pct - 50.0).abs() < 1e-9 && (tp.trigger_price - 1.2).abs() < 1e-12);
+        let lock_in = check_order(&OrderRuleIn { price_usd: Some(0.9), ..req("sl") }, price, entry, cash).unwrap();
+        assert!(lock_in.trigger_pct > 0.0, "a stop above the entry locks in profit");
+        assert!(check_order(&OrderRuleIn { price_usd: Some(1.1), ..req("sl") }, price, entry, cash).is_err(), "a stop above the market");
+        // By percent, the old rules still apply.
+        assert!(check_order(&OrderRuleIn { pct: Some(-20.0), ..req("sl") }, price, entry, cash).is_ok());
+        assert!(check_order(&OrderRuleIn { pct: Some(20.0), ..req("sl") }, price, entry, cash).is_err());
+
+        let trail = check_order(&OrderRuleIn { trail_pct: Some(20.0), ..req("trail") }, price, entry, cash).unwrap();
+        assert_eq!((trail.peak, trail.trail_pct), (Some(1.0), Some(20.0)));
+        assert!((trail.trigger_price - 0.8).abs() < 1e-12);
+        assert!(check_order(&OrderRuleIn { trail_pct: Some(95.0), ..req("trail") }, price, entry, cash).is_err());
+
+        // The trail follows the price up and fires on the way down.
+        let (high, trig, save) = trail_step(1.0, 20.0, 1.5);
+        assert_eq!(high, 1.5);
+        assert!((trig - 1.2).abs() < 1e-12 && save);
+        let (high, trig, save) = trail_step(1.5, 20.0, 1.3);
+        assert_eq!(high, 1.5, "a dip does not lower the peak");
+        assert!(!save && !triggered("trail", trig, 1.3) && triggered("trail", trig, 1.19));
+        assert!(!trail_step(1.0, 20.0, 1.004).2, "tiny new highs are not saved every tick");
+
+        assert!(triggered("limit_buy", 0.7, 0.69) && !triggered("limit_buy", 0.7, 0.71));
+        assert!(triggered("limit_sell", 1.6, 1.6) && !triggered("limit_sell", 1.6, 1.59));
+        assert!(check_order(&req("moon"), price, entry, cash).is_err());
     }
 
     #[test]

@@ -107,7 +107,7 @@ export type DemoRule = {
   id: number;
   mint: string;
   symbol: string;
-  kind: "tp" | "sl";
+  kind: "tp" | "sl" | "limit_buy" | "limit_sell" | "trail";
   trigger_pct: number;
   trigger_price_usd: number;
   fraction: number;
@@ -115,8 +115,13 @@ export type DemoRule = {
   note: string | null;
   created_at: string;
   done_at: string | null;
+  /** Limit buys: cash to spend. */
+  usd?: number | null;
+  /** Trailing stops: the % below the highest price, and that highest price. */
+  trail_pct?: number | null;
+  peak_price_usd?: number | null;
 };
 
 export const listRules = () => call<DemoRule[]>("/demo/orders");
-export const createRule = (r: { mint: string; kind: "tp" | "sl"; pct: number; fraction?: number }) => call<DemoRule>("/demo/orders", r);
+export const createRule = (r: { mint: string; kind: DemoRule["kind"]; pct?: number; price_usd?: number; fraction?: number; usd?: number; trail_pct?: number }) => call<DemoRule>("/demo/orders", r);
 export const cancelRule = (id: number) => call(`/demo/orders/${id}/cancel`, {});
