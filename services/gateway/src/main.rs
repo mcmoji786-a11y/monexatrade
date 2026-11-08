@@ -24,6 +24,7 @@ mod sender;
 mod platform;
 mod ops;
 mod marketing;
+mod collector;
 mod monitor;
 mod tracker;
 mod journal;
@@ -265,6 +266,8 @@ async fn main() -> Result<()> {
     tokio::spawn(prune_launches(state.clone()));
     tokio::spawn(update_smart(state.clone()));
     tokio::spawn(monitor::sample_loop(state.clone()));
+    // Saves every launch and trade for the AI when COLLECT_DIR is set (collector.rs).
+    collector::start(state.clone());
     tokio::spawn(seed_smart(state.clone()));
 
     let cors = CorsLayer::new()
@@ -463,6 +466,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
 
         match event {
             IngestEvent::Created(token) => {
+                collector::coin(&token);
                 // The trade book counts amounts in SOL. Curves quoted in another
                 // currency (USD1 and similar) would read as $0, so those coins use
                 // their DEX history instead.
@@ -490,6 +494,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 spawn_metadata(state.clone(), token);
             }
             IngestEvent::Launched(token) => {
+                collector::coin(&token);
                 let dev_report = {
                     let mut c = state.creators.lock().expect("creators lock");
                     c.launched(&token.creator, &token.mint, token.timestamp);
@@ -565,6 +570,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 mut trade,
                 slot,
             } => {
+                collector::trade(&signature, &trade, slot);
                 // Pools quoted in another token (WBTC, USDC...) report raw quote units;
                 // convert them to lamports of equal value so the book stays in SOL.
                 let factor = state

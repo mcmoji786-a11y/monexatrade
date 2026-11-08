@@ -163,6 +163,25 @@ pub async fn recent_signatures(
         .unwrap_or_default()
 }
 
+/// One page of an account's successful transactions, newest first, older than
+/// `before` when given: (signature, block time, slot, succeeded). Failed transactions are
+/// kept so the caller can page past them. None when the call failed.
+pub async fn signatures_page(http: &reqwest::Client, url: &str, account: &str, before: Option<&str>, limit: usize) -> Option<Vec<(String, i64, u64, bool)>> {
+    let mut opts = json!({ "limit": limit, "commitment": "confirmed" });
+    if let Some(b) = before {
+        opts["before"] = json!(b);
+    }
+    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress", "params": [account, opts] });
+    let v = call(http, url, &body).await?;
+    Some(
+        v["result"]
+            .as_array()?
+            .iter()
+            .filter_map(|s| Some((s["signature"].as_str()?.to_string(), s["blockTime"].as_i64().unwrap_or(0), s["slot"].as_u64().unwrap_or(0), s["err"].is_null())))
+            .collect(),
+    )
+}
+
 /// Full transactions in one batch call (keep batches small on the free plan).
 /// Missing ones (not yet visible at "confirmed", or rate limited) come back as None.
 pub async fn transactions(
