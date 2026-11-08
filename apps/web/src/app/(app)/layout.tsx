@@ -5,6 +5,7 @@ import { Topbar } from "@/components/topbar";
 import { PriceAlertWatcher } from "@/components/token/price-alerts";
 import { SniperEngine } from "@/components/sniper/sniper-engine";
 import { RealOrderEngine } from "@/components/trade/order-engine";
+import { GridEngine } from "@/components/trade/grid-engine";
 import { Toaster } from "@/components/toaster";
 import { ShareCardHost } from "@/components/portfolio/share-card";
 import { AuthGate } from "@/components/account/auth-gate";
@@ -24,6 +25,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PriceAlertWatcher />
       <SniperEngine />
       <RealOrderEngine />
+      <GridEngine />
       <Toaster />
       <ShareCardHost />
       <WalletTrackerDrawer />

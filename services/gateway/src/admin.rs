@@ -163,6 +163,8 @@ pub struct FeatureFlags {
     pub wallet_labels: bool,
     /// Quick Buy: the one-click buy on Discover and Sol Radar rows.
     pub quick_buy: bool,
+    /// Grid trading: buy each dip to a level and sell one level up.
+    pub grid_trading: bool,
 }
 
 impl Default for FeatureFlags {
@@ -201,6 +203,7 @@ impl Default for FeatureFlags {
             wallet_deposits: true,
             wallet_labels: true,
             quick_buy: true,
+            grid_trading: true,
         }
     }
 }

@@ -24,6 +24,7 @@ import { SafetyBadge } from "@/components/token/safety-badge";
 import { money, signed } from "./trade-panel";
 import { DockableTrade } from "./floating-trade";
 import { OrdersCard } from "./orders-card";
+import { GridCard } from "./grid-card";
 import { useDemo } from "@/lib/demo";
 
 /** Concentration above these levels is flagged. Facts, not advice. */
@@ -97,6 +98,7 @@ export function TokenView() {
           <DockableTrade symbol={row.symbol} mint={mint} />
           <MyPosition mint={mint} livePrice={row.priceUsd} />
           <OrdersCard mint={mint} symbol={row.symbol} />
+          <GridCard mint={mint} symbol={row.symbol} />
           <TokenInfo row={row} launch={launch} />
           <Safety row={row} launch={launch} market={market} />
           {launch?.meta?.description && (
