@@ -8,8 +8,10 @@
 //!   to is kept in `history/cursor.txt`, so it continues after a restart.
 //! - `status.json`: counts, updated every 30 seconds.
 //!
-//! Files are flushed every 5 seconds and each run adds a new gzip member, so a power cut
-//! loses at most those seconds and never breaks a file (gzip readers read all members).
+//! Each run of the gateway writes its own files (`trades-<run>.csv.gz`), flushed every 5
+//! seconds: a power cut leaves that run's file without its gzip ending, which readers
+//! still read up to the last flush, and never touches another run's data. Read a day by
+//! reading every file in its folder.
 
 use flate2::{write::GzEncoder, Compression};
 use monexa_ingest::pumpfun::{self, NewToken};
@@ -163,6 +165,11 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
     let _ = TX.set(tx);
     let _ = COUNTS.set(Counts::default());
     let base = dir.clone();
+    // This run's files: one set per start, named by the start time (UTC).
+    let run = {
+        let t = now();
+        format!("{}T{:02}{:02}{:02}", day(t), (t % 86_400) / 3600, (t % 3600) / 60, t % 60)
+    };
     tokio::spawn(async move {
         let mut files: HashMap<(String, &'static str, &'static str), Out> = HashMap::new();
         let mut tick = tokio::time::interval(Duration::from_secs(5));
@@ -184,7 +191,7 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
                                 let _ = o.enc.try_finish();
                             }
                         }
-                        let path = base.join(part).join(&key.0).join(format!("{kind}.csv.gz"));
+                        let path = base.join(part).join(&key.0).join(format!("{kind}-{run}.csv.gz"));
                         match open(&path, if kind == "coins" { COINS_HEADER } else { TRADES_HEADER }) {
                             Ok(o) => {
                                 files.insert(key.clone(), o);
