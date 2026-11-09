@@ -24,6 +24,7 @@ mod sender;
 mod platform;
 mod ops;
 mod marketing;
+mod auto_wallet;
 mod collector;
 mod monitor;
 mod tracker;
@@ -365,6 +366,8 @@ async fn main() -> Result<()> {
         .route("/kixo-wallet/deposit", axum::routing::post(wallet::deposit))
         .route("/kixo-wallet/deposit/send", axum::routing::post(wallet::transfer_send))
         .route("/kixo-wallet/status/{sig}", get(wallet::status))
+        .route("/auto-wallet", get(auto_wallet::me).post(auto_wallet::create).put(auto_wallet::update))
+        .route("/auto-wallet/withdraw", axum::routing::post(auto_wallet::withdraw))
         .with_state(wallet_ctx);
 
     let news_ctx = news::NewsCtx { app: state.clone(), admin: admin_state.clone(), news: news::News::stored("data/news.json") };

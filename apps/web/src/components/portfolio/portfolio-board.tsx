@@ -12,6 +12,7 @@ import { CopyAddress, TokenLogo } from "@/components/token/token-bits";
 import { useMode } from "@/lib/demo";
 import { DemoPortfolio } from "./demo-portfolio";
 import { KixoWalletCard } from "@/components/wallet/kixo-wallet-card";
+import { AutoWalletCard } from "@/components/wallet/auto-wallet-card";
 import { useKixoWallet } from "@/lib/kixo-wallet";
 
 const SMALL_USD = 1;
@@ -27,11 +28,12 @@ export function PortfolioBoard() {
   if (mode === "demo" && !other) return <DemoPortfolio />;
   const mine = kixo.info?.exists ? kixo.info.pubkey : null;
   if (other) return <Board key={other} wallet={other} viewing={other !== mine} />;
-  if (mine) return <Board key={mine} wallet={mine} viewing={false} top={<KixoWalletCard />} />;
+  if (mine) return <Board key={mine} wallet={mine} viewing={false} top={<div className="flex flex-col gap-4"><KixoWalletCard /><AutoWalletCard /></div>} />;
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-medium text-text">Portfolio</h1>
       <KixoWalletCard />
+      <AutoWalletCard />
     </div>
   );
 }

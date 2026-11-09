@@ -64,19 +64,19 @@ struct Build {
     fee: u64,
 }
 
-type ApiErr = (StatusCode, Json<Value>);
+pub(crate) type ApiErr = (StatusCode, Json<Value>);
 
-fn err(status: StatusCode, message: &str) -> ApiErr {
+pub(crate) fn err(status: StatusCode, message: &str) -> ApiErr {
     (status, Json(json!({ "message": message })))
 }
 
-fn auth(e: (StatusCode, String)) -> ApiErr {
+pub(crate) fn auth(e: (StatusCode, String)) -> ApiErr {
     err(e.0, &e.1)
 }
 
 impl WalletState {
     /// True when `user` may do `action` again (at most `max` times per `window`).
-    fn allow(&self, user: &str, action: &str, max: usize, window: Duration) -> bool {
+    pub(crate) fn allow(&self, user: &str, action: &str, max: usize, window: Duration) -> bool {
         let mut h = self.hits.lock().expect("hits lock");
         if h.len() > 20_000 {
             h.retain(|_, v| v.iter().any(|t| t.elapsed() < Duration::from_secs(3600)));
@@ -91,7 +91,7 @@ impl WalletState {
     }
 }
 
-async fn row(c: &WalletCtx, user: &str) -> Result<Option<Value>, ApiErr> {
+pub(crate) async fn row(c: &WalletCtx, user: &str) -> Result<Option<Value>, ApiErr> {
     let v = c.acct.rest(reqwest::Method::GET, &format!("kixo_wallets?user_id=eq.{user}&select=pubkey,two_fa,locked"), None).await.map_err(auth)?;
     Ok(v.as_array().and_then(|a| a.first()).cloned())
 }
@@ -310,8 +310,16 @@ pub async fn withdraw(State(c): State<WalletCtx>, headers: HeaderMap, Json(b): J
     };
     let (balance, recipient, hash, fee_to) = tokio::join!(bal(from), bal(to), crate::trade::rpc(&rpc, "getLatestBlockhash", json!([{ "commitment": "confirmed" }])), fee_wallet(&c, &rpc));
     let (balance, recipient, hash) = (balance.map_err(unreachable)?, recipient.map_err(unreachable)?, hash.map_err(unreachable)?);
-    // Withdrawals never stop: without a fee wallet set up, no fee is taken.
-    let fee_bps = if fee_to.is_some_and(|f| f != to) { crate::marketing::withdraw_fee_bps_for(&user.id) } else { 0 };
+    // Withdrawals never stop: without a fee wallet set up, no fee is taken. Moving money
+    // to the user's own auto-trade wallet is free too.
+    let to_own_auto = c
+        .acct
+        .rest(reqwest::Method::GET, &format!("auto_wallets?user_id=eq.{}&select=pubkey", user.id), None)
+        .await
+        .ok()
+        .and_then(|v| v.as_array()?.first()?["pubkey"].as_str().map(String::from))
+        .is_some_and(|p| p == stx::b58(&to));
+    let fee_bps = if fee_to.is_some_and(|f| f != to) && !to_own_auto { crate::marketing::withdraw_fee_bps_for(&user.id) } else { 0 };
     let (lamports, fee) = withdraw_amount(balance, b.lamports, b.max, recipient, fee_bps).map_err(|m| err(StatusCode::BAD_REQUEST, &m))?;
     let blockhash = stx::pubkey(hash["value"]["blockhash"].as_str().unwrap_or("")).map_err(|_| err(StatusCode::BAD_GATEWAY, "Could not reach Solana, try again"))?;
     let mut ixs = vec![stx::compute_unit_limit(1_000), stx::compute_unit_price(20_000), stx::transfer(&from, &to, lamports)];
@@ -328,7 +336,7 @@ pub async fn withdraw(State(c): State<WalletCtx>, headers: HeaderMap, Json(b): J
     Ok(Json(json!({ "build_id": id, "tx": B64.encode(stx::unsigned_tx(&message)), "lamports": lamports, "kixo_fee": fee, "fee_wallet": fee_to.filter(|_| fee > 0).map(|f| stx::b58(&f)), "network_fee": TRANSFER_FEE, "to": stx::b58(&to) })))
 }
 
-fn rand_u64() -> u64 {
+pub(crate) fn rand_u64() -> u64 {
     use ring::rand::{SecureRandom, SystemRandom};
     let mut b = [0u8; 8];
     SystemRandom::new().fill(&mut b).expect("os random");

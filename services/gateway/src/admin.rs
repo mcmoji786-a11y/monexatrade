@@ -177,6 +177,8 @@ pub struct FeatureFlags {
     pub achievements: bool,
     /// Portfolio: weekly recap card.
     pub weekly_recap: bool,
+    /// Auto-trade wallet: server-held key, 24/7 trading, withdrawals only to the main wallet.
+    pub auto_wallet: bool,
 }
 
 impl Default for FeatureFlags {
@@ -222,6 +224,7 @@ impl Default for FeatureFlags {
             milestone_alerts: true,
             achievements: true,
             weekly_recap: true,
+            auto_wallet: true,
         }
     }
 }
@@ -335,6 +338,12 @@ impl AdminState {
     /// Whether Kixo trading wallets are switched on.
     pub fn kixo_wallet(&self) -> bool {
         self.features.lock().expect("features lock").kixo_wallet
+    }
+
+    /// Whether users may make and use an auto-trade wallet (auto_wallet.rs).
+    pub fn auto_wallet(&self) -> bool {
+        let f = self.features.lock().expect("features lock");
+        f.kixo_wallet && f.auto_wallet
     }
 
     /// Whether deposits into Kixo wallets are open.
