@@ -2,7 +2,7 @@ import Image from "next/image";
 import { JoinForm } from "@/components/join-form";
 import { ListCount } from "@/components/list-count";
 
-const TAPE = ["Every launch, live", "Safety score", "Dev · Sniper · Bundler labels", "Smart money", "Copy trading that warns you", "$10,000 demo at live prices", "Kixo AI · coming"];
+const TAPE = ["AI agent that auto-trades", "100,000+ strategies", "3 years of market data", "Fast engine", "Every coin's risk in plain sight", "Dev · Sniper · Bundler labels", "$10,000 demo at live prices"];
 
 const FEATURES: { n: string; title: string; body: string; icon: React.ReactNode; soon?: boolean }[] = [
   {
@@ -38,7 +38,7 @@ const FEATURES: { n: string; title: string; body: string; icon: React.ReactNode;
   {
     n: "06",
     title: "Kixo AI",
-    body: "An agent that reads every coin and wallet and trades within your limits, with 10,000+ backtested strategies.",
+    body: "An agent that reads every coin and wallet and auto-trades within your limits, choosing from 100,000+ strategies.",
     icon: <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M9 9h6v6H9z" />,
     soon: true,
   },
@@ -76,29 +76,30 @@ export default function Page() {
       <section className="hero" id="top">
         <div className="hero-text">
           <p className="eyebrow">
-            <span className="dot" /> Coming soon · Solana memecoin terminal + AI
+            <span className="dot" /> Launching soon · Kixo AI for Solana
           </p>
           <h1>
-            See the rug
+            The AI that trades
             <br />
-            <span className="accent">before you buy.</span>
+            <span className="accent">memecoins for you.</span>
           </h1>
           <p className="lead">
-            Every new Solana memecoin the second it launches, with a safety score, the dev&apos;s history and who bought first. Then let an AI trade it for you.
+            Kixo's AI agent auto-trades Solana memecoins within your rules, choosing from 100,000+ strategies trained on 3 years of market data. On a fast engine, with every coin's risk in plain sight.
           </p>
-          <a href="#ai" className="ai-card">
-            <span className="ai-icon" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M9 9h6v6H9z" />
-              </svg>
-            </span>
-            <span className="ai-text">
-              <span className="ai-title">
-                Kixo AI Trading Agent <em>Coming</em>
-              </span>
-              <span className="ai-sub">An AI bot that spots the risk and auto-trades within your rules, with 10,000+ strategies backtested on real on-chain data</span>
-            </span>
-          </a>
+          <div className="hero-stats">
+            <div>
+              <b>100,000+</b>
+              <span>AI strategies</span>
+            </div>
+            <div>
+              <b>3 years</b>
+              <span>of market data</span>
+            </div>
+            <div>
+              <b>Every coin</b>
+              <span>risk-checked</span>
+            </div>
+          </div>
           <JoinForm id="join" />
           <ListCount />
         </div>
@@ -131,6 +132,48 @@ export default function Page() {
         </div>
       </div>
 
+      <section className="pillars" id="ai">
+        <p className="eyebrow">
+          <span className="dot" /> What is coming
+        </p>
+        <h2>
+          Three things Kixo is built on.
+          <br />
+          <span className="muted">One of them trades for you.</span>
+        </h2>
+        <div className="pillar-grid">
+          <article className="pillar big">
+            <span className="p-n">01 · The AI agent</span>
+            <h3>An AI agent that auto-trades for you</h3>
+            <p>It watches every new coin and every wallet, picks the strategy that fits the moment and trades within the limits you set: how much per trade, your daily loss limit, the minimum safety score. Every trade comes with its reason. You stay in control and can stop it with one click.</p>
+            <div className="p-stats">
+              <div>
+                <b>100,000+</b>
+                <span>strategies</span>
+              </div>
+              <div>
+                <b>3 years</b>
+                <span>of market data</span>
+              </div>
+              <div>
+                <b>24/7</b>
+                <span>watching the chain</span>
+              </div>
+            </div>
+          </article>
+          <article className="pillar">
+            <span className="p-n">02 · Fast engine</span>
+            <h3>Built for speed</h3>
+            <p>Every launch on the radar the second it happens, prices from on-chain trades, and orders that go out fast with stop losses and trailing stops.</p>
+          </article>
+          <article className="pillar">
+            <span className="p-n">03 · See the risk</span>
+            <h3>The rug, before you buy</h3>
+            <p>A safety score on every coin, plus the dev's past coins, bundled wallets, snipers and whales, labelled where you trade.</p>
+          </article>
+        </div>
+      </section>
+
       <section className="features">
         <h2>
           Built for the trenches.
@@ -144,7 +187,7 @@ export default function Page() {
                 <span className="f-icon">
                   <Icon>{f.icon}</Icon>
                 </span>
-                <span className="f-n">{f.soon ? "Coming" : f.n}</span>
+                <span className="f-n">{f.n}</span>
               </div>
               <h3>{f.title}</h3>
               <p>{f.body}</p>
@@ -166,16 +209,15 @@ export default function Page() {
         </ol>
       </section>
 
-      <section className="ai" id="ai">
+      <section className="ai">
         <p className="eyebrow">
-          <span className="dot" /> Classified
+          <span className="dot" /> Training now
         </p>
         <h2>
           Kixo AI is <span className="accent">learning the trenches.</span>
         </h2>
         <p className="lead">
-          Every launch, every trade and how every coin ended is going into it right now. An agent that trades within your rules, and{" "}
-          <span className="redact">10,000+</span> strategies tested on real on-chain data. First access goes to the waitlist.
+          Every launch, every trade and how every coin ended is going into it right now. Kixo opens when the AI is ready, and the waitlist gets in first.
         </p>
       </section>
 
@@ -187,7 +229,7 @@ export default function Page() {
 
       <footer className="foot">
         <span>© 2026 Kixo</span>
-        <span>Not financial advice. Memecoins are very risky and most lose value. Features marked coming are in development.</span>
+        <span>Kixo is in development and not open yet. Not financial advice. Memecoins are very risky and most lose value.</span>
       </footer>
     </main>
   );
