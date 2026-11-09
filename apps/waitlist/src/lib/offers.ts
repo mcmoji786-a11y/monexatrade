@@ -5,6 +5,9 @@
 
 export const BASE_FEE_PCT = 0.5;
 
+/** For everyone on the waitlist, on top of their fee offer. */
+export const AI_FREE = { title: "Kixo AI Agent free for 1 year", body: "Everyone on the waitlist gets the AI trading agent free for 12 months from launch." };
+
 export type Offer = {
   key: "early" | "insider" | "founding";
   name: string;

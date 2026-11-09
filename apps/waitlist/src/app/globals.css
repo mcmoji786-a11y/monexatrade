@@ -348,9 +348,53 @@ h1 {
   margin-top: 20px;
   max-width: 900px;
 }
+.ai-free {
+  margin-top: 32px;
+  padding: 28px 32px;
+  border-radius: 20px;
+  border: 1px solid rgba(47, 211, 138, 0.55);
+  background: radial-gradient(90% 140% at 0% 50%, rgba(47, 211, 138, 0.2), transparent 60%), linear-gradient(120deg, rgba(34, 211, 238, 0.08), var(--raise) 55%);
+  box-shadow: 0 0 70px rgba(47, 211, 138, 0.14);
+  position: relative;
+  overflow: hidden;
+}
+.ai-free::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, 0.06) 50%, transparent 65%);
+  transform: translateX(-100%);
+  animation: shine 5s ease-in-out infinite;
+}
+.ai-free-badge {
+  font: 600 12px var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #04130c;
+  background: var(--acc);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.ai-free-title {
+  margin-top: 16px;
+  font-size: clamp(26px, 3.4vw, 44px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+.ai-free-title b {
+  color: var(--acc);
+}
+.ai-free-body {
+  margin-top: 10px;
+  max-width: 760px;
+  color: var(--t2);
+  font-size: 16px;
+  line-height: 1.55;
+}
 .offer-grid {
   list-style: none;
-  margin-top: 40px;
+  margin-top: 24px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
@@ -887,6 +931,7 @@ h2 {
   .radar .sweep,
   .tape-track,
   .ai-card::after,
+  .ai-free::after,
   .dot,
   .blip {
     animation: none;

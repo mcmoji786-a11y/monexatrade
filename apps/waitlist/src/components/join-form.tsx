@@ -117,7 +117,7 @@ export function JoinForm({ id }: { id: string }) {
           return (
             <div className="my-offer">
               <p className="my-offer-name">
-                Your offer: <b>{o.name}</b>
+                Your offer: <b>Kixo AI Agent free for 1 year</b> + <b>{o.name}</b>
               </p>
               <p className="my-offer-body">
                 {o.off}% off Kixo&apos;s trading fee for {o.months} months ({feeAfter(o)}% instead of 0.5%){o.extra ? ` + ${o.extra}` : ""}
