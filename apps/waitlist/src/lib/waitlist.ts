@@ -28,11 +28,12 @@ export const total = () => count("");
 
 type Row = { id: number; code: string };
 
-export type Status = { code: string; position: number; total: number; referrals: number };
+/** `rank`: the order they signed up in (1 = first), for the early offers. */
+export type Status = { code: string; position: number; total: number; referrals: number; rank: number };
 
 async function status(row: Row): Promise<Status> {
   const [ahead, total, referrals] = await Promise.all([count(`id=lt.${row.id}`), count(""), count(`referred_by=eq.${row.code}`)]);
-  return { code: row.code, position: Math.max(1, ahead + 1 - REF_BOOST * referrals), total, referrals };
+  return { code: row.code, position: Math.max(1, ahead + 1 - REF_BOOST * referrals), total, referrals, rank: ahead + 1 };
 }
 
 export async function byCode(code: string): Promise<Status | null> {

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { feeAfter, nextStep, offerFor } from "@/lib/offers";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 const SAVED = "kixo.waitlist";
 
-type Status = { code: string; position: number; total: number; referrals: number };
+type Status = { code: string; position: number; total: number; referrals: number; rank: number };
 type Api = { render: (el: HTMLElement, o: Record<string, unknown>) => string; reset: (id: string) => void };
 declare global {
   interface Window {
@@ -110,6 +111,25 @@ export function JoinForm({ id }: { id: string }) {
         <p className="joined-sub">
           of {me.total.toLocaleString("en-US")} traders{me.referrals > 0 ? ` · ${me.referrals} joined with your link` : ""}. Every friend who joins with your link moves you up 3 places
         </p>
+        {(() => {
+          const o = offerFor(me.referrals, me.rank ?? Number.MAX_SAFE_INTEGER);
+          const next = nextStep(me.referrals, me.rank ?? Number.MAX_SAFE_INTEGER);
+          return (
+            <div className="my-offer">
+              <p className="my-offer-name">
+                Your offer: <b>{o.name}</b>
+              </p>
+              <p className="my-offer-body">
+                {o.off}% off Kixo&apos;s trading fee for {o.months} months ({feeAfter(o)}% instead of 0.5%){o.extra ? ` + ${o.extra}` : ""}
+              </p>
+              {next && (
+                <p className="my-offer-next">
+                  {next.invites} more {next.invites === 1 ? "friend" : "friends"} to unlock <b>{next.offer.name}</b>: {next.offer.off}% off for {next.offer.months} months
+                </p>
+              )}
+            </div>
+          );
+        })()}
         <div className="share">
           <input readOnly value={link} aria-label="Your invite link" onFocus={(e) => e.currentTarget.select()} />
           <button

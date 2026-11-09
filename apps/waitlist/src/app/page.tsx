@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { JoinForm } from "@/components/join-form";
 import { ListCount } from "@/components/list-count";
+import { BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 
 const TAPE = ["AI agent that auto-trades", "100,000+ strategies", "3 years of market data", "Fast engine", "Every coin's risk in plain sight", "Dev · Sniper · Bundler labels", "$10,000 demo at live prices"];
 
@@ -100,6 +101,9 @@ export default function Page() {
               <span>risk-checked</span>
             </div>
           </div>
+          <a href="#offers" className="offer-hint">
+            <b>Early access offer:</b> up to 50% off trading fees for the waitlist
+          </a>
           <JoinForm id="join" />
           <ListCount />
         </div>
@@ -172,6 +176,31 @@ export default function Page() {
             <p>A safety score on every coin, plus the dev's past coins, bundled wallets, snipers and whales, labelled where you trade.</p>
           </article>
         </div>
+      </section>
+
+      <section className="offers" id="offers">
+        <p className="eyebrow">
+          <span className="dot" /> Early access offer
+        </p>
+        <h2>
+          Join early. <span className="accent">Pay less on every trade.</span>
+        </h2>
+        <p className="lead">The waitlist gets a discount on Kixo&apos;s trading fee from the day trading opens. Invite friends to unlock more.</p>
+        <ol className="offer-grid">
+          {OFFERS.map((o, i) => (
+            <li key={o.key} className={i === 2 ? "top" : ""}>
+              <span className="o-step">{String(i + 1).padStart(2, "0")} · {o.how}</span>
+              <h3>{o.name}</h3>
+              <p className="o-off">
+                <b>{o.off}%</b> off
+              </p>
+              <p className="o-detail">
+                Trading fee {feeAfter(o)}% instead of {BASE_FEE_PCT}%, for {o.months} months{o.extra ? ` + ${o.extra}` : ""}
+              </p>
+            </li>
+          ))}
+        </ol>
+        <p className="o-terms">The discount is on Kixo&apos;s own trading fee, not Solana network fees. It starts when real trading opens on your Kixo account, using the email you join with. One offer per person: the best one you reach.</p>
       </section>
 
       <section className="features">
