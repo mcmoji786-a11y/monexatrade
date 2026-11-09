@@ -168,8 +168,9 @@ export async function signInWithGoogle(next: string) {
   if (error) throw error;
 }
 
-export async function sendEmailCode(email: string) {
-  const { error } = await client().auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: callback("/discover") } });
+/** `captchaToken`: the Turnstile token when the check is on (components/account/turnstile). */
+export async function sendEmailCode(email: string, captchaToken?: string) {
+  const { error } = await client().auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: callback("/discover"), ...(captchaToken ? { captchaToken } : {}) } });
   if (error) throw error;
 }
 

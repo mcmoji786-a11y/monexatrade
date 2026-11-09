@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, Mail } from "lucide-react";
+import { Turnstile, TURNSTILE_SITE_KEY, type TurnstileHandle } from "./turnstile";
 import { authError, safeNext, sendEmailCode, signInWithGoogle, useAccount, verifyEmailCode } from "@/lib/account";
 import { useFeatures } from "@/lib/features";
 
@@ -24,6 +25,10 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const codeInput = useRef<HTMLInputElement>(null);
+  // Bot check before an email code is sent (off when no Turnstile key is set).
+  const [captcha, setCaptcha] = useState("");
+  const check = useRef<TurnstileHandle>(null);
+  const captchaOk = !TURNSTILE_SITE_KEY || captcha.length > 0;
 
   useEffect(() => {
     if (account.status !== "signed-in") return;
@@ -78,7 +83,7 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (emailOk) run("send", async () => { await sendEmailCode(email.trim()); setStep("code"); });
+              if (emailOk && captchaOk) run("send", async () => { try { await sendEmailCode(email.trim(), captcha); } finally { check.current?.reset(); } setStep("code"); });
             }}
           >
             <BackButton onClick={() => { setStep("choose"); setError(null); }} />
@@ -95,7 +100,8 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
               className="mt-2 h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none transition-colors placeholder:text-muted focus:border-emerald/50"
               placeholder="you@example.com"
             />
-            <SubmitButton disabled={!emailOk || !!busy} busy={busy === "send"}>Send code</SubmitButton>
+            <Turnstile ref={check} onToken={setCaptcha} />
+            <SubmitButton disabled={!emailOk || !captchaOk || !!busy} busy={busy === "send"}>Send code</SubmitButton>
           </form>
         ) : (
           <form
@@ -121,10 +127,11 @@ export function LoginPanel({ next: nextProp, inPopup = false, onDone }: { next?:
               placeholder="000000"
             />
             <SubmitButton disabled={code.length !== 6 || !!busy} busy={busy === "verify"}>Sign in</SubmitButton>
+            <Turnstile ref={check} onToken={setCaptcha} />
             <button
               type="button"
-              disabled={!!busy}
-              onClick={() => run("send", () => sendEmailCode(email.trim()))}
+              disabled={!!busy || !captchaOk}
+              onClick={() => run("send", async () => { try { await sendEmailCode(email.trim(), captcha); } finally { check.current?.reset(); } })}
               className="mt-3 w-full text-center text-xs text-text-2 hover:text-text disabled:opacity-50"
             >
               Send a new code
