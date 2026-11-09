@@ -21,6 +21,32 @@ export const C = {
 
 export const BACKGROUNDS = Array.from({ length: 9 }, (_, i) => `/share/bg-${i + 1}.jpg`);
 
+/** Video backgrounds: public/share/videos/1.mp4, 2.mp4, ... in order, found by asking for
+ *  each number until one is missing (up to 60). Drop new ones in with the next number. */
+let videoList: Promise<string[]> | null = null;
+export function findVideos(): Promise<string[]> {
+  videoList ??= (async () => {
+    const out: string[] = [];
+    for (let i = 1; i <= 60; i++) {
+      const url = `/share/videos/${i}.mp4`;
+      const ok = await fetch(url, { method: "HEAD" }).then((r) => r.ok && (r.headers.get("content-type") ?? "").includes("video")).catch(() => false);
+      if (!ok) break;
+      out.push(url);
+    }
+    return out;
+  })();
+  return videoList;
+}
+
+/** Draws `src` to fill the card, centred (like CSS object-fit: cover). */
+export function drawCover(g: CanvasRenderingContext2D, src: HTMLImageElement | HTMLVideoElement) {
+  const sw = src instanceof HTMLVideoElement ? src.videoWidth : src.naturalWidth;
+  const sh = src instanceof HTMLVideoElement ? src.videoHeight : src.naturalHeight;
+  if (!sw || !sh) return;
+  const k = Math.max(W / sw, H / sh);
+  g.drawImage(src, (W - sw * k) / 2, (H - sh * k) / 2, sw * k, sh * k);
+}
+
 export function loadImage(src: string, cors = false): Promise<HTMLImageElement | null> {
   return new Promise((res) => {
     const img = new Image();
@@ -55,16 +81,16 @@ export const multipleText = (x: number) => `${x >= 100 ? Math.round(x).toLocaleS
 
 export type Label = { text: string; tone: "warning" | "emerald" };
 
-/** Background photo, shade, the Kixo header and the label pill. */
-export function paintFrame(g: CanvasRenderingContext2D, bg: HTMLImageElement | null, mark: HTMLImageElement | null, label: Label, f: Fonts) {
+/** Background photo, shade, the Kixo header and the label pill. With `shadeOnly`, the
+ *  background is left transparent (a video plays under it) and only the shade is drawn. */
+export function paintFrame(g: CanvasRenderingContext2D, bg: HTMLImageElement | null, mark: HTMLImageElement | null, label: Label, f: Fonts, shadeOnly = false) {
   g.textBaseline = "alphabetic";
-  g.fillStyle = C.bg;
-  g.fillRect(0, 0, W, H);
-  if (bg) {
-    const k = Math.max(W / bg.naturalWidth, H / bg.naturalHeight);
-    const w = bg.naturalWidth * k;
-    const h = bg.naturalHeight * k;
-    g.drawImage(bg, (W - w) / 2, (H - h) / 2, w, h);
+  if (!shadeOnly) {
+    g.fillStyle = C.bg;
+    g.fillRect(0, 0, W, H);
+  }
+  if (bg || shadeOnly) {
+    if (bg && !shadeOnly) drawCover(g, bg);
     const side = g.createLinearGradient(0, 0, W, 0);
     side.addColorStop(0, "rgba(8,9,10,0.94)");
     side.addColorStop(0.45, "rgba(8,9,10,0.74)");
