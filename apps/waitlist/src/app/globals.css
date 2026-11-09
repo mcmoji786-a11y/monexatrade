@@ -139,6 +139,81 @@ h1 {
   line-height: 1.55;
 }
 
+/* AI agent card in the hero */
+.ai-card {
+  margin-top: 26px;
+  max-width: 520px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(47, 211, 138, 0.35);
+  background: linear-gradient(120deg, rgba(47, 211, 138, 0.12), rgba(34, 211, 238, 0.05) 60%, rgba(13, 14, 16, 0.6));
+  box-shadow: 0 0 40px rgba(47, 211, 138, 0.12);
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.ai-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.07) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: shine 4s ease-in-out infinite;
+}
+@keyframes shine {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+.ai-card:hover {
+  border-color: rgba(47, 211, 138, 0.6);
+  transform: translateY(-1px);
+}
+.ai-icon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--acc);
+  background: rgba(47, 211, 138, 0.12);
+  border: 1px solid rgba(47, 211, 138, 0.35);
+}
+.ai-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ai-title {
+  font-weight: 650;
+  font-size: 17px;
+  color: var(--t1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-title em {
+  font: 600 11px var(--mono);
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--acc);
+  border: 1px solid rgba(47, 211, 138, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.ai-sub {
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* Join form */
 .join {
   margin-top: 32px;
@@ -584,6 +659,7 @@ h2 {
 @media (prefers-reduced-motion: reduce) {
   .radar .sweep,
   .tape-track,
+  .ai-card::after,
   .dot,
   .blip {
     animation: none;

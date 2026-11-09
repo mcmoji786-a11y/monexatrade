@@ -76,7 +76,7 @@ export default function Page() {
       <section className="hero" id="top">
         <div className="hero-text">
           <p className="eyebrow">
-            <span className="dot" /> Coming soon · Solana memecoin terminal
+            <span className="dot" /> Coming soon · Solana memecoin terminal + AI
           </p>
           <h1>
             See the rug
@@ -84,8 +84,21 @@ export default function Page() {
             <span className="accent">before you buy.</span>
           </h1>
           <p className="lead">
-            Every new Solana memecoin the second it launches, with a safety score, the dev&apos;s history and who bought first. Practise free, then trade.
+            Every new Solana memecoin the second it launches, with a safety score, the dev&apos;s history and who bought first. Then let an AI trade it for you.
           </p>
+          <a href="#ai" className="ai-card">
+            <span className="ai-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M9 9h6v6H9z" />
+              </svg>
+            </span>
+            <span className="ai-text">
+              <span className="ai-title">
+                Kixo AI Trading Agent <em>Coming</em>
+              </span>
+              <span className="ai-sub">An AI bot that spots the risk and auto-trades within your rules, with 10,000+ strategies backtested on real on-chain data</span>
+            </span>
+          </a>
           <JoinForm id="join" />
           <ListCount />
         </div>
@@ -153,7 +166,7 @@ export default function Page() {
         </ol>
       </section>
 
-      <section className="ai">
+      <section className="ai" id="ai">
         <p className="eyebrow">
           <span className="dot" /> Classified
         </p>
