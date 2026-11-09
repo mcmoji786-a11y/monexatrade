@@ -192,6 +192,11 @@ export type Position = {
 export type Wallets = {
   holders: Position[];
   top_traders: Position[];
+  /** Biggest buyers and sellers by SOL (newer gateways). */
+  top_buyers?: Position[];
+  top_sellers?: Position[];
+  /** Every trader of the coin, summed. */
+  trader_stats?: { traders: number; in_profit: number; bought_sol: number; sold_sol: number; best_pnl_sol: number };
   dev: Position | null;
   snipers: Position[];
   holder_count: number;

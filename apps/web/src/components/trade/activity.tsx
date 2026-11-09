@@ -5,14 +5,14 @@ import { useState } from "react";
 import { useFeatures } from "@/lib/features";
 import { CoinLabelsContext, LABEL_ORDER, useCoinLabels, useSmartWallets, type CoinLabels, type WalletLabel } from "@/lib/labels";
 import { CopyAddress } from "@/components/token/token-bits";
-import { amount, positionPnl, sol, usd, type Position, type TradeRow } from "@/lib/gateway";
+import { amount, positionPnl, sol, usd, type Position, type TradeRow, type Wallets } from "@/lib/gateway";
 import { formatAge } from "@/components/radar/use-radar-feed";
 import { useWallets, type BookState } from "./use-token-book";
 
 const TABS = [
   { key: "trades", label: "Trades" },
   { key: "holders", label: "Holders" },
-  { key: "traders", label: "Top traders" },
+  { key: "traders", label: "Traders" },
   { key: "dev", label: "Dev" },
   { key: "snipers", label: "Early buyers" },
   { key: "whales", label: "Whales" },
@@ -84,6 +84,7 @@ export function Activity({
   const count: Partial<Record<TabKey, number>> = {
     trades: trades.length,
     holders: wallets?.holder_count,
+    traders: wallets?.trader_stats?.traders,
     snipers: wallets?.snipers.length,
     whales: whales.length,
   };
@@ -129,7 +130,7 @@ export function Activity({
             ))}
           {tab === "whales" && <TradeTable trades={whales} solUsd={solUsd} now={now} empty="No buys or sells of 5 SOL or more yet" />}
           {tab === "holders" && <WalletTable rows={wallets?.holders.filter(walletShown)} solUsd={solUsd} now={now} kind="holders" empty={who === "all" ? undefined : "None of the top holders have this label"} />}
-          {tab === "traders" && <WalletTable rows={wallets?.top_traders.filter(walletShown)} solUsd={solUsd} now={now} kind="traders" empty={who === "all" ? undefined : "None of the top traders have this label"} />}
+          {tab === "traders" && <TradersTab wallets={wallets} shown={walletShown} solUsd={solUsd} now={now} filtered={who !== "all"} />}
           {tab === "snipers" && <WalletTable rows={wallets?.snipers} solUsd={solUsd} now={now} kind="traders" empty="No wallet bought in the first 3 seconds" />}
           {tab === "dev" && (
             <>
@@ -266,12 +267,15 @@ function WalletTable({
   now,
   kind,
   empty = "No wallets yet",
+  ranked = false,
 }: {
   rows: Position[] | undefined;
   solUsd: number | null;
   now: number;
   kind: "holders" | "traders";
   empty?: string;
+  /** Mark the first three as 1st, 2nd and 3rd. */
+  ranked?: boolean;
 }) {
   if (!rows) return <Empty>Loading</Empty>;
   if (!rows.length) return <Empty>{empty}</Empty>;
@@ -285,6 +289,7 @@ function WalletTable({
           <th className="text-right font-normal">Bought</th>
           <th className="text-right font-normal">Sold</th>
           <th className="text-right font-normal">PnL</th>
+          {kind === "traders" && <th className="text-right font-normal">ROI</th>}
           <th className="text-right font-normal">Holding</th>
           <th className="text-right font-normal">{kind === "holders" ? "Share" : "Value"}</th>
           <th className="pr-4 text-right font-normal">Last</th>
@@ -295,7 +300,7 @@ function WalletTable({
           const pnl = positionPnl(p);
           return (
             <tr key={p.wallet} className="h-9 border-b border-border last:border-0 hover:bg-surface-2">
-              <td className="pl-4 text-muted">{i + 1}</td>
+              <td className="pl-4 text-muted">{ranked && i < 3 && pnl > 0 ? <span className="text-emerald">{["1st", "2nd", "3rd"][i]}</span> : i + 1}</td>
               <td>
                 <WalletCell wallet={p.wallet} flags={[p.dev && "dev", p.sniper && "sniper", p.bundler && "bundler", p.big_buyer && "whale"]} />
               </td>
@@ -308,9 +313,14 @@ function WalletTable({
                 <span className="ml-1.5 text-muted">{p.sells}</span>
               </td>
               <td className={`text-right ${pnl > 0 ? "text-positive" : pnl < 0 ? "text-negative" : "text-text-2"}`}>
-                {pnl > 0 ? "+" : ""}
-                {money(pnl)}
+                {pnl > 0 ? "+" : pnl < 0 ? "−" : ""}
+                {money(Math.abs(pnl))}
               </td>
+              {kind === "traders" && (
+                <td className={`text-right ${pnl > 0 ? "text-positive" : pnl < 0 ? "text-negative" : "text-text-2"}`}>
+                  {p.bought_sol > 0 ? `${pnl > 0 ? "+" : pnl < 0 ? "−" : ""}${Math.abs((pnl / p.bought_sol) * 100).toFixed(Math.abs(pnl / p.bought_sol) >= 10 ? 0 : 1)}%` : "—"}
+                </td>
+              )}
               <td className="text-right text-text-2">{p.balance > 0 ? amount(p.balance) : "Sold all"}</td>
               <td className="text-right text-text-2">{kind === "holders" ? `${p.pct.toFixed(2)}%` : money(p.value_sol)}</td>
               <td className="pr-4 text-right text-muted">{formatAge(now / 1000 - p.last_ts)}</td>
@@ -319,6 +329,74 @@ function WalletTable({
         })}
       </tbody>
     </table>
+  );
+}
+
+type TraderSort = "profit" | "bought" | "sold";
+
+/** Everyone who traded the coin: what each bought, sold and made, ranked three ways,
+ *  with the whole coin summed on top. */
+function TradersTab({ wallets, shown, solUsd, now, filtered }: { wallets: Wallets | null | undefined; shown: (p: Position) => boolean; solUsd: number | null; now: number; filtered: boolean }) {
+  const [sort, setSort] = useState<TraderSort>("profit");
+  const money = (v: number) => (solUsd ? usd(v * solUsd) : sol(v));
+  const st = wallets?.trader_stats;
+  const list = !wallets ? undefined : sort === "bought" ? (wallets.top_buyers ?? wallets.top_traders) : sort === "sold" ? (wallets.top_sellers ?? wallets.top_traders) : wallets.top_traders;
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        {st ? (
+          <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+            <div className="flex gap-1.5">
+              <dt className="text-muted">Traders</dt>
+              <dd className="font-mono text-text">{st.traders.toLocaleString()}</dd>
+            </div>
+            <div className="flex gap-1.5">
+              <dt className="text-muted">In profit</dt>
+              <dd className="font-mono text-positive">
+                {st.in_profit.toLocaleString()}
+                <span className="ml-1 text-muted">{st.traders ? `${Math.round((st.in_profit / st.traders) * 100)}%` : ""}</span>
+              </dd>
+            </div>
+            <div className="flex gap-1.5">
+              <dt className="text-muted">Bought</dt>
+              <dd className="font-mono text-positive">{money(st.bought_sol)}</dd>
+            </div>
+            <div className="flex gap-1.5">
+              <dt className="text-muted">Sold</dt>
+              <dd className="font-mono text-negative">{money(st.sold_sol)}</dd>
+            </div>
+            {st.best_pnl_sol > 0 && (
+              <div className="flex gap-1.5">
+                <dt className="text-muted">Best result</dt>
+                <dd className="font-mono text-positive">+{money(st.best_pnl_sol)}</dd>
+              </div>
+            )}
+          </dl>
+        ) : (
+          <span />
+        )}
+        <div role="group" aria-label="Sort traders" className="flex gap-1">
+          {(
+            [
+              ["profit", "Top profit"],
+              ["bought", "Biggest buyers"],
+              ["sold", "Biggest sellers"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={sort === k}
+              onClick={() => setSort(k)}
+              className={`h-7 rounded-md px-2 text-xs transition-colors ${sort === k ? "bg-surface-3 text-text" : "text-text-2 hover:bg-surface-2 hover:text-text"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <WalletTable rows={list?.filter(shown)} solUsd={solUsd} now={now} kind="traders" ranked={sort === "profit"} empty={filtered ? "None of these traders have this label" : "No trades yet"} />
+    </>
   );
 }
 

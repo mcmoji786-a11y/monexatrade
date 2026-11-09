@@ -377,6 +377,11 @@ pub struct BookSnapshot {
 pub struct Wallets {
     pub holders: Vec<Position>,
     pub top_traders: Vec<Position>,
+    /// The biggest buyers and sellers by SOL, for the Traders tab's other orders.
+    pub top_buyers: Vec<Position>,
+    pub top_sellers: Vec<Position>,
+    /// Every trader of the coin, summed.
+    pub trader_stats: TraderStats,
     pub dev: Option<Position>,
     pub snipers: Vec<Position>,
     pub holder_count: usize,
@@ -385,6 +390,17 @@ pub struct Wallets {
 }
 
 const LIST_LIMIT: usize = 100;
+
+/// All traders of one coin, summed (the Traders tab's header).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct TraderStats {
+    pub traders: usize,
+    pub in_profit: usize,
+    pub bought_sol: f64,
+    pub sold_sol: f64,
+    /// The best result on this coin so far, SOL.
+    pub best_pnl_sol: f64,
+}
 
 impl Books {
     pub fn add(&mut self, token: &NewToken) {
@@ -584,9 +600,26 @@ impl Books {
         holders.truncate(LIST_LIMIT);
 
         let pnl = |p: &Position| p.realized_sol + p.value_sol - (p.bought_sol - cost_of_sold(p));
-        let mut top_traders = all.clone();
+        // Profit is only known for wallets whose buys we saw: a wallet that got the coin
+        // elsewhere and sold it would otherwise rank its whole sale as profit.
+        let known = |p: &&Position| p.bought_sol > 0.0;
+        let mut top_traders: Vec<Position> = all.iter().filter(known).cloned().collect();
         top_traders.sort_by(|a, b| pnl(b).total_cmp(&pnl(a)));
         top_traders.truncate(LIST_LIMIT);
+
+        let mut top_buyers = all.clone();
+        top_buyers.sort_by(|a, b| b.bought_sol.total_cmp(&a.bought_sol));
+        top_buyers.truncate(LIST_LIMIT);
+        let mut top_sellers: Vec<Position> = all.iter().filter(|p| p.sold_sol > 0.0).cloned().collect();
+        top_sellers.sort_by(|a, b| b.sold_sol.total_cmp(&a.sold_sol));
+        top_sellers.truncate(LIST_LIMIT);
+        let trader_stats = TraderStats {
+            traders: all.len(),
+            in_profit: all.iter().filter(known).filter(|p| pnl(p) > 0.0).count(),
+            bought_sol: all.iter().map(|p| p.bought_sol).sum(),
+            sold_sol: all.iter().map(|p| p.sold_sol).sum(),
+            best_pnl_sol: all.iter().filter(known).map(pnl).fold(0.0, f64::max),
+        };
 
         let mut snipers: Vec<Position> = all.iter().filter(|p| p.sniper).cloned().collect();
         snipers.sort_by(|a, b| b.bought_sol.total_cmp(&a.bought_sol));
@@ -595,6 +628,9 @@ impl Books {
             dev: all.iter().find(|p| p.dev).cloned(),
             holders,
             top_traders,
+            top_buyers,
+            top_sellers,
+            trader_stats,
             snipers,
             holder_count,
             focus: focus.and_then(|w| all.iter().find(|p| p.wallet == w).cloned()),
