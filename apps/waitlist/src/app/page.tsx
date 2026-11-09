@@ -3,6 +3,7 @@ import Image from "next/image";
 import { JoinForm } from "@/components/join-form";
 import { ListCount } from "@/components/list-count";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
+import { FAQ, jsonLd } from "@/lib/seo";
 
 const TAPE = ["AI agent that auto-trades", "100,000+ strategies", "3 years of market data", "Fast engine", "Every coin's risk in plain sight", "Dev · Sniper · Bundler labels", "$10,000 demo at live prices"];
 
@@ -75,6 +76,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
 export default function Page() {
   return (
     <main>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd()).replace(/</g, "\\u003c") }} />
       <div className="grid-bg" aria-hidden="true" />
       <header className="nav">
         <a href="#top" className="brand">
@@ -266,6 +268,18 @@ export default function Page() {
         <p className="lead">
           Every launch, every trade and how every coin ended is going into it right now. Kixo opens when the AI is ready, and the waitlist gets in first.
         </p>
+      </section>
+
+      <section className="faq" id="faq">
+        <h2>Questions</h2>
+        <div className="faq-list">
+          {FAQ.map((f) => (
+            <details key={f.q}>
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))}
+        </div>
       </section>
 
       <section className="final">

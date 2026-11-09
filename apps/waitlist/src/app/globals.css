@@ -915,6 +915,51 @@ h2 {
   color: var(--acc);
 }
 
+/* FAQ */
+.faq {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 80px 24px 40px;
+}
+.faq-list {
+  margin-top: 32px;
+  border-top: 1px solid var(--line-2);
+}
+.faq details {
+  border-bottom: 1px solid var(--line-2);
+  padding: 18px 0;
+}
+.faq summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+.faq summary::after {
+  content: "+";
+  color: var(--acc);
+  font: 500 22px var(--mono);
+  line-height: 1;
+}
+.faq details[open] summary::after {
+  content: "−";
+}
+.faq details p {
+  margin-top: 10px;
+  color: var(--t2);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
 /* Final */
 .final {
   text-align: center;
