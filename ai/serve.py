@@ -12,6 +12,8 @@ Listens on 127.0.0.1 only, so nothing outside this PC can reach it.
 import json
 import os
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import lightgbm as lgb
@@ -24,14 +26,47 @@ MODELS = os.environ.get("KIXO_AI", "E:/KixoAI/models")
 PORT = int(os.environ.get("KIXO_AI_PORT", "8090"))
 MAX_BODY = 4 << 20
 
-boosters = {t: lgb.Booster(model_file=f"{MODELS}/{t}_latest.txt") for t in ("dump", "pump")}
-try:
-    report = json.load(open(f"{MODELS}/report_latest.json"))
-except (OSError, ValueError):
-    report = {}
+boosters = {}
+report = {}
+loaded_at = 0.0
+checked_at = 0.0
+lock = threading.Lock()
+
+
+def load_models():
+    """Loads the latest models, and again whenever train_rug.py writes new ones, so a
+    retrain needs no restart. A half-written file keeps the models already loaded."""
+    global boosters, report, loaded_at
+    try:
+        stamp = max(os.path.getmtime(f"{MODELS}/{t}_latest.txt") for t in ("dump", "pump"))
+        if stamp <= loaded_at or time.time() - stamp < 10:
+            return
+        fresh = {t: lgb.Booster(model_file=f"{MODELS}/{t}_latest.txt") for t in ("dump", "pump")}
+        try:
+            rep = json.load(open(f"{MODELS}/report_latest.json"))
+        except (OSError, ValueError):
+            rep = {}
+        boosters, report, loaded_at = fresh, rep, stamp
+        print(f"models loaded (trained {rep.get('trained', '?')})", flush=True)
+    except Exception as e:  # keep serving the old models
+        print(f"model reload skipped: {e}", flush=True)
+
+
+def maybe_reload():
+    global checked_at
+    if time.time() - checked_at > 60:
+        with lock:
+            checked_at = time.time()
+            load_models()
+
+
+load_models()
+if not boosters:
+    sys.exit(f"no models in {MODELS}: run ai\\train_rug.py first")
 
 
 def predict(body):
+    maybe_reload()
     t = pd.DataFrame(body.get("trades") or [])
     if t.empty:
         return None

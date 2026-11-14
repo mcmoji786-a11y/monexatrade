@@ -199,6 +199,12 @@ pub async fn run(ctx: AiCtx) {
     }
 }
 
+/// For the admin's System page: is the AI service answering, and how much has it scored.
+pub fn status() -> Value {
+    let s = store().lock().expect("ai store lock");
+    json!({ "service": s.service_up, "scored": s.scores.len(), "waiting": s.pending.len() })
+}
+
 #[derive(Deserialize)]
 pub struct RiskQuery {
     mints: Option<String>,

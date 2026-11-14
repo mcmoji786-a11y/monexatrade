@@ -38,6 +38,9 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 const PING_EVERY: Duration = Duration::from_secs(30);
 /// If no message arrives in this window the connection is treated as dead.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+/// Pump.fun launches a coin every few seconds: a node that accepts our subscriptions but
+/// sends no logs for this long is silent (some free nodes do this), so we move on.
+const SILENT_AFTER: Duration = Duration::from_secs(30);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 const FLUSH_EVERY: Duration = Duration::from_secs(1);
 const PRUNE_EVERY: Duration = Duration::from_secs(15);
@@ -311,9 +314,17 @@ impl Engine {
         let mut prune = tokio::time::interval(PRUNE_EVERY);
         let mut primary_check = tokio::time::interval(Duration::from_secs(60));
         primary_check.tick().await;
+        let mut silent_check = tokio::time::interval(Duration::from_secs(5));
+        let mut last_logs = std::time::Instant::now();
 
         loop {
             tokio::select! {
+                _ = silent_check.tick() => {
+                    if last_logs.elapsed() > SILENT_AFTER {
+                        // "does not support": the reconnect loop moves to the next node.
+                        bail!("silent stream: node does not support live logs here");
+                    }
+                }
                 _ = ping.tick() => tx.send(Message::Ping(Vec::new().into())).await?,
 
                 // On a fallback node, hand back to Helius once it answers again.
@@ -397,6 +408,9 @@ impl Engine {
                         Message::Text(text) => {
                             stats.bytes_received.fetch_add(text.len() as u64, Ordering::Relaxed);
                             stats.messages_received.fetch_add(1, Ordering::Relaxed);
+                            if text.contains("\"logsNotification\"") {
+                                last_logs = std::time::Instant::now();
+                            }
                             self.handle(&text, &mut tx, &mut subs, out, stats).await?;
                         }
                         Message::Close(frame) => bail!("server closed connection: {frame:?}"),

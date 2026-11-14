@@ -15,6 +15,8 @@ type SystemReply = {
   samples: Sample[];
   incidents: Incident[];
   rpc: { active: string; nodes: RpcNode[] };
+  /** Kixo AI risk (gateway ai_risk.rs); missing on an older gateway. */
+  ai?: { service: boolean; scored: number; waiting: number };
   errors: Group[];
 };
 
@@ -155,6 +157,19 @@ export function SystemAdmin() {
           ))}
         </ul>
       </section>
+
+      {data.ai && (
+        <section className="rounded-xl border border-border bg-surface px-5 py-4">
+          <h2 className="text-sm font-medium text-text">Kixo AI</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
+            <span className={`size-1.5 rounded-full ${data.ai.service ? "bg-positive" : "bg-warning"}`} />
+            <span className="text-text">{data.ai.service ? "Service answering" : "Service not answering yet"}</span>
+            <span className="font-mono">{data.ai.scored.toLocaleString()} coins scored</span>
+            <span className="font-mono">{data.ai.waiting.toLocaleString()} in their first 2 minutes</span>
+          </div>
+          {!data.ai.service && <p className="mt-2 text-xs text-muted">Start it with scripts\kixo-start.cmd (ai/serve.py on port 8090). It reads only after the first coin is ready</p>}
+        </section>
+      )}
 
       <section className="rounded-xl border border-border bg-surface">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">

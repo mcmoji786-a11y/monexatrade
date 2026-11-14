@@ -31,3 +31,8 @@ Listens on 127.0.0.1:8090 (this PC only); `scripts\kixo-start.cmd` starts it too
 service once, and serves `GET /ai/risk?mints=a,b`. Sol Radar cards and the trade page show
 "Dump X% · 2x Y%". Admin switch: "Kixo AI risk". `features.py` is shared by training and the
 service, so both compute the same numbers. Restart `serve.py` after retraining.
+
+## Retraining (weekly)
+Run `scripts\kixo-ai-retrain.cmd`. The running service loads the new models by itself within a
+minute. If training fails, the old models stay in use. The admin's System page shows whether
+the AI service answers and how many coins it scored.

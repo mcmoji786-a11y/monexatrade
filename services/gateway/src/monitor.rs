@@ -292,6 +292,7 @@ pub async fn admin_system(State(state): State<Arc<crate::AppState>>, headers: He
         "samples": list,
         "incidents": incidents(&list),
         "rpc": crate::rpc_router::status(&state.router),
+        "ai": crate::ai_risk::status(),
         "errors": groups(),
     })))
 }
