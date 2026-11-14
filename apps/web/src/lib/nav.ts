@@ -33,7 +33,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Tools",
     items: [
       { slug: "sniper", label: "Sniper", phase: "Phase 1", icon: Crosshair, live: true },
-      { slug: "ai", label: "AI Intelligence", phase: "Product phase 2", icon: ScanSearch },
+      { slug: "ai", label: "Kixo AI", phase: "Phase 2", icon: ScanSearch, live: true },
       { slug: "smart-money", label: "Smart Money", phase: "Phase 1", icon: Brain, live: true },
       { slug: "tracker", label: "Wallet Tracker", phase: "Phase 1", icon: ScanEye, live: true },
       { slug: "wallets", label: "Wallet Monitor", phase: "Phase 1", icon: Wallet, live: true },
@@ -60,4 +60,4 @@ export const NAV_GROUPS: NavGroup[] = [
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Sections that have their own page and must not use the placeholder route. */
-export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "tracker", "sniper", "rewards", "portfolio", "competition", "settings", "support", "news"]);
+export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "tracker", "sniper", "rewards", "portfolio", "competition", "settings", "support", "news", "ai"]);

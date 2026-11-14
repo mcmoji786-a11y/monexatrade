@@ -187,7 +187,7 @@ const PAGE_NAMES: Record<string, string> = {
   "smart-money": "Smart Money",
   wallets: "Wallet Monitor",
   rewards: "Rewards",
-  ai: "AI Intelligence",
+  ai: "Kixo AI",
   home: "Home",
   other: "Other pages",
 };

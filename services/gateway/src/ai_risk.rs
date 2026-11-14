@@ -39,6 +39,31 @@ pub struct Risk {
     pub trades: u32,
     /// When it was scored (unix seconds).
     pub at: i64,
+    /// Price when scored, and the lowest and highest since: the real outcome the AI's
+    /// track record is measured against.
+    #[serde(skip)]
+    p0: f64,
+    #[serde(skip)]
+    lo: f64,
+    #[serde(skip)]
+    hi: f64,
+    #[serde(skip)]
+    resolved: bool,
+}
+
+/// The model's horizon: an outcome is known one hour after the score (train_rug.py).
+const HORIZON: i64 = 3600;
+/// Outcomes kept for the track record.
+const TRACK_SECS: i64 = 48 * 3600;
+
+/// What happened to a scored coin within the hour after its score.
+#[derive(Clone, Copy)]
+struct Outcome {
+    at: i64,
+    dump: f64,
+    pump: f64,
+    dumped: bool,
+    doubled: bool,
 }
 
 struct Pending {
@@ -55,6 +80,9 @@ struct Store {
     order: std::collections::VecDeque<String>,
     /// Whether the last call to the AI service worked, for /ai/risk and the admin.
     service_up: bool,
+    outcomes: std::collections::VecDeque<Outcome>,
+    /// The model's test results from the AI service (/health), refreshed every few minutes.
+    model: Option<Value>,
 }
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
@@ -86,6 +114,15 @@ pub fn coin(t: &NewToken) {
 /// A trade on any coin: kept when its coin is waiting and it falls in the first 2 minutes.
 pub fn trade(t: &Trade, slot: Option<u64>) {
     let mut s = store().lock().expect("ai store lock");
+    // A scored coin in its hour: follow its price for the track record.
+    if let Some(r) = s.scores.get_mut(&t.mint) {
+        if !r.resolved && t.virtual_token_reserves > 0 && r.p0 > 0.0 {
+            let price = t.virtual_sol_reserves as f64 / t.virtual_token_reserves as f64;
+            r.lo = r.lo.min(price);
+            r.hi = r.hi.max(price);
+        }
+        return;
+    }
     let Some(p) = s.pending.get_mut(&t.mint) else { return };
     let first = *p.first_ts.get_or_insert(t.timestamp);
     if t.timestamp > first + WINDOW || p.trades.len() >= MAX_TRADES {
@@ -116,10 +153,22 @@ fn url() -> String {
 pub async fn run(ctx: AiCtx) {
     let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().expect("ai http client");
     let mut last_warn: Option<Instant> = None;
+    let mut round = 0u64;
     loop {
         tokio::time::sleep(Duration::from_secs(3)).await;
+        round += 1;
         let on = ctx.admin.ai_risk();
         let t = now();
+        if round % 10 == 1 {
+            resolve(t);
+        }
+        if round % 100 == 1 {
+            if let Ok(r) = http.get(format!("{}/health", url())).send().await {
+                if let Ok(v) = r.json::<Value>().await {
+                    store().lock().expect("ai store lock").model = Some(v);
+                }
+            }
+        }
         // Coins whose window closed (a few seconds of grace for late trades), and coins
         // that never traded: dropped after 10 minutes.
         let ready: Vec<(String, Pending)> = {
@@ -160,6 +209,11 @@ pub async fn run(ctx: AiCtx) {
                 let board = ctx.app.board.lock().expect("board lock");
                 board.tokens.get(&mint).map(|ft| json!({ "meta": ft.meta, "dev_report": ft.dev_report }))
             };
+            // The price the model judged at: the last trade of the window.
+            let p0 = p.trades.last().map_or(0.0, |l| {
+                let (s, k) = (l["v_sol"].as_f64().unwrap_or(0.0), l["v_tokens"].as_f64().unwrap_or(0.0));
+                if k > 0.0 { s / k } else { 0.0 }
+            });
             let body = json!({ "trades": p.trades, "creator": p.creator, "launchpad": p.launchpad, "card": card });
             let res = http.post(format!("{}/predict", url())).json(&body).send().await;
             let ok = match res {
@@ -170,6 +224,10 @@ pub async fn run(ctx: AiCtx) {
                             pump: v["pump"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0),
                             trades: v["trades"].as_u64().unwrap_or(0) as u32,
                             at: now(),
+                            p0,
+                            lo: p0,
+                            hi: p0,
+                            resolved: p0 <= 0.0,
                         };
                         let mut s = store().lock().expect("ai store lock");
                         s.scores.insert(mint.clone(), risk);
@@ -203,6 +261,101 @@ pub async fn run(ctx: AiCtx) {
 pub fn status() -> Value {
     let s = store().lock().expect("ai store lock");
     json!({ "service": s.service_up, "scored": s.scores.len(), "waiting": s.pending.len() })
+}
+
+/// Coins whose hour is over: record what really happened.
+fn resolve(t: i64) {
+    let mut s = store().lock().expect("ai store lock");
+    let mut done = Vec::new();
+    for r in s.scores.values_mut() {
+        if !r.resolved && t >= r.at + HORIZON {
+            r.resolved = true;
+            done.push(Outcome { at: r.at, dump: r.dump, pump: r.pump, dumped: r.lo <= 0.3 * r.p0, doubled: r.hi >= 2.0 * r.p0 });
+        }
+    }
+    done.sort_by_key(|o| o.at);
+    s.outcomes.extend(done);
+    while s.outcomes.front().is_some_and(|o| o.at < t - TRACK_SECS) {
+        s.outcomes.pop_front();
+    }
+}
+
+/// One group of the track record: how many coins, and how often they really dumped and doubled.
+fn group<'a>(it: impl Iterator<Item = &'a Outcome>) -> Value {
+    let (mut n, mut d, mut p) = (0u32, 0u32, 0u32);
+    for o in it {
+        n += 1;
+        d += o.dumped as u32;
+        p += o.doubled as u32;
+    }
+    let rate = |k: u32| if n > 0 { Some(k as f64 / n as f64) } else { None };
+    json!({ "coins": n, "dumped": rate(d), "doubled": rate(p) })
+}
+
+/// `GET /ai/overview`: the AI page. Live lists of the newest scores, the track record
+/// (scores against what really happened within the hour), and the model's test results.
+pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
+    if !ctx.admin.ai_risk() {
+        return Json(json!({ "on": false }));
+    }
+    let t = now();
+    let (recent, track, model, service, waiting, scored_1h) = {
+        let s = store().lock().expect("ai store lock");
+        let recent: Vec<(String, Risk)> = s
+            .order
+            .iter()
+            .rev()
+            .filter_map(|m| s.scores.get(m).map(|r| (m.clone(), r.clone())))
+            .take_while(|(_, r)| r.at >= t - 1800)
+            .collect();
+        let o: Vec<Outcome> = s.outcomes.iter().copied().filter(|o| o.at >= t - 24 * 3600).collect();
+        let track = json!({
+            "window_h": 24,
+            "all": group(o.iter()),
+            "high_dump": group(o.iter().filter(|o| o.dump >= 0.4)),
+            "low_dump": group(o.iter().filter(|o| o.dump < 0.1)),
+            "high_pump": group(o.iter().filter(|o| o.pump >= 0.2)),
+        });
+        let scored_1h = s.scores.values().filter(|r| r.at >= t - 3600).count();
+        (recent, track, s.model.clone(), s.service_up, s.pending.len(), scored_1h)
+    };
+    let card = |m: &str, r: &Risk, board: &crate::Board| {
+        let ft = board.tokens.get(m);
+        json!({
+            "mint": m,
+            "symbol": ft.map(|f| f.token.symbol.clone()),
+            "name": ft.map(|f| f.token.name.clone()),
+            "image": ft.and_then(|f| f.meta.as_ref()).and_then(|x| x.image.clone()),
+            "mc_usd": ft.and_then(|f| f.market.as_ref()).and_then(|x| x.mc_usd),
+            "dump": r.dump,
+            "pump": r.pump,
+            "at": r.at,
+        })
+    };
+    let (riskiest, best) = {
+        let board = ctx.app.board.lock().expect("board lock");
+        let mut by_dump: Vec<&(String, Risk)> = recent.iter().collect();
+        by_dump.sort_by(|a, b| b.1.dump.total_cmp(&a.1.dump));
+        let mut by_pump: Vec<&(String, Risk)> = recent.iter().filter(|(_, r)| r.dump < 0.2).collect();
+        by_pump.sort_by(|a, b| b.1.pump.total_cmp(&a.1.pump));
+        (
+            by_dump.iter().take(8).map(|(m, r)| card(m, r, &board)).collect::<Vec<_>>(),
+            by_pump.iter().take(8).map(|(m, r)| card(m, r, &board)).collect::<Vec<_>>(),
+        )
+    };
+    Json(json!({
+        "on": true,
+        "service": service,
+        "window_s": WINDOW,
+        "horizon_s": HORIZON,
+        "scored_30m": recent.len(),
+        "scored_1h": scored_1h,
+        "waiting": waiting,
+        "riskiest": riskiest,
+        "best": best,
+        "track": track,
+        "model": model.map(|m| json!({ "trained": m["trained"], "coins": m["coins"], "targets": m["targets"], "backtest": m["backtest"] })),
+    }))
 }
 
 #[derive(Deserialize)]

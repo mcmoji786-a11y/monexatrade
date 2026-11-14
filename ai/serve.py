@@ -94,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "targets": report.get("targets"), "backtest": report.get("backtest")})
+            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest")})
         else:
             self._send(404, {"error": "not found"})
 

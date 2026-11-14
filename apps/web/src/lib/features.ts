@@ -175,6 +175,7 @@ export function useFeatures(): Features {
 export const PAGE_FLAG: Record<string, keyof Features> = {
   discover: "discover",
   radar: "radar",
+  ai: "ai_risk",
   token: "trade_page",
   sniper: "sniper",
   "smart-money": "smart_money",
