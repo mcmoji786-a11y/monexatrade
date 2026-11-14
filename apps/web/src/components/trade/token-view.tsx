@@ -23,6 +23,7 @@ import { Splitter, useStoredSize } from "./splitter";
 import { useTokenBook, type BookState } from "./use-token-book";
 import { launchSignals, rowSignals, safetyScore, type Safety } from "@/lib/safety";
 import { SafetyBadge } from "@/components/token/safety-badge";
+import { AiRiskChip } from "@/components/token/ai-risk-chip";
 import { money, signed } from "./trade-panel";
 import { DockableTrade } from "./floating-trade";
 import { OrdersCard } from "./orders-card";
@@ -283,6 +284,7 @@ function Header({
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {safety && <SafetyBadge safety={safety} size="md" />}
+          <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
           <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
           <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />

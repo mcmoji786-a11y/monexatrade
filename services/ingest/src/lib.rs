@@ -184,6 +184,9 @@ pub async fn run_forever(
             backoff = Duration::from_secs(1);
         }
         let unsupported = matches!(&result, Err(e) if e.to_string().contains("does not support"));
+        // A node that drops us seconds after subscribing (out of quota, "upstream went
+        // away") is as good as down: try the next one.
+        let dropped_fast = subscribed && started.elapsed() < Duration::from_secs(10);
         match result {
             Ok(()) => tracing::warn!(?backoff, "stream ended, reconnecting"),
             Err(err) => tracing::error!(error = %err, ?backoff, "stream error, reconnecting"),
@@ -192,7 +195,7 @@ pub async fn run_forever(
             // Helius answers again: go back to it.
             idx = 0;
             backoff = Duration::from_secs(1);
-        } else if (!subscribed || unsupported) && nodes > 1 {
+        } else if (!subscribed || unsupported || dropped_fast) && nodes > 1 {
             // This node could not be reached, or cannot stream logs: the next one now.
             idx += 1;
             backoff = Duration::from_secs(1);

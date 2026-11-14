@@ -16,6 +16,7 @@ import { CopyAddress, CopyMint, TokenLogo } from "@/components/token/token-bits"
 import { tokenHref, useOpenToken } from "@/lib/open-token";
 import Link from "next/link";
 import { AiButton } from "@/components/token/ai-analysis";
+import { AiRiskChip } from "@/components/token/ai-risk-chip";
 import { inputFromLaunch } from "@/lib/ai";
 import { formatAge, type RadarToken } from "./use-radar-feed";
 
@@ -242,6 +243,7 @@ function TokenCardView({
 
       {/* Two flags at most, the rest folded */}
       <div className="flex h-6 items-center gap-1.5 overflow-hidden">
+        <AiRiskChip mint={token.mint} ageSecs={age} />
         {shown.map((f) => (
           <FlagChip key={f.key} flag={f} />
         ))}

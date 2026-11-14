@@ -179,6 +179,8 @@ pub struct FeatureFlags {
     pub weekly_recap: bool,
     /// Auto-trade wallet: server-held key, 24/7 trading, withdrawals only to the main wallet.
     pub auto_wallet: bool,
+    /// Kixo AI risk: the trained model's dump and 2x chances on new coins (ai_risk.rs).
+    pub ai_risk: bool,
 }
 
 impl Default for FeatureFlags {
@@ -225,6 +227,7 @@ impl Default for FeatureFlags {
             achievements: true,
             weekly_recap: true,
             auto_wallet: true,
+            ai_risk: true,
         }
     }
 }
@@ -344,6 +347,11 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
+    }
+
+    /// Whether the AI risk scores are switched on.
+    pub fn ai_risk(&self) -> bool {
+        self.features.lock().expect("features lock").ai_risk
     }
 
     /// Whether deposits into Kixo wallets are open.

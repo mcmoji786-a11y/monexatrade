@@ -24,6 +24,7 @@ mod sender;
 mod platform;
 mod ops;
 mod marketing;
+mod ai_risk;
 mod auto_wallet;
 mod collector;
 mod monitor;
@@ -372,6 +373,9 @@ async fn main() -> Result<()> {
 
     let news_ctx = news::NewsCtx { app: state.clone(), admin: admin_state.clone(), news: news::News::stored("data/news.json") };
     tokio::spawn(news::run(news_ctx.clone()));
+    let ai_ctx = ai_risk::AiCtx { app: state.clone(), admin: admin_state.clone() };
+    tokio::spawn(ai_risk::run(ai_ctx.clone()));
+    let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).with_state(ai_ctx);
     let news_routes: Router<Arc<AppState>> = Router::new()
         .route("/news", get(news::list))
         .route("/ws/news", get(news::ws))
@@ -442,6 +446,7 @@ async fn main() -> Result<()> {
         .merge(activity_routes)
         .merge(support_routes)
         .merge(news_routes)
+        .merge(ai_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -470,6 +475,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
         match event {
             IngestEvent::Created(token) => {
                 collector::coin(&token);
+                ai_risk::coin(&token);
                 // The trade book counts amounts in SOL. Curves quoted in another
                 // currency (USD1 and similar) would read as $0, so those coins use
                 // their DEX history instead.
@@ -498,6 +504,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
             }
             IngestEvent::Launched(token) => {
                 collector::coin(&token);
+                ai_risk::coin(&token);
                 let dev_report = {
                     let mut c = state.creators.lock().expect("creators lock");
                     c.launched(&token.creator, &token.mint, token.timestamp);
@@ -576,6 +583,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 slot,
             } => {
                 collector::trade(&signature, &trade, slot);
+                ai_risk::trade(&trade, slot);
                 // Pools quoted in another token (WBTC, USDC...) report raw quote units;
                 // convert them to lamports of equal value so the book stays in SOL.
                 let factor = state

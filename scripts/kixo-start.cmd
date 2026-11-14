@@ -19,6 +19,18 @@ if errorlevel 1 (
   echo The Kixo gateway is already running.
 )
 
+rem Kixo AI (ai/serve.py): scores new coins from their first 2 minutes, on this PC only.
+set PY=E:\KixoAI\venv\Scripts\python.exe
+if exist "%PY%" (
+  powershell -NoProfile -Command "try { (Invoke-WebRequest http://127.0.0.1:8090/health -UseBasicParsing -TimeoutSec 3) | Out-Null; exit 0 } catch { exit 1 }"
+  if errorlevel 1 (
+    echo Starting Kixo AI...
+    start "Kixo AI" /MIN /D "%ROOT%" cmd /c ""%PY%" ai\serve.py >> "%LOGS%\ai.log" 2>&1"
+  ) else (
+    echo Kixo AI is already running.
+  )
+)
+
 rem Give the gateway a moment, then start the website if it is not up yet.
 timeout /t 8 /nobreak >nul
 powershell -NoProfile -Command "try { (Invoke-WebRequest http://localhost:3000 -UseBasicParsing -TimeoutSec 5) | Out-Null; exit 0 } catch { exit 1 }"

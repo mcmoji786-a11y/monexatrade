@@ -39,6 +39,7 @@ export type Features = {
   kixo_sender: boolean;
   wallet_tracker: boolean;
   auto_wallet: boolean;
+  ai_risk: boolean;
   weekly_recap: boolean;
   achievements: boolean;
   milestone_alerts: boolean;
@@ -84,6 +85,7 @@ export const ALL_ON: Features = {
   kixo_sender: true,
   wallet_tracker: true,
   auto_wallet: true,
+  ai_risk: true,
   weekly_recap: true,
   achievements: true,
   milestone_alerts: true,
@@ -117,6 +119,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "milestone_alerts", label: "2x, 5x, 10x alerts", hint: "An alert with a share card when an open demo position reaches 2x, 5x, 10x and more" },
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
+  { key: "ai_risk", label: "Kixo AI risk", hint: "Sol Radar and the trade page: the trained model's chance a new coin dumps 70%+ or doubles within an hour, judged from its first 2 minutes. Needs the AI service (ai/serve.py)" },
   { key: "auto_wallet", label: "Auto-trade wallet (24/7)", hint: "A second wallet whose key Kixo holds, so orders, grids, copies, the sniper and the AI agent trade 24/7. Its money can only go back to the user's main Kixo wallet" },
   { key: "wallet_monitor", label: "Wallet Monitor", hint: "Follow wallets and get alerts" },
   { key: "rewards", label: "Rewards", hint: "Referral, cashback and creator programme" },
