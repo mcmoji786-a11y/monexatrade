@@ -24,6 +24,7 @@ mod sender;
 mod platform;
 mod ops;
 mod marketing;
+mod ai_chat;
 mod ai_risk;
 mod auto_wallet;
 mod collector;
@@ -399,6 +400,8 @@ async fn main() -> Result<()> {
     let ai_ctx = ai_risk::AiCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(ai_risk::run(ai_ctx.clone()));
     let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).route("/ai/overview", get(ai_risk::overview)).with_state(ai_ctx);
+    let chat_ctx = ai_chat::ChatCtx { app: state.clone(), admin: admin_state.clone(), http: state.http.clone() };
+    let chat_routes: Router<Arc<AppState>> = Router::new().route("/ai/chat", axum::routing::post(ai_chat::chat)).with_state(chat_ctx);
     let news_routes: Router<Arc<AppState>> = Router::new()
         .route("/news", get(news::list))
         .route("/ws/news", get(news::ws))
@@ -470,6 +473,7 @@ async fn main() -> Result<()> {
         .merge(support_routes)
         .merge(news_routes)
         .merge(ai_routes)
+        .merge(chat_routes)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

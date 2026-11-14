@@ -181,6 +181,8 @@ pub struct FeatureFlags {
     pub auto_wallet: bool,
     /// Kixo AI risk: the trained model's dump and 2x chances on new coins (ai_risk.rs).
     pub ai_risk: bool,
+    /// Ask Kixo AI answers with a language model (ai_chat.rs); off = built-in answers only.
+    pub ai_chat: bool,
 }
 
 impl Default for FeatureFlags {
@@ -228,6 +230,7 @@ impl Default for FeatureFlags {
             weekly_recap: true,
             auto_wallet: true,
             ai_risk: true,
+            ai_chat: true,
         }
     }
 }
@@ -347,6 +350,11 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
+    }
+
+    /// Whether Ask Kixo AI may use a language model.
+    pub fn ai_chat(&self) -> bool {
+        self.features.lock().expect("features lock").ai_chat
     }
 
     /// Whether the AI risk scores are switched on.

@@ -275,6 +275,18 @@ pub async fn run(ctx: AiCtx) {
     }
 }
 
+/// The AI's score for one coin, if it has one (for the chat's live data).
+pub fn score_of(mint: &str) -> Option<Risk> {
+    store().lock().expect("ai store lock").scores.get(mint).cloned()
+}
+
+/// Coins scored in the last `secs` seconds, newest first.
+pub fn recent(secs: i64) -> Vec<(String, Risk)> {
+    let t = now();
+    let s = store().lock().expect("ai store lock");
+    s.order.iter().rev().filter_map(|m| s.scores.get(m).map(|r| (m.clone(), r.clone()))).take_while(|(_, r)| r.at >= t - secs).collect()
+}
+
 /// For the admin's System page: is the AI service answering, and how much has it scored.
 pub fn status() -> Value {
     let s = store().lock().expect("ai store lock");

@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, Loader2, ScanSearch } from "lucide-react";
-import { answer, STARTERS, type AiOverview, type ChatReply } from "@/lib/ai-chat";
+import { answer, askModel, looksSecret, SECRET_REPLY, STARTERS, type AiOverview, type ChatReply } from "@/lib/ai-chat";
 import { riskTitle, verdict } from "@/lib/ai-risk";
 import { tokenHref } from "@/lib/open-token";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
@@ -32,7 +32,18 @@ export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
     setQ("");
     setMsgs((m) => [...m, { id: nextId.current++, role: "user", text: t }]);
     setBusy(true);
-    const reply = await answer(t, { tokens: feed.tokens, overview });
+    let reply: ChatReply;
+    if (looksSecret(t)) {
+      reply = SECRET_REPLY;
+    } else {
+      // The model answers in words; Kixo's own answer adds the coins with their actions
+      // and the next questions. Without the model, Kixo's own answer is the reply.
+      const history = msgs.slice(-6).map((m) => (m.role === "user" ? { role: "user" as const, content: m.text } : { role: "assistant" as const, content: m.reply.text.join("\n") }));
+      const [model, local] = await Promise.all([askModel(t, history), answer(t, { tokens: feed.tokens, overview })]);
+      if (model && "refused" in model) reply = SECRET_REPLY;
+      else if (model) reply = { text: model.reply.split(/\n+/).map((l) => l.trim()).filter(Boolean), coins: local.coins, suggestions: local.suggestions };
+      else reply = local;
+    }
     setMsgs((m) => [...m, { id: nextId.current++, role: "ai", reply }]);
     setBusy(false);
   };
@@ -45,13 +56,13 @@ export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <ScanSearch size={16} strokeWidth={1.5} className="text-emerald" />
         <h2 className="text-sm font-medium text-text">Ask Kixo AI</h2>
-        <span className="ml-auto text-[11px] text-muted">Answers from Kixo&apos;s live data and model</span>
+        <span className="ml-auto text-[11px] text-muted">Can be wrong. Never share your seed phrase</span>
       </div>
 
       <div ref={box} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
         {msgs.length === 0 && (
           <div className="my-auto text-center">
-            <p className="text-sm text-text">Ask about any coin, or what to watch right now</p>
+            <p className="text-sm text-text">Ask anything about Solana, crypto or a coin</p>
             <p className="mt-1 text-xs text-muted">Paste a coin address or write a $SYMBOL from the radar. English or Roman Urdu</p>
           </div>
         )}

@@ -27,7 +27,42 @@ export type AiOverview = {
   model?: { coins: number | null; targets: { dump: { base_rate: number; top10pct_rate: number; bottom10pct_rate: number }; pump: { base_rate: number; top10pct_rate: number } } | null } | null;
 };
 
-export const STARTERS = ["Best coins right now", "Which coins may rug?", "Is the AI accurate?", "What are bundles?", "Copy Kixo AI kya hai?"];
+/** A seed phrase, private key or key file: answered here and never sent anywhere
+ *  (the gateway checks too, ai_chat.rs). */
+export function looksSecret(msg: string) {
+  const words = msg.trim().split(/\s+/);
+  if ([12, 15, 18, 21, 24].includes(words.length) && words.every((w) => /^[a-z]{3,8}$/.test(w))) return true;
+  if (/(^|[^1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{80,90}($|[^1-9A-HJ-NP-Za-km-z])/.test(msg)) return true;
+  return (msg.match(/,/g)?.length ?? 0) >= 31 && /^[\s\d,[\]]+$/.test(msg);
+}
+
+export const SECRET_REPLY: ChatReply = {
+  text: [
+    "Stop: that looks like a seed phrase or private key. I did not send it anywhere",
+    "Never share it with anyone, including Kixo, support or any bot. Anyone who asks for it is a scammer",
+    "If you already shared it somewhere, move your funds to a new wallet now",
+  ],
+  suggestions: ["How do I keep my wallet safe?", "Best coins right now"],
+};
+
+/** Asks Kixo AI's language model through the gateway. null = answer from Kixo's own data. */
+export async function askModel(message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ reply: string } | { refused: true } | null> {
+  try {
+    const r = await fetch(`${GATEWAY_HTTP}/ai/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message, history }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const v = (await r.json()) as { reply?: string; refused?: string; fallback?: boolean };
+    if (v.refused) return { refused: true };
+    return v.reply ? { reply: v.reply } : null;
+  } catch {
+    return null;
+  }
+}
+
+export const STARTERS =["Best coins right now", "Which coins may rug?", "Is the AI accurate?", "What are bundles?", "Copy Kixo AI kya hai?"];
 
 const MINT = /[1-9A-HJ-NP-Za-km-z]{32,44}/;
 
@@ -136,6 +171,20 @@ export async function answer(input: string, given: ChatInput): Promise<ChatReply
   const o = ctx.overview;
   if (termAsked && (askingMeaning || q.split(/\s+/).length <= 3)) {
     return { text: [`${termAsked.title}: ${termAsked.text}`], suggestions: ["Best coins right now", "Which coins may rug?", "Is the AI accurate?"] };
+  }
+
+  if (has(q, /wallet (safe|secure|security)|keep (my )?wallet|seed phrase|private key|phishing|hack|drain|wallet ko (safe|mehfooz)|security/)) {
+    return {
+      text: [
+        "Keeping your wallet safe:",
+        "1. Never share your seed phrase or private key: not with support, Kixo, a bot or a friend. Real teams never ask",
+        "2. Only connect your wallet to sites you typed yourself. Fake airdrop and \"claim\" links drain wallets",
+        "3. Read what you sign. A request to approve or transfer everything is a trap",
+        "4. Keep most funds in a separate wallet you never connect to new sites",
+        "5. If a seed phrase was ever exposed, move everything to a new wallet at once",
+      ],
+      suggestions: ["What is a rug pull?", "Best coins right now"],
+    };
   }
 
   if (has(q, /copy kixo|copy the ai|copy ai|ai copy|auto ?trade|auto ?buy|khud trade|agent/)) {
