@@ -59,6 +59,25 @@ function want(mint: string) {
   };
 }
 
+/** For engines outside React (the sniper's "Copy Kixo AI" rule): the score if known. */
+export function aiScoreOf(mint: string): AiRisk | null {
+  return serviceOn ? scores.get(mint) ?? null : null;
+}
+
+/** Asks for these coins' scores for the next 10 minutes, without a component on screen. */
+const prefetched = new Set<string>();
+export function aiPrefetch(mints: string[]) {
+  for (const m of mints) {
+    if (prefetched.has(m) || scores.has(m)) continue;
+    prefetched.add(m);
+    const release = want(m);
+    setTimeout(() => {
+      release();
+      prefetched.delete(m);
+    }, 600_000);
+  }
+}
+
 function subscribe(l: () => void) {
   listeners.add(l);
   return () => listeners.delete(l);

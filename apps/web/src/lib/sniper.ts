@@ -1,5 +1,6 @@
 "use client";
 
+import { aiPrefetch, aiScoreOf } from "./ai-risk";
 import { useSyncExternalStore } from "react";
 import type { FeedToken } from "./gateway";
 import { currentUserId } from "./account";
@@ -32,6 +33,11 @@ export type SniperSettings = {
   skipRepeatRuggers: boolean;
   /** Only coins with at least this Safety score (safety.ts), 0 = off. */
   minSafety: number;
+  /** Kixo AI (ai-risk.ts): only coins whose dump risk is at most this (percent), and whose
+   *  2x odds are at least this (percent). null = the rule is off. A coin gets its score
+   *  2 minutes after launch, so these rules need a max age above that. */
+  aiMaxDump: number | null;
+  aiMinPump: number | null;
   /** Exits. */
   takeProfitPct: number;
   stopLossPct: number;
@@ -70,6 +76,8 @@ export const DEFAULT_SNIPER: SniperSettings = {
   skipCopiedSymbols: true,
   skipRepeatRuggers: true,
   minSafety: 55,
+  aiMaxDump: null,
+  aiMinPump: null,
   takeProfitPct: 50,
   stopLossPct: 25,
   trailingPct: 0,
@@ -87,6 +95,8 @@ export const DEFAULT_SNIPER: SniperSettings = {
 export type ExitReason = "take profit" | "stop loss" | "trailing stop" | "time" | "manual" | "dropped";
 export type SnipePosition = {
   id: string;
+  /** Bought under the Copy Kixo AI rules. */
+  ai?: boolean;
   mint: string;
   symbol: string;
   sizeSol: number;
@@ -272,21 +282,51 @@ export const PRESETS: { key: string; label: string; hint: string; patch: Partial
     key: "safe",
     label: "Safe",
     hint: "Strict filters, small wins, tight stop",
-    patch: { minSafety: 70, maxAgeSecs: 300, minHolders: 40, minTrades: 40, maxDevPct: 3, maxTop10Pct: 25, maxBundlePct: 10, maxEarlyBuyerPct: 8, socialsRequired: true, skipCopiedSymbols: true, skipRepeatRuggers: true, takeProfitPct: 30, stopLossPct: 15, trailingPct: 10, maxHoldMins: 15, maxOpen: 3, maxPerHour: 6 },
+    patch: { aiMaxDump: null, aiMinPump: null, minSafety: 70, maxAgeSecs: 300, minHolders: 40, minTrades: 40, maxDevPct: 3, maxTop10Pct: 25, maxBundlePct: 10, maxEarlyBuyerPct: 8, socialsRequired: true, skipCopiedSymbols: true, skipRepeatRuggers: true, takeProfitPct: 30, stopLossPct: 15, trailingPct: 10, maxHoldMins: 15, maxOpen: 3, maxPerHour: 6 },
   },
   {
     key: "balanced",
     label: "Balanced",
     hint: "The default mix",
-    patch: { minSafety: 55, maxAgeSecs: 90, minHolders: 15, minTrades: 20, maxDevPct: 5, maxTop10Pct: 35, maxBundlePct: 20, maxEarlyBuyerPct: 15, socialsRequired: true, skipCopiedSymbols: true, skipRepeatRuggers: true, takeProfitPct: 50, stopLossPct: 25, trailingPct: 0, maxHoldMins: 20, maxOpen: 5, maxPerHour: 10 },
+    patch: { aiMaxDump: null, aiMinPump: null, minSafety: 55, maxAgeSecs: 90, minHolders: 15, minTrades: 20, maxDevPct: 5, maxTop10Pct: 35, maxBundlePct: 20, maxEarlyBuyerPct: 15, socialsRequired: true, skipCopiedSymbols: true, skipRepeatRuggers: true, takeProfitPct: 50, stopLossPct: 25, trailingPct: 0, maxHoldMins: 20, maxOpen: 5, maxPerHour: 10 },
   },
   {
     key: "aggressive",
     label: "Aggressive",
     hint: "Earlier entries, bigger targets, more risk",
-    patch: { minSafety: 40, maxAgeSecs: 45, minHolders: 8, minTrades: 10, maxDevPct: 10, maxTop10Pct: 50, maxBundlePct: 35, maxEarlyBuyerPct: 25, socialsRequired: false, skipCopiedSymbols: false, skipRepeatRuggers: true, takeProfitPct: 100, stopLossPct: 35, trailingPct: 20, maxHoldMins: 30, maxOpen: 8, maxPerHour: 20 },
+    patch: { aiMaxDump: null, aiMinPump: null, minSafety: 40, maxAgeSecs: 45, minHolders: 8, minTrades: 10, maxDevPct: 10, maxTop10Pct: 50, maxBundlePct: 35, maxEarlyBuyerPct: 25, socialsRequired: false, skipCopiedSymbols: false, skipRepeatRuggers: true, takeProfitPct: 100, stopLossPct: 35, trailingPct: 20, maxHoldMins: 30, maxOpen: 8, maxPerHour: 20 },
   },
 ];
+
+/** "Copy Kixo AI": buys the coins the AI rates low dump risk with good 2x odds, and exits
+ *  the way the model was tested (+100%, -40% or after an hour). */
+export const AI_PRESET = {
+  key: "kixo-ai",
+  label: "Copy Kixo AI",
+  hint: "Buys coins Kixo AI rates under 10% dump risk with 15%+ 2x odds",
+  patch: {
+    aiMaxDump: 10,
+    aiMinPump: 15,
+    minSafety: 0,
+    maxAgeSecs: 300,
+    minHolders: null,
+    minTrades: null,
+    maxDevPct: null,
+    maxTop10Pct: null,
+    maxBundlePct: null,
+    maxEarlyBuyerPct: null,
+    socialsRequired: false,
+    skipCopiedSymbols: true,
+    skipRepeatRuggers: true,
+    takeProfitPct: 100,
+    stopLossPct: 40,
+    trailingPct: 0,
+    maxHoldMins: 60,
+    maxOpen: 5,
+    maxPerHour: 10,
+  } satisfies Partial<SniperSettings>,
+};
+PRESETS.push(AI_PRESET);
 
 export function activePreset(s: SniperSettings) {
   return PRESETS.find((p) => Object.entries(p.patch).every(([k, v]) => s[k as keyof SniperSettings] === v))?.key ?? null;
@@ -394,6 +434,21 @@ export function sniperStep(tokens: FeedToken[], copied: (t: FeedToken) => boolea
         scanned.set(t.mint, { ts: now, reasons: ["safety score too low"] });
         continue;
       }
+      if (s.aiMaxDump != null || s.aiMinPump != null) {
+        aiPrefetch([t.mint]);
+        const ai = aiScoreOf(t.mint);
+        const why = !ai
+          ? "waiting for the AI score"
+          : s.aiMaxDump != null && ai.dump * 100 > s.aiMaxDump
+            ? "AI: dump risk too high"
+            : s.aiMinPump != null && ai.pump * 100 < s.aiMinPump
+              ? "AI: 2x odds too low"
+              : null;
+        if (why) {
+          scanned.set(t.mint, { ts: now, reasons: [why] });
+          continue;
+        }
+      }
       if (room <= 0) {
         scanned.set(t.mint, { ts: now, reasons: ["open or hourly limit reached"] });
         continue;
@@ -403,6 +458,7 @@ export function sniperStep(tokens: FeedToken[], copied: (t: FeedToken) => boolea
       positions = [
         {
           entrySafety: safety,
+          ai: s.aiMaxDump != null || s.aiMinPump != null,
           id: `${t.mint}:${now}`,
           mint: t.mint,
           symbol: t.symbol,
