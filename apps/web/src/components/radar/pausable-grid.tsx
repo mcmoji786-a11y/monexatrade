@@ -21,15 +21,29 @@ export function PausableGrid({ tokens, render }: { tokens: RadarToken[]; render:
   const waiting = frozen ? tokens.filter((t) => !frozen.some((f) => f.mint === t.mint)).length : 0;
 
   return (
-    <div className="relative mt-4" onMouseEnter={() => setFrozen(tokens)} onMouseLeave={() => setFrozen(null)}>
+    // A real mouse only: a tap on a phone fires mouse-enter but never mouse-leave, which
+    // froze the list on phones until the page was left.
+    <div
+      className="relative mt-4"
+      onPointerEnter={(e) => e.pointerType === "mouse" && setFrozen(tokens)}
+      onPointerLeave={(e) => e.pointerType === "mouse" && setFrozen(null)}
+    >
+      {/* Paused: said plainly at the top, with how many new coins wait, so a frozen list
+          never reads as a slow feed. "Show now" lets them in without leaving the list. */}
       {frozen && (
-        <span
-          className="absolute -top-3 right-2 z-10 flex items-center gap-1 rounded-full border border-warning/30 bg-surface-2 px-2 py-0.5 text-xs text-warning"
-          title="Move the pointer away to resume"
-        >
-          <Pause size={12} strokeWidth={1.5} />
-          Paused{waiting > 0 && ` · ${waiting} new`}
-        </span>
+        <div className="sticky top-2 z-10 mb-3 flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-surface-2 px-3 text-xs text-warning shadow-lg shadow-black/30">
+          <Pause size={14} strokeWidth={1.5} />
+          <span>Paused while your pointer is on the list</span>
+          {waiting > 0 && (
+            <button
+              type="button"
+              onClick={() => setFrozen(tokens)}
+              className="ml-auto flex h-7 items-center rounded-md bg-warning/15 px-2.5 font-medium text-warning transition-colors hover:bg-warning/25"
+            >
+              Show {waiting} new
+            </button>
+          )}
+        </div>
       )}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">{shown.slice(0, limit).map(render)}</div>
       {shown.length > limit && (
