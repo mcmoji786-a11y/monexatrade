@@ -81,12 +81,15 @@ export function riskTone(r: AiRisk): "bad" | "good" | "muted" {
   return "muted";
 }
 
+/** A model never knows for certain: tiny and huge chances read "<1%" and ">99%". */
 export function pct(x: number) {
+  if (x < 0.01) return "<1%";
+  if (x > 0.99) return ">99%";
   return `${Math.round(x * 100)}%`;
 }
 
 export function riskTitle(r: AiRisk) {
-  return `Kixo AI, from this coin's first 2 minutes (${r.trades} trades): ${pct(r.dump)} chance it falls 70% or more within the next hour, ${pct(
+  return `Kixo AI, from this coin's first 2 minutes (${r.trades} trades): ${pct(r.dump)} chance it falls a further 70% or more within the hour after, ${pct(
     r.pump,
-  )} chance it doubles. A model's estimate from past launches, not advice`;
+  )} chance it doubles from there. Measured from the price at 2 minutes, so a coin that already crashed can read low. A model's estimate from past launches, not advice`;
 }
