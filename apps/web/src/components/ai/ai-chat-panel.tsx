@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, Loader2, ScanSearch } from "lucide-react";
 import { answer, STARTERS, type AiOverview, type ChatReply } from "@/lib/ai-chat";
-import { pct, riskTitle, riskTone } from "@/lib/ai-risk";
+import { riskTitle, verdict } from "@/lib/ai-risk";
 import { tokenHref } from "@/lib/open-token";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 import { TokenLogo } from "@/components/token/token-bits";
@@ -13,12 +13,6 @@ import { StarButton } from "@/components/token/star-button";
 import { QuickBuy } from "@/components/trade/quick-buy";
 
 type Msg = { id: number; role: "user"; text: string } | { id: number; role: "ai"; reply: ChatReply };
-
-const TONE = {
-  bad: "border-negative/40 bg-negative/10 text-negative",
-  good: "border-positive/30 text-positive",
-  muted: "border-border text-text-2",
-} as const;
 
 export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
   const feed = useRadarFeed();
@@ -85,8 +79,8 @@ export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
                     </span>
                   </Link>
                   {c.risk && (
-                    <span className={`hidden h-6 shrink-0 items-center rounded-full border px-2 font-mono text-[11px] sm:flex ${TONE[riskTone(c.risk)]}`} title={riskTitle(c.risk)}>
-                      Dump {pct(c.risk.dump)} · 2x {pct(c.risk.pump)}
+                    <span className={`flex h-6 shrink-0 items-center rounded-full border px-2 text-[11px] ${verdict(c.risk).className}`} title={riskTitle(c.risk)}>
+                      {verdict(c.risk).label}
                     </span>
                   )}
                   <StarButton mint={c.mint} size={14} />

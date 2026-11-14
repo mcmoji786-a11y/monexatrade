@@ -1,17 +1,18 @@
 "use client";
-/* The Kixo AI page (gateway ai_risk.rs /ai/overview): ask the AI, let it trade for you on
-   demo, see what it says about the newest coins and whether it has been right. Every
-   number is real: live scores, outcomes measured from trades an hour later, and the
-   model's own test on days it never saw. */
+/* The Kixo AI page, for everyone: one plain promise at the top, the four words the AI
+   answers in, and four tabs that each do one thing: see the AI's picks, check a coin,
+   let the AI trade, or ask it. Every number is real (gateway ai_risk.rs /ai/overview). */
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, X } from "lucide-react";
+import { Bot, Check, MessageCircle, ScanSearch, Sparkles, X } from "lucide-react";
 import { GATEWAY_HTTP, usd } from "@/lib/gateway";
-import { pct, riskTitle, riskTone, type AiRisk } from "@/lib/ai-risk";
+import { pct, riskTitle, verdict, VERDICTS, type AiRisk, type Verdict } from "@/lib/ai-risk";
+import { answer, type ChatReply } from "@/lib/ai-chat";
 import { tokenHref } from "@/lib/open-token";
 import { TokenLogo } from "@/components/token/token-bits";
 import { StarButton } from "@/components/token/star-button";
 import { QuickBuy } from "@/components/trade/quick-buy";
+import { useRadarFeed } from "@/components/radar/use-radar-feed";
 import { AiChatPanel } from "./ai-chat-panel";
 import { CopyAiCard } from "./copy-ai-card";
 
@@ -23,22 +24,30 @@ type Overview = {
   on: boolean;
   service?: boolean;
   scored_1h?: number;
-  scored_30m?: number;
   waiting?: number;
   riskiest?: Pick[];
   best?: Pick[];
   calls?: Call[];
   track?: { window_h: number; all: Group; high_dump: Group; low_dump: Group; high_pump: Group };
-  model?: { trained: string | null; coins: number | null; targets: { dump: Target; pump: Target } | null } | null;
+  model?: { trained: string | null; coins: number | null; targets: { dump: Target; pump: Target } | null; backtest?: Record<string, { trades: number }> } | null;
 };
 
+type Tab = "picks" | "check" | "auto" | "ask";
+const TABS: { key: Tab; label: string; icon: typeof Sparkles }[] = [
+  { key: "picks", label: "AI picks", icon: Sparkles },
+  { key: "check", label: "Check a coin", icon: ScanSearch },
+  { key: "auto", label: "Auto trade", icon: Bot },
+  { key: "ask", label: "Ask AI", icon: MessageCircle },
+];
+
 const POLL_MS = 10_000;
+const riskOf = (p: { dump: number; pump: number; at: number }): AiRisk => ({ dump: p.dump, pump: p.pump, trades: 0, at: p.at });
 
 export function AiBoard() {
   const [data, setData] = useState<Overview | null>(null);
   const [failed, setFailed] = useState(false);
-  // Set with each load (never during render: the page is prerendered).
   const [now, setNow] = useState(0);
+  const [tab, setTab] = useState<Tab>("picks");
 
   useEffect(() => {
     let stop = false;
@@ -63,181 +72,97 @@ export function AiBoard() {
     };
   }, []);
 
-  if (data && !data.on) {
-    return <p className="py-20 text-center text-sm text-text-2">Kixo AI is switched off right now</p>;
-  }
-
-  const m = data?.model;
-  const coins = m?.coins ?? null;
-  const trained = m?.trained ? new Date(m.trained) : null;
+  if (data && !data.on) return <p className="py-20 text-center text-sm text-text-2">Kixo AI is switched off right now</p>;
 
   return (
-    <section className="flex flex-col gap-6">
-      {/* Title and the three figures that say the AI is working */}
-      <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-5">
-        <div className="min-w-0 basis-96">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text">Kixo AI</h1>
-            <Status service={data?.service} failed={failed} loading={!data} />
-          </div>
-          <p className="mt-1 max-w-2xl text-sm text-text-2">
-            A model trained on {coins ? coins.toLocaleString() : "thousands of"} Solana launches judges every new coin from its first 2 minutes:
-            the chance it falls 70%+, and the chance it doubles, within the hour after. Ask it, or let it trade for you on demo
-          </p>
-        </div>
-        <dl className="grid w-full grid-cols-3 gap-x-4 sm:flex sm:w-auto sm:gap-x-10">
-          <Figure label="Scored, last hour" value={data?.scored_1h?.toLocaleString() ?? "—"} accent />
-          <Figure label="In their first 2 min" value={data?.waiting?.toLocaleString() ?? "—"} />
-          <Figure label="Trained" value={trained ? trained.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"} />
-        </dl>
+    <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <Hero data={data} failed={failed} />
+
+      {/* One thing at a time */}
+      <div className="no-scrollbar -mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 sm:mx-0 sm:px-0" role="tablist" aria-label="Kixo AI">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`-mb-px flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm whitespace-nowrap transition-colors ${
+              tab === key ? "border-emerald text-text" : "border-transparent text-text-2 hover:text-text"
+            }`}
+          >
+            <Icon size={16} strokeWidth={1.5} />
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Ask it, or let it trade */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <AiChatPanel overview={data} />
-        <CopyAiCard />
-      </div>
-
-      {/* Has it been right? */}
-      <TrackRecord track={data?.track} model={m ?? null} />
-
-      {/* The newest scores, both ways, with their actions */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <PickList title="Best 2x odds now" hint="Scored in the last 30 minutes, low dump risk, most likely to double first" picks={data?.best} now={now} empty="No low-risk coin scored in the last 30 minutes yet" />
-        <PickList title="Highest dump risk now" hint="Scored in the last 30 minutes, most likely to fall 70%+ first" picks={data?.riskiest} now={now} empty="No coin with real dump risk scored in the last 30 minutes" />
-      </div>
-
-      <Calls calls={data?.calls} now={now} />
-
-      <section className="rounded-xl border border-border bg-surface px-5 py-4 text-sm text-text-2">
-        <h2 className="text-sm font-medium text-text">How to read it</h2>
-        <ul className="mt-2 flex flex-col gap-1.5 leading-6">
-          <li>Every new coin Kixo sees launch gets a score once its first 2 minutes are over. The same score shows on Sol Radar cards and the trade page</li>
-          <li>The chances count from the price at 2 minutes. A coin that already crashed in its first 2 minutes can read low: it means no further 70% fall, not that the coin is good</li>
-          <li>In testing, buying every coin the model liked still lost money after fees. Use it to stay away from danger, and prove any strategy on demo first</li>
-          <li>It is a model&apos;s estimate from past launches, not advice. The model is retrained as Kixo collects more data</li>
-        </ul>
-      </section>
+      {tab === "picks" && <Picks data={data} now={now} />}
+      {tab === "check" && <CheckCoin />}
+      {tab === "auto" && <CopyAiCard />}
+      {tab === "ask" && <AiChatPanel overview={data} />}
     </section>
   );
 }
 
-function Status({ service, failed, loading }: { service?: boolean; failed: boolean; loading: boolean }) {
-  const [text, dot, tone] = failed
-    ? ["Offline", "bg-negative", "text-negative"]
-    : loading
-      ? ["Connecting", "bg-muted", "text-muted"]
-      : service
-        ? ["Live", "bg-emerald", "text-emerald"]
-        : ["Starting", "bg-warning", "text-warning"];
-  return (
-    <span className={`flex h-6 items-center gap-1.5 rounded-md border border-border px-2 font-mono text-xs ${tone}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-      {text}
-    </span>
-  );
-}
+/** What it is, in one sentence, why to trust it, and the four words it answers in. */
+function Hero({ data, failed }: { data: Overview | null; failed: boolean }) {
+  const t = data?.model?.targets;
+  const tr = data?.track;
+  const liveDanger = tr && tr.high_dump.coins >= 20 && tr.high_dump.dumped != null ? tr.high_dump : null;
+  const testCoins = data?.model?.backtest?.["every coin"]?.trades;
+  const dangerRate = liveDanger ? liveDanger.dumped : (t?.dump.top10pct_rate ?? null);
+  const baseRate = liveDanger ? tr!.all.dumped : (t?.dump.base_rate ?? null);
+  const live = data?.service && !failed;
 
-function Figure({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`mt-1 font-mono text-base tabular-nums sm:text-xl ${accent ? "text-emerald" : "text-text"}`}>{value}</dd>
-    </div>
-  );
-}
-
-/** Live: what really happened to scored coins within the hour, by what the AI said.
- *  Beside it, the model's test on days it never saw, so the two can be compared. */
-function TrackRecord({ track, model }: { track?: Overview["track"]; model: Overview["model"] | null }) {
-  const live = track && track.all.coins > 0;
-  const t = model?.targets;
-  return (
-    <section className="rounded-xl border border-border bg-surface">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-5 py-3">
-        <h2 className="text-sm font-medium text-text">Has it been right?</h2>
-        <span className="text-xs text-muted">How often coins really dumped 70%+ in the hour after their score</span>
-      </div>
-      <div className="grid gap-px bg-border md:grid-cols-2">
-        <div className="bg-surface px-5 py-4">
-          <h3 className="text-xs text-text-2">
-            Live, last 24 hours <span className="font-mono text-muted">{live ? `${track.all.coins.toLocaleString()} coins` : ""}</span>
-          </h3>
-          {live ? (
-            <div className="mt-3 flex flex-col gap-3">
-              <Bar label="AI said high risk (40%+)" n={track.high_dump.coins} rate={track.high_dump.dumped} tone="bad" />
-              <Bar label="Every scored coin" n={track.all.coins} rate={track.all.dumped} tone="base" />
-              <Bar label="AI said low risk (under 10%)" n={track.low_dump.coins} rate={track.low_dump.dumped} tone="good" />
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-muted">The first results arrive one hour after the first scores: each coin is checked against what its price really did</p>
-          )}
+    <div className="flex flex-col gap-5">
+      <div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-medium text-text">Kixo AI</h1>
+          <span className={`flex h-6 items-center gap-1.5 rounded-md border border-border px-2 font-mono text-xs ${live ? "text-emerald" : "text-muted"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald" : failed ? "bg-negative" : "bg-muted"}`} />
+            {live ? "Watching" : failed ? "Offline" : "Starting"}
+          </span>
         </div>
-        <div className="bg-surface px-5 py-4">
-          <h3 className="text-xs text-text-2">Test on days the model never saw</h3>
-          {t ? (
-            <div className="mt-3 flex flex-col gap-3">
-              <Bar label="AI's riskiest 10%" rate={t.dump.top10pct_rate} tone="bad" />
-              <Bar label="Every coin" rate={t.dump.base_rate} tone="base" />
-              <Bar label="AI's safest 10%" rate={t.dump.bottom10pct_rate} tone="good" />
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-muted">Waiting for the AI service</p>
-          )}
-        </div>
-      </div>
-      {(live && track.high_pump.coins > 0) || t ? (
-        <p className="border-t border-border px-5 py-3 text-xs text-text-2">
-          Doubling:{" "}
-          {live && track.high_pump.coins > 0 && track.high_pump.doubled != null && track.all.doubled != null && (
-            <>
-              live, coins with 20%+ 2x odds doubled <span className="font-mono text-positive">{pct(track.high_pump.doubled)}</span> of the time vs{" "}
-              <span className="font-mono text-text">{pct(track.all.doubled)}</span> for all.{" "}
-            </>
-          )}
-          {t && (
-            <>
-              In testing, the AI&apos;s top 10% doubled <span className="font-mono text-positive">{pct(t.pump.top10pct_rate)}</span> of the time vs{" "}
-              <span className="font-mono text-text">{pct(t.pump.base_rate)}</span> for all
-            </>
-          )}
+        <p className="mt-2 max-w-2xl text-base leading-7 text-text-2">
+          Kixo AI watches every new Solana coin for its first 2 minutes, then tells you in one word if it looks dangerous or promising
         </p>
-      ) : null}
-    </section>
-  );
-}
-
-function Bar({ label, n, rate, tone }: { label: string; n?: number; rate: number | null; tone: "bad" | "good" | "base" }) {
-  const color = tone === "bad" ? "bg-negative" : tone === "good" ? "bg-positive" : "bg-text-2";
-  const text = tone === "bad" ? "text-negative" : tone === "good" ? "text-positive" : "text-text";
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3 text-xs">
-        <span className="text-text-2">
-          {label}
-          {n != null && <span className="ml-1.5 font-mono text-muted">{n.toLocaleString()}</span>}
-        </span>
-        <span className={`font-mono text-sm tabular-nums ${text}`}>{rate == null ? "—" : `${pct(rate)} dumped`}</span>
       </div>
-      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(rate == null ? 0 : 1, (rate ?? 0) * 100)}%` }} />
+
+      {/* Why trust it: one number, compared with normal */}
+      {dangerRate != null && baseRate != null && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border bg-surface px-5 py-4">
+          <p className="text-sm text-text">
+            When Kixo AI said <span className="text-negative">Danger</span>, <span className="font-mono text-lg text-negative">{pct(dangerRate)}</span> of coins crashed within the hour.
+            Normally it is <span className="font-mono text-text">{pct(baseRate)}</span>
+          </p>
+          <span className="text-xs text-muted">
+            {liveDanger
+              ? `Live, last 24 hours, ${tr!.all.coins.toLocaleString()} coins`
+              : `Tested on ${testCoins ? testCoins.toLocaleString() : "thousands of"} coins it never saw${data?.model?.coins ? `, trained on ${data.model.coins.toLocaleString()}` : ""}`}
+          </span>
+        </div>
+      )}
+
+      {/* The four words */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(Object.keys(VERDICTS) as Verdict["key"][]).map((k) => (
+          <div key={k} className="rounded-lg border border-border px-3 py-2.5">
+            <span className={`inline-flex h-6 items-center rounded-full border px-2 text-xs ${VERDICTS[k].className}`}>{VERDICTS[k].label}</span>
+            <p className="mt-1.5 text-xs leading-5 text-text-2">{VERDICTS[k].sentence}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-const TONE = {
-  bad: "border-negative/40 bg-negative/10 text-negative",
-  good: "border-positive/30 text-positive",
-  muted: "border-border text-text-2",
-} as const;
-
-function Chip({ risk }: { risk: AiRisk }) {
+function VerdictPill({ risk }: { risk: AiRisk }) {
+  const v = verdict(risk);
   return (
-    <span className={`flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 font-mono text-[11px] ${TONE[riskTone(risk)]}`} title={riskTitle(risk)}>
-      Dump {pct(risk.dump)}
-      <span className="text-muted">·</span>
-      2x {pct(risk.pump)}
+    <span className={`flex h-6 shrink-0 items-center rounded-full border px-2 text-xs ${v.className}`} title={riskTitle(risk)}>
+      {v.label}
     </span>
   );
 }
@@ -248,33 +173,45 @@ function ago(now: number, at: number) {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`;
 }
 
-function PickList({ title, hint, picks, now, empty }: { title: string; hint: string; picks?: Pick[]; now: number; empty: string }) {
+/** Tab 1: the coins to look at and the coins to avoid, then the AI's past calls. */
+function Picks({ data, now }: { data: Overview | null; now: number }) {
+  const good = (data?.best ?? []).filter((p) => verdict(riskOf(p)).key === "good");
   return (
-    <section className="flex flex-col rounded-xl border border-border bg-surface">
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <CoinList title="Good odds now" hint="Low crash risk and a real chance to double" picks={data ? good : undefined} now={now} empty="No coin has Good odds right now. That is normal: no trade is a fine trade" />
+        <CoinList title="Danger now" hint="Best to stay away from these" picks={data?.riskiest?.filter((p) => p.dump >= 0.4)} now={now} empty="No coin marked Danger in the last 30 minutes" />
+      </div>
+      <Calls calls={data?.calls} now={now} />
+    </div>
+  );
+}
+
+function CoinList({ title, hint, picks, now, empty }: { title: string; hint: string; picks?: Pick[]; now: number; empty: string }) {
+  return (
+    <section className="flex min-w-0 flex-col rounded-xl border border-border bg-surface">
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-sm font-medium text-text">{title}</h2>
         <p className="mt-0.5 text-xs text-muted">{hint}</p>
       </div>
       {!picks ? (
-        <p className="px-4 py-8 text-center text-sm text-muted">Loading</p>
+        <p className="px-4 py-10 text-center text-sm text-muted">Loading</p>
       ) : picks.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-muted">{empty}</p>
+        <p className="px-6 py-10 text-center text-sm text-muted">{empty}</p>
       ) : (
         <ul className="divide-y divide-border">
-          {picks.map((p) => (
-            <li key={p.mint} className="flex h-14 items-center gap-2.5 px-4 transition-colors hover:bg-surface-2">
+          {picks.slice(0, 8).map((p) => (
+            <li key={p.mint} className="flex h-14 items-center gap-2.5 px-4">
               <Link href={tokenHref(p.mint)} className="flex min-w-0 flex-1 items-center gap-3">
                 <TokenLogo src={p.image} symbol={p.symbol ?? "?"} size={32} />
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm text-text">{p.symbol || p.mint.slice(0, 6)}</span>
+                  <span className="truncate text-sm text-text hover:underline">{p.symbol || p.mint.slice(0, 6)}</span>
                   <span className="truncate font-mono text-[11px] text-muted">
-                    {usd(p.mc_usd)} · scored {ago(now, p.at)} ago
+                    {usd(p.mc_usd)} · {ago(now, p.at)} ago
                   </span>
                 </span>
               </Link>
-              <span className="hidden sm:flex">
-                <Chip risk={{ dump: p.dump, pump: p.pump, trades: 0, at: p.at }} />
-              </span>
+              <VerdictPill risk={riskOf(p)} />
               <StarButton mint={p.mint} size={14} />
               <QuickBuy mint={p.mint} symbol={p.symbol ?? ""} />
             </li>
@@ -285,41 +222,123 @@ function PickList({ title, hint, picks, now, empty }: { title: string; hint: str
   );
 }
 
-/** The AI's strong calls from the last day and what really happened in their hour. */
+/** The AI's past calls in plain sentences, checked an hour later. */
 function Calls({ calls, now }: { calls?: Call[]; now: number }) {
+  const list = (calls ?? []).filter((c) => c.dump >= 0.4 || verdict(riskOf(c)).key === "good");
   return (
     <section className="rounded-xl border border-border bg-surface">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-medium text-text">The AI&apos;s recent calls</h2>
-        <span className="text-xs text-muted">High dump risk or good 2x odds, checked an hour later</span>
+      <div className="border-b border-border px-4 py-3">
+        <h2 className="text-sm font-medium text-text">Was the AI right?</h2>
+        <p className="mt-0.5 text-xs text-muted">Its recent calls, checked one hour later</p>
       </div>
-      {!calls || calls.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-muted">Calls show here one hour after they are made</p>
+      {list.length === 0 ? (
+        <p className="px-6 py-10 text-center text-sm text-muted">Calls show here one hour after the AI makes them</p>
       ) : (
         <ul className="grid divide-y divide-border md:grid-cols-2 md:divide-y-0">
-          {calls.map((c) => {
-            const risky = c.dump >= 0.4;
-            const right = risky ? c.dumped : c.doubled;
-            const what = risky ? `fell ${Math.round((1 - c.low_x) * 100)}% at its low` : `rose ${Math.max(0, Math.round((c.high_x - 1) * 100))}% at its best`;
+          {list.map((c) => {
+            const danger = c.dump >= 0.4;
+            const right = danger ? c.dumped : c.doubled;
+            const happened = danger ? `it fell ${Math.round((1 - c.low_x) * 100)}%` : `it rose ${Math.max(0, Math.round((c.high_x - 1) * 100))}%`;
             return (
               <li key={`${c.mint}${c.at}`} className="flex h-14 items-center gap-3 px-4 md:border-b md:border-border">
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${right ? "bg-positive/15 text-positive" : "bg-surface-3 text-muted"}`} title={right ? "The call came true" : "It did not happen"}>
-                  {right ? <Check size={14} strokeWidth={1.5} /> : <X size={14} strokeWidth={1.5} />}
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${right ? "bg-positive/15 text-positive" : "bg-surface-3 text-muted"}`}>
+                  {right ? <Check size={14} strokeWidth={1.5} aria-label="Right" /> : <X size={14} strokeWidth={1.5} aria-label="Not this time" />}
                 </span>
-                <Link href={tokenHref(c.mint)} className="flex min-w-0 flex-1 flex-col hover:underline">
-                  <span className="truncate text-sm text-text">
-                    {c.symbol || c.mint.slice(0, 6)}
-                    <span className="ml-2 text-xs text-muted">{risky ? `said dump ${pct(c.dump)}` : `said 2x ${pct(c.pump)}`}</span>
-                  </span>
-                  <span className={`truncate font-mono text-[11px] ${right ? (risky ? "text-negative" : "text-positive") : "text-muted"}`}>
-                    {what} · {ago(now, c.at)} ago
-                  </span>
+                <Link href={tokenHref(c.mint)} className="min-w-0 flex-1 truncate text-sm text-text-2 hover:text-text">
+                  <span className="text-text">{c.symbol || c.mint.slice(0, 6)}</span>: said <span className={danger ? "text-negative" : "text-positive"}>{danger ? "Danger" : "Good odds"}</span>, {happened}
                 </Link>
+                <span className="shrink-0 font-mono text-[11px] text-muted">{ago(now, c.at)}</span>
               </li>
             );
           })}
         </ul>
       )}
     </section>
+  );
+}
+
+/** Tab 2: paste a coin, get one clear answer with the reasons and the actions. */
+function CheckCoin() {
+  const feed = useRadarFeed();
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<ChatReply | null>(null);
+
+  const check = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!q.trim() || busy) return;
+    setBusy(true);
+    const r = await answer(q.trim(), { tokens: feed.tokens, overview: null });
+    setRes(r);
+    setBusy(false);
+  };
+
+  const coin = res?.coins?.[0] ?? null;
+  const v = coin?.risk ? verdict(coin.risk) : null;
+  const reasons = (res?.text ?? []).filter((l) => !l.startsWith("Kixo AI says"));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <form onSubmit={check} className="flex gap-2">
+        <label className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-border bg-surface px-4 focus-within:border-emerald/50">
+          <ScanSearch size={18} strokeWidth={1.5} className="shrink-0 text-muted" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Paste a coin address, or type $SYMBOL"
+            aria-label="Coin to check"
+            className="min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-muted"
+          />
+        </label>
+        <button type="submit" disabled={busy || !q.trim()} className="h-12 shrink-0 rounded-xl bg-text px-5 text-sm font-medium text-bg transition-opacity disabled:opacity-50">
+          {busy ? "Checking" : "Check"}
+        </button>
+      </form>
+
+      {!res ? (
+        <p className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-muted">
+          Paste any new Solana coin. Kixo AI answers in one word, with the reasons, in a second
+        </p>
+      ) : !coin ? (
+        <div className="rounded-xl border border-border bg-surface px-5 py-4 text-sm text-text-2">
+          {res.text.map((l, i) => (
+            <p key={i}>{l}</p>
+          ))}
+        </div>
+      ) : (
+        <section className="rounded-xl border border-border bg-surface">
+          <div className="flex flex-wrap items-center gap-4 border-b border-border px-5 py-4">
+            <TokenLogo src={coin.image} symbol={coin.symbol} size={48} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-lg text-text">{coin.symbol}</div>
+              {coin.line && <div className="font-mono text-xs text-muted">{coin.line}</div>}
+            </div>
+            {v ? (
+              <div className="flex flex-col items-start gap-1 sm:items-end">
+                <span className={`inline-flex h-9 items-center rounded-full border px-4 text-base font-medium ${v.className}`}>{v.label}</span>
+                <span className="text-xs text-text-2">{v.sentence}</span>
+              </div>
+            ) : (
+              <span className="text-sm text-muted">No AI word yet</span>
+            )}
+          </div>
+          <ul className="flex flex-col gap-2 px-5 py-4 text-sm leading-6 text-text-2">
+            {reasons.map((l, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-muted" />
+                {l}
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+            <Link href={tokenHref(coin.mint)} className="flex h-9 items-center rounded-lg border border-border px-3 text-sm text-text transition-colors hover:bg-surface-2">
+              Open chart
+            </Link>
+            <QuickBuy mint={coin.mint} symbol={coin.symbol} />
+            <StarButton mint={coin.mint} size={16} />
+          </div>
+        </section>
+      )}
+    </div>
   );
 }

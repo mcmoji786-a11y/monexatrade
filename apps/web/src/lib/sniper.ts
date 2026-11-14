@@ -303,9 +303,9 @@ export const PRESETS: { key: string; label: string; hint: string; patch: Partial
 export const AI_PRESET = {
   key: "kixo-ai",
   label: "Copy Kixo AI",
-  hint: "Buys coins Kixo AI rates under 10% dump risk with 15%+ 2x odds",
+  hint: "Buys the coins Kixo AI marks Good odds: under 20% dump risk with 15%+ 2x odds",
   patch: {
-    aiMaxDump: 10,
+    aiMaxDump: 20,
     aiMinPump: 15,
     minSafety: 0,
     maxAgeSecs: 300,

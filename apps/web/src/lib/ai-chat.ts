@@ -4,7 +4,14 @@
    the radar feed or the AI's score, and every explanation is written here. English and
    Roman Urdu questions both work. A language model can replace `answer` later. */
 import { GATEWAY_HTTP, usd, type FeedToken } from "./gateway";
-import { pct, type AiRisk } from "./ai-risk";
+import { pct, verdict, type AiRisk, type Verdict } from "./ai-risk";
+
+const ADVICE: Record<Verdict["key"], string> = {
+  danger: "Best to stay away. If you still buy, keep it tiny and set a tight stop loss",
+  careful: "If you buy, keep it small and set a stop loss",
+  calm: "No strong signal. Let the trades and holders tell you more before buying",
+  good: "Worth a look. It is still a memecoin: buy small and set a stop loss",
+};
 
 export type ChatCoin = { mint: string; symbol: string; image: string | null; risk: AiRisk | null; line: string };
 export type ChatReply = { text: string[]; coins?: ChatCoin[]; suggestions?: string[] };
@@ -84,10 +91,10 @@ async function coinReport(mint: string, ctx: ChatContext): Promise<ChatReply> {
     text.push(`${sym}: not on the live radar right now, so I only have the AI's view`);
   }
   if (risk) {
-    text.push(`Kixo AI: ${pct(risk.dump)} chance of a 70%+ dump and ${pct(risk.pump)} chance of a 2x in the next hour, from its first 2 minutes`);
-    if (risk.dump >= 0.4) text.push("Verdict: high dump risk. Stay away, or keep it very small with a tight stop loss");
-    else if (risk.pump >= 0.2 && risk.dump < 0.1) text.push("Verdict: the AI likes its odds. Still a memecoin: size small and set a stop loss");
-    else text.push("Verdict: nothing stands out either way. Let the trades and holders tell you more");
+    const v = verdict(risk);
+    text.unshift(`Kixo AI says: ${v.label}. ${v.sentence}`);
+    text.push(ADVICE[v.key]);
+    text.push(`Crash chance ${pct(risk.dump)}, double chance ${pct(risk.pump)}, judged from its first 2 minutes`);
   } else if (waiting) {
     text.push("Kixo AI scores it once its first 2 minutes are over. Ask me again shortly");
   } else {
@@ -134,7 +141,7 @@ export async function answer(input: string, given: ChatInput): Promise<ChatReply
   if (has(q, /copy kixo|copy the ai|copy ai|ai copy|auto ?trade|auto ?buy|khud trade|agent/)) {
     return {
       text: [
-        "Copy Kixo AI buys, on your demo account, the coins the AI rates under 10% dump risk with 15%+ 2x odds, then sells at +100%, -40% or after an hour: the same way the model was tested",
+        "Copy Kixo AI buys, on your demo account, the coins the AI marks Good odds (under 20% crash risk, 15%+ double chance), then sells at +100%, -40% or after an hour: the same way the model was tested",
         "Turn it on in the Copy Kixo AI box on this page. It runs while Kixo is open; 24/7 trading on the server comes with the auto-trade wallet",
         "Honest note: in testing, buying the AI's favourites still lost money after fees. Watch the demo results before trusting it with real money",
       ],
@@ -159,7 +166,7 @@ export async function answer(input: string, given: ChatInput): Promise<ChatReply
   if (has(q, /rug|dump|risk|scam|avoid|danger|worst|khatr|bach|fraud|fake|kharab/)) {
     const list = o?.riskiest ?? [];
     return list.length
-      ? { text: ["Highest dump risk among coins scored in the last 30 minutes. Stay away or keep it tiny:"], coins: list.slice(0, 5).map((p) => pickCoin(p, ctx.nowSecs)), suggestions: ["Best coins right now", "What is a rug pull?"] }
+      ? { text: ["Coins Kixo AI marks Danger right now. Best to stay away:"], coins: list.slice(0, 5).map((p) => pickCoin(p, ctx.nowSecs)), suggestions: ["Best coins right now", "What is a rug pull?"] }
       : { text: ["No coin with real dump risk scored in the last 30 minutes. Check back in a few minutes"], suggestions: STARTERS };
   }
 
@@ -167,7 +174,7 @@ export async function answer(input: string, given: ChatInput): Promise<ChatReply
     const list = o?.best ?? [];
     return list.length
       ? {
-          text: ["Best 2x odds with low dump risk, scored in the last 30 minutes. Odds, not promises: size small and set a stop loss:"],
+          text: ["Coins with the best odds right now. Odds, not promises: buy small and set a stop loss:"],
           coins: list.slice(0, 5).map((p) => pickCoin(p, ctx.nowSecs)),
           suggestions: ["Is the AI accurate?", "Copy Kixo AI kya hai?"],
         }

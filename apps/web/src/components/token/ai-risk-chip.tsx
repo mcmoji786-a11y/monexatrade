@@ -1,13 +1,7 @@
 "use client";
 import { ScanSearch } from "lucide-react";
-import { AI_WINDOW_S, pct, riskTitle, riskTone, useAiRisk } from "@/lib/ai-risk";
+import { AI_WINDOW_S, riskTitle, useAiRisk, verdict } from "@/lib/ai-risk";
 import { useFeatures } from "@/lib/features";
-
-const TONE = {
-  bad: "border-negative/40 bg-negative/10 text-negative",
-  good: "border-positive/30 text-positive",
-  muted: "border-border text-text-2",
-} as const;
 
 /** Kixo AI's dump and 2x chances for a coin. Before the model has judged it (its first 2
  *  minutes), a young coin shows a countdown; an older coin Kixo did not see launch shows
@@ -29,11 +23,9 @@ export function AiRiskChip({ mint, ageSecs, size = "sm" }: { mint: string; ageSe
     );
   }
   return (
-    <span className={`flex shrink-0 items-center gap-1 border font-mono ${TONE[riskTone(risk)]} ${h}`} title={riskTitle(risk)}>
+    <span className={`flex shrink-0 items-center gap-1 border ${verdict(risk).className} ${h}`} title={riskTitle(risk)}>
       <ScanSearch size={12} strokeWidth={1.5} />
-      Dump {pct(risk.dump)}
-      <span className="text-muted">·</span>
-      2x {pct(risk.pump)}
+      AI · {verdict(risk).label}
     </span>
   );
 }
