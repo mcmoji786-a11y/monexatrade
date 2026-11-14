@@ -1,0 +1,7 @@
+# Netlify settings for the Kixo waitlist (base directory: apps/waitlist).
+[build]
+  command = "pnpm build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
