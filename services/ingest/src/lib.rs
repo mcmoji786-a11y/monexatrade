@@ -183,6 +183,7 @@ pub async fn run_forever(
         if subscribed && started.elapsed() > Duration::from_secs(30) {
             backoff = Duration::from_secs(1);
         }
+        let unsupported = matches!(&result, Err(e) if e.to_string().contains("does not support"));
         match result {
             Ok(()) => tracing::warn!(?backoff, "stream ended, reconnecting"),
             Err(err) => tracing::error!(error = %err, ?backoff, "stream error, reconnecting"),
@@ -191,8 +192,8 @@ pub async fn run_forever(
             // Helius answers again: go back to it.
             idx = 0;
             backoff = Duration::from_secs(1);
-        } else if !subscribed && nodes > 1 {
-            // This node could not be reached: try the next one right away.
+        } else if (!subscribed || unsupported) && nodes > 1 {
+            // This node could not be reached, or cannot stream logs: the next one now.
             idx += 1;
             backoff = Duration::from_secs(1);
         }
@@ -417,6 +418,10 @@ impl Engine {
         if let Some(id) = v.get("id").and_then(Value::as_u64) {
             if let Some(err) = v.get("error") {
                 tracing::error!(id, %err, "rpc error");
+                // A node without logsSubscribe (some providers) streams nothing: leave it.
+                if err.get("code").and_then(Value::as_i64) == Some(-32601) {
+                    anyhow::bail!("node does not support logsSubscribe");
+                }
                 subs.pending.remove(&id);
             } else if let (Some(key), Some(sub_id)) = (subs.pending.remove(&id), v.get("result").and_then(Value::as_u64)) {
                 match key.strip_prefix(POOL_KEY) {
