@@ -56,8 +56,11 @@ const HORIZON: i64 = 3600;
 /// Outcomes kept for the track record.
 const TRACK_SECS: i64 = 48 * 3600;
 
+/// The track record on disk, so a restart does not wipe it (one JSON line per outcome).
+const OUTCOMES_FILE: &str = "data/ai_outcomes.jsonl";
+
 /// What happened to a scored coin within the hour after its score.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct Outcome {
     at: i64,
     dump: f64,
@@ -154,6 +157,7 @@ pub async fn run(ctx: AiCtx) {
     let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().expect("ai http client");
     let mut last_warn: Option<Instant> = None;
     let mut round = 0u64;
+    load_outcomes();
     loop {
         tokio::time::sleep(Duration::from_secs(3)).await;
         round += 1;
@@ -274,10 +278,35 @@ fn resolve(t: i64) {
         }
     }
     done.sort_by_key(|o| o.at);
+    if !done.is_empty() {
+        save(&done);
+    }
     s.outcomes.extend(done);
     while s.outcomes.front().is_some_and(|o| o.at < t - TRACK_SECS) {
         s.outcomes.pop_front();
     }
+}
+
+fn save(new: &[Outcome]) {
+    use std::io::Write;
+    let _ = std::fs::create_dir_all("data");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(OUTCOMES_FILE) {
+        for o in new {
+            if let Ok(line) = serde_json::to_string(o) {
+                let _ = writeln!(f, "{line}");
+            }
+        }
+    }
+}
+
+/// At start: the last 48 hours of outcomes back from disk; older lines are dropped.
+fn load_outcomes() {
+    let Ok(text) = std::fs::read_to_string(OUTCOMES_FILE) else { return };
+    let cut = now() - TRACK_SECS;
+    let kept: Vec<Outcome> = text.lines().filter_map(|l| serde_json::from_str::<Outcome>(l).ok()).filter(|o| o.at >= cut).collect();
+    let body: String = kept.iter().filter_map(|o| serde_json::to_string(o).ok()).map(|l| l + "\n").collect();
+    let _ = std::fs::write(OUTCOMES_FILE, body);
+    store().lock().expect("ai store lock").outcomes.extend(kept);
 }
 
 /// One group of the track record: how many coins, and how often they really dumped and doubled.
@@ -334,7 +363,7 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
     };
     let (riskiest, best) = {
         let board = ctx.app.board.lock().expect("board lock");
-        let mut by_dump: Vec<&(String, Risk)> = recent.iter().collect();
+        let mut by_dump: Vec<&(String, Risk)> = recent.iter().filter(|(_, r)| r.dump >= 0.2).collect();
         by_dump.sort_by(|a, b| b.1.dump.total_cmp(&a.1.dump));
         let mut by_pump: Vec<&(String, Risk)> = recent.iter().filter(|(_, r)| r.dump < 0.2).collect();
         by_pump.sort_by(|a, b| b.1.pump.total_cmp(&a.1.pump));
