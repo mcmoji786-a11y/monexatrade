@@ -76,6 +76,13 @@ struct FeedToken {
     dev_report: Option<devs::DevReport>,
 }
 
+/// `http://<private address>:3000`: the app opened from a phone on the same Wi-Fi.
+fn lan_origin(origin: &str) -> bool {
+    let Some(host) = origin.strip_prefix("http://").and_then(|h| h.strip_suffix(":3000")) else { return false };
+    let Ok(ip) = host.parse::<std::net::Ipv4Addr>() else { return false };
+    ip.is_private()
+}
+
 /// Events pushed to browsers.
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -272,8 +279,24 @@ async fn main() -> Result<()> {
     collector::start(state.clone());
     tokio::spawn(seed_smart(state.clone()));
 
+    // ALLOWED_ORIGIN may list several sites, comma separated. LAN_TESTING=1 (this PC only,
+    // never on a server) also lets a phone on the same Wi-Fi open the app at
+    // http://<this PC's address>:3000.
+    let allowed: Vec<HeaderValue> = config
+        .allowed_origin
+        .split(',')
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+        .map(|o| o.parse::<HeaderValue>())
+        .collect::<Result<_, _>>()?;
+    let lan = std::env::var("LAN_TESTING").is_ok_and(|v| v.trim() == "1");
+    if lan {
+        tracing::warn!("LAN_TESTING=1: phones on this Wi-Fi may use the app (local testing only)");
+    }
     let cors = CorsLayer::new()
-        .allow_origin(config.allowed_origin.parse::<HeaderValue>()?)
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(move |origin: &HeaderValue, _| {
+            allowed.iter().any(|a| a == origin) || (lan && origin.to_str().is_ok_and(lan_origin))
+        }))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
         .allow_headers([
             axum::http::header::CONTENT_TYPE,

@@ -71,3 +71,9 @@ Build mein 2 se 5 minute lagte hain.
 ## 8. Data ka backup (hafte mein ek dafa)
 `E:\KixoData` folder ko kisi doosri drive ya cloud (Google Drive, external disk) par copy karein.
 AI ki training isi data par hogi.
+
+## Phone par test (same WiFi)
+1. `.env` mein `LAN_TESTING=1` ho (sirf is PC ke liye, server par kabhi nahi).
+2. PC ka address dekhein: PowerShell mein `ipconfig` → "IPv4 Address" (jaise `192.168.1.5`).
+3. Phone par kholein: `http://<woh address>:3000`. App khud usi PC ke gateway (port 8080) se judti hai.
+4. Na khule to Windows Firewall mein Node.js aur `monexa-gateway.exe` ko "Private network" par allow karein.

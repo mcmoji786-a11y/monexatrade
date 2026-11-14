@@ -1,4 +1,8 @@
-export const GATEWAY_HTTP = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8080";
+/** The gateway. Without NEXT_PUBLIC_GATEWAY_URL (local testing) it is port 8080 on the
+ *  same machine the page came from, so a phone on the same Wi-Fi reaches the PC's gateway
+ *  instead of looking on the phone itself. */
+export const GATEWAY_HTTP =
+  process.env.NEXT_PUBLIC_GATEWAY_URL ?? (typeof window !== "undefined" ? `http://${window.location.hostname}:8080` : "http://localhost:8080");
 export const GATEWAY_WS = GATEWAY_HTTP.replace(/^http/, "ws");
 
 /** Creator-supplied, off-chain metadata. URLs are validated as https by the gateway. */
