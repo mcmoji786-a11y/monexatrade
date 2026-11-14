@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { allowed, configured, human, join } from "@/lib/waitlist";
+import { sendWelcome } from "@/lib/mail";
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
 
@@ -14,7 +15,9 @@ export async function POST(req: Request) {
   const ref = (body.ref ?? "").trim().toLowerCase() || null;
   const source = (body.source ?? "").trim().slice(0, 64) || null;
   try {
-    return NextResponse.json(await join(email, ref, source));
+    const { created, ...status } = await join(email, ref, source);
+    if (created) await sendWelcome(email, status);
+    return NextResponse.json(status);
   } catch {
     return NextResponse.json({ error: "Something went wrong, try again" }, { status: 500 });
   }

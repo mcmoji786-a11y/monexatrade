@@ -45,11 +45,12 @@ export async function byCode(code: string): Promise<Status | null> {
 
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
 
-/** Adds an email (or finds it again) and returns its place on the list. */
-export async function join(email: string, ref: string | null, source: string | null): Promise<Status> {
+/** Adds an email (or finds it again) and returns its place on the list, and whether it
+ *  is new (the welcome email goes only to new sign-ups). */
+export async function join(email: string, ref: string | null, source: string | null): Promise<Status & { created: boolean }> {
   const found = await rest(`waitlist?select=id,code&email=eq.${encodeURIComponent(email)}&limit=1`);
   const existing = found.ok ? ((await found.json()) as Row[]) : [];
-  if (existing[0]) return status(existing[0]);
+  if (existing[0]) return { ...(await status(existing[0])), created: false };
   // A referral code counts only when it belongs to someone on the list.
   const referrer = ref && (await byCode(ref)) ? ref : null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -58,12 +59,12 @@ export async function join(email: string, ref: string | null, source: string | n
       prefer: "return=representation",
       body: JSON.stringify({ email, code: newCode(), referred_by: referrer, source }),
     });
-    if (res.ok) return status(((await res.json()) as Row[])[0]);
+    if (res.ok) return { ...(await status(((await res.json()) as Row[])[0])), created: true };
     if (res.status === 409) {
       // Same email at the same moment, or (rarely) a code clash: look again.
       const again = await rest(`waitlist?select=id,code&email=eq.${encodeURIComponent(email)}&limit=1`);
       const rows = again.ok ? ((await again.json()) as Row[]) : [];
-      if (rows[0]) return status(rows[0]);
+      if (rows[0]) return { ...(await status(rows[0])), created: false };
       continue;
     }
     throw new Error(`waitlist insert failed (${res.status})`);
