@@ -10,8 +10,9 @@ export function DemoBanner() {
   const account = useAccount();
   if (mode !== "demo" || account.status !== "signed-in") return null;
   return (
-    <div className="flex items-center justify-center gap-3 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-xs text-warning">
-      <span>Demo account: virtual money, live market prices</span>
+    <div className="flex items-center justify-center gap-3 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-xs whitespace-nowrap text-warning">
+      <span className="sm:hidden">Demo: virtual money, live prices</span>
+      <span className="hidden sm:inline">Demo account: virtual money, live market prices</span>
       <button type="button" onClick={() => setMode("real")} className="underline underline-offset-2 hover:text-text">
         Switch to real
       </button>

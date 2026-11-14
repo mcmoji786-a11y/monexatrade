@@ -28,6 +28,15 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
   const { mode, account } = useDemo();
   const auth = useAccount();
   const [side, setSide] = useState<"buy" | "sell">("buy");
+  // The Buy and Sell bar at the bottom of the trade page on phones (token-view.tsx).
+  useEffect(() => {
+    const pick = (e: Event) => {
+      const s = (e as CustomEvent<"buy" | "sell">).detail;
+      if (s === "buy" || s === "sell") setSide(s);
+    };
+    window.addEventListener("kixo:trade-side", pick);
+    return () => window.removeEventListener("kixo:trade-side", pick);
+  }, []);
   const [amount, setAmount] = useState("");
   const [preview, setPreview] = useState<DemoFill | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);

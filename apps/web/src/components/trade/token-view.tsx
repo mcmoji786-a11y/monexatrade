@@ -76,7 +76,7 @@ export function TokenView() {
   }
 
   return (
-    <div className="terminal flex flex-col">
+    <div className="terminal flex flex-col pb-16 lg:pb-0">
       <Header row={row} launch={launch} market={market} now={now} book={book} solUsd={feed.solUsd} safety={safety} />
 
       <div className="flex flex-col lg:flex-row">
@@ -98,7 +98,9 @@ export function TokenView() {
         <Splitter axis="col" value={sideW} onChange={setSideW} invert label="Resize side panel" />
         <aside className="flex flex-col lg:w-(--side-w) lg:shrink-0" style={{ "--side-w": `${sideW}px` } as React.CSSProperties}>
           <FlowStrip row={row} book={book} solUsd={feed.solUsd} now={now} />
-          <DockableTrade symbol={row.symbol} mint={mint} />
+          <div id="trade-box" className="scroll-mt-16">
+            <DockableTrade symbol={row.symbol} mint={mint} />
+          </div>
           <MyPosition mint={mint} livePrice={row.priceUsd} />
           <OrdersCard mint={mint} symbol={row.symbol} />
           <GridCard mint={mint} symbol={row.symbol} />
@@ -112,6 +114,26 @@ export function TokenView() {
           )}
         </aside>
       </div>
+      <MobileTradeBar symbol={row.symbol} />
+    </div>
+  );
+}
+
+/** Phones: the trade box sits below the chart and trades, so Buy and Sell stay at hand
+ *  at the bottom of the screen and jump to it with that side picked. */
+function MobileTradeBar({ symbol }: { symbol: string }) {
+  const go = (side: "buy" | "sell") => {
+    window.dispatchEvent(new CustomEvent("kixo:trade-side", { detail: side }));
+    document.getElementById("trade-box")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-2 gap-2 border-t border-border bg-bg/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+      <button type="button" onClick={() => go("buy")} className="h-11 rounded-lg bg-[#2ebd85] text-sm font-medium text-bg focus-visible:outline-2 focus-visible:outline-emerald">
+        Buy {symbol}
+      </button>
+      <button type="button" onClick={() => go("sell")} className="h-11 rounded-lg bg-[#f6465d] text-sm font-medium text-text focus-visible:outline-2 focus-visible:outline-emerald">
+        Sell
+      </button>
     </div>
   );
 }

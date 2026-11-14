@@ -24,7 +24,7 @@ export function AiRiskChip({ mint, ageSecs, size = "sm" }: { mint: string; ageSe
       <span className={`flex shrink-0 items-center gap-1 border border-border font-mono text-muted ${h}`} title="Kixo AI judges a coin from its first 2 minutes of trades">
         <ScanSearch size={12} strokeWidth={1.5} />
         {/* Coarse steps: cards past their first minute refresh every 10 seconds. */}
-        AI in {left > 60 ? `${Math.ceil(left / 60)}m` : `${Math.max(10, Math.ceil(left / 10) * 10)}s`}
+        AI in {left > 60 ? `${Math.min(2, Math.ceil(left / 60))}m` : `${Math.max(10, Math.ceil(left / 10) * 10)}s`}
       </span>
     );
   }

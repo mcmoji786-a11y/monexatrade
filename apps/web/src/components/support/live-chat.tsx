@@ -122,17 +122,19 @@ export function LiveChat() {
         aria-expanded={open}
         aria-label={open ? "Close support chat" : `Chat with support${unread ? ", new reply" : ""}`}
         title={compact ? (online ? "Support: online now" : "Support") : undefined}
-        className={`fixed ${right} bottom-4 z-40 flex h-10 items-center gap-2 rounded-full border border-border bg-surface-2 text-sm text-text shadow-lg shadow-black/30 transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-emerald ${compact ? "w-10 justify-center" : "pr-4 pl-3"}`}
+        className={`fixed ${right} ${compact ? "bottom-20 lg:bottom-4" : "bottom-4"} z-40 flex h-10 items-center gap-2 rounded-full border border-border bg-surface-2 text-sm text-text shadow-lg shadow-black/30 transition-colors hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-emerald ${compact ? "w-10 justify-center" : "w-10 justify-center sm:w-auto sm:justify-start sm:pr-4 sm:pl-3"}`}
       >
         <span className="relative">
           <MessageCircle size={16} strokeWidth={1.5} className="text-text-2" />
           {(unread || (compact && online)) && <span className={`absolute -top-1 -right-1 h-2 w-2 rounded-full ring-2 ring-surface-2 ${unread ? "bg-emerald" : "bg-emerald/70"}`} />}
+          {/* Phones show the icon only, with the online dot on it. */}
+          {!unread && !compact && online && <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-emerald/70 ring-2 ring-surface-2 sm:hidden" />}
         </span>
         {!compact && (
-          <>
+          <span className="hidden items-center gap-2 sm:flex">
             Support
             <span className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald" : "bg-muted"}`} aria-hidden="true" />
-          </>
+          </span>
         )}
       </button>
 

@@ -284,7 +284,7 @@ export function RadarBoard() {
           </p>
         </div>
 
-        <dl className="flex flex-wrap gap-x-10 gap-y-4">
+        <dl className="grid w-full grid-cols-4 gap-x-3 sm:flex sm:w-auto sm:flex-wrap sm:gap-x-10 sm:gap-y-4">
           <Stat label="Launches, last min" value={String(lastMinute)} accent />
           <Stat label="On the radar" value={String(tokens.length)} />
           <Stat label="Volume, last hour" value={usd(volume1h)} />
@@ -298,14 +298,14 @@ export function RadarBoard() {
 
       {/* Toolbar */}
       <div className="mt-6 flex flex-wrap items-center gap-3 border-y border-border py-3">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter">
+        <div className="no-scrollbar -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 sm:mx-0 sm:w-auto sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Filter">
           {(Object.keys(FILTERS) as FilterKey[]).map((k) => (
             <button
               key={k}
               type="button"
               onClick={() => setFilter(k)}
               aria-pressed={filter === k}
-              className={`h-8 rounded-lg px-3 text-sm transition-colors duration-150 ${
+              className={`h-8 shrink-0 rounded-lg px-3 text-sm whitespace-nowrap transition-colors duration-150 ${
                 filter === k
                   ? "bg-surface-3 text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                   : "text-text-2 hover:bg-surface-2 hover:text-text"
@@ -449,7 +449,7 @@ function Stat({
     <div>
       <dt className="text-xs text-muted">{label}</dt>
       <dd
-        className={`mt-1 font-mono text-xl ${accent ? "text-emerald" : "text-text"}`}
+        className={`mt-1 font-mono text-base sm:text-xl ${accent ? "text-emerald" : "text-text"}`}
       >
         {value}
       </dd>

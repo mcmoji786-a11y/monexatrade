@@ -365,7 +365,7 @@ function Stat({ label, value, sub, raw, tone = "text-text" }: { label: string; v
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`mt-1 font-mono text-2xl ${tone}`}>
+      <dd className={`mt-1 font-mono text-lg whitespace-nowrap sm:text-2xl ${tone}`}>
         <Tick value={raw}>{value}</Tick>
       </dd>
       {sub && <p className="mt-1 text-[11px] text-muted">{sub}</p>}
