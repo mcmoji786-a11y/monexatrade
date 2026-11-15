@@ -6,8 +6,8 @@
    whose part of the screen is not there (a page switched off) are skipped; on a phone,
    where the sidebar is hidden, the card shows in the middle. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, Search, Wallet, X, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, MousePointerClick, Search, Wallet, X, type LucideIcon } from "lucide-react";
+import { AiWords, CommunityPeople, DemoCount, FirstSteps, RadarLive, SearchTry, SniperRule } from "./tour-previews";
 import { KixoMark } from "@/components/brand";
 import { useAccount } from "@/lib/account";
 import { useFeatures } from "@/lib/features";
@@ -21,24 +21,25 @@ export function startTour() {
   window.dispatchEvent(new Event(EVENT));
 }
 
-type Step = { anchor: string | null; icon: LucideIcon | "brand"; title: string; body: string };
+type Extra = "demo" | "search" | "radar" | "ai" | "sniper" | "community";
+type Step = { anchor: string | null; icon: LucideIcon | "brand"; title: string; body: string; extra?: Extra };
 
 const navIcon = (slug: string): LucideIcon => NAV_GROUPS.flatMap((g) => g.items).find((i) => i.slug === slug)?.icon ?? Check;
 
 const STEPS: Step[] = [
   { anchor: null, icon: "brand", title: "Welcome to Kixo", body: "A trading terminal for new Solana coins. This tour shows you around in about a minute" },
-  { anchor: "account", icon: Wallet, title: "Demo first", body: "You start in Demo with $10,000 of virtual money at live prices. Switch to Real when you are ready to use your own wallet" },
-  { anchor: "search", icon: Search, title: "Find any coin", body: "Type a name or paste a contract address to open its trade page. Press / from anywhere to jump here" },
+  { anchor: "account", icon: Wallet, title: "Demo first", body: "Virtual money at live prices, so you can learn without risk. Switch to Real when you are ready", extra: "demo" },
+  { anchor: "search", icon: Search, title: "Find any coin", body: "Type a name or paste a contract address to open its trade page", extra: "search" },
   { anchor: "nav-discover", icon: navIcon("discover"), title: "Discover", body: "Trending coins with price, volume and safety at a glance. Tap a row to trade it" },
-  { anchor: "nav-radar", icon: navIcon("radar"), title: "Sol Radar", body: "New coins the second they launch, each with a safety score and the risk checks behind it" },
-  { anchor: "nav-ai", icon: navIcon("ai"), title: "Kixo AI", body: "One word per coin: Danger, Careful, Good odds or Calm. Ask it anything about Solana in plain words" },
-  { anchor: "nav-sniper", icon: navIcon("sniper"), title: "Sniper", body: "Rules that buy new coins for you, then sell at your take profit or stop loss" },
+  { anchor: "nav-radar", icon: navIcon("radar"), title: "Sol Radar", body: "New coins the second they launch, each with a safety score and the risk checks behind it", extra: "radar" },
+  { anchor: "nav-ai", icon: navIcon("ai"), title: "Kixo AI", body: "One word per coin, from a model trained on thousands of launches. Ask it anything about Solana too", extra: "ai" },
+  { anchor: "nav-sniper", icon: navIcon("sniper"), title: "Sniper", body: "Rules that buy new coins for you and sell them on your terms", extra: "sniper" },
   { anchor: "nav-smart-money", icon: navIcon("smart-money"), title: "Smart Money", body: "Wallets that keep making money. Watch them, or copy their trades on demo" },
   { anchor: "nav-wallets", icon: navIcon("wallets"), title: "Wallet Monitor", body: "Follow any wallet. Its buys and sells reach you here, or by Email, Telegram and Discord" },
-  { anchor: "nav-community", icon: navIcon("community"), title: "Community", body: "Kixo traders. Follow them, watch their trades live and copy one with a tap. Your profile is ready to edit" },
+  { anchor: "nav-community", icon: navIcon("community"), title: "Community", body: "Follow Kixo traders, watch their trades live and copy one with a tap. Your profile is ready", extra: "community" },
   { anchor: "nav-portfolio", icon: navIcon("portfolio"), title: "Portfolio", body: "Your coins, profit and loss, and your Kixo wallet in one place" },
   { anchor: "nav-settings", icon: navIcon("settings"), title: "Settings", body: "Alerts outside Kixo, trading defaults, and this tour again whenever you want it" },
-  { anchor: null, icon: Check, title: "You are set", body: "Sol Radar is the best place to start: watch coins launch live and try a demo trade" },
+  { anchor: null, icon: Check, title: "You are set", body: "Three good first moves. Pick one" },
 ];
 
 type Box = { top: number; left: number; width: number; height: number };
@@ -69,7 +70,6 @@ function markDone() {
 export function ProductTour() {
   const f = useFeatures();
   const auth = useAccount();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [i, setI] = useState(0);
   const [box, setBox] = useState<Box | null>(null);
@@ -156,7 +156,7 @@ export function ProductTour() {
   // Where the card goes: beside a sidebar link, under a top-bar part, or centred.
   let card: React.CSSProperties;
   if (!box) card = { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
-  else if (box.left + box.width + 16 + CARD_W < vw && box.left < 320) card = { top: Math.max(16, Math.min(box.top - 8, window.innerHeight - 280)), left: box.left + box.width + 16 };
+  else if (box.left + box.width + 16 + CARD_W < vw && box.left < 320) card = { top: Math.max(16, Math.min(box.top - 8, window.innerHeight - 460)), left: box.left + box.width + 16 };
   else card = { top: box.top + box.height + 12, left: Math.max(16, Math.min(box.left + box.width - CARD_W, vw - CARD_W - 16)) };
 
   const Icon = step.icon;
@@ -172,6 +172,19 @@ export function ProductTour() {
       )}
       {/* Clicks outside the card do nothing, so the tour is not lost by accident. */}
       <div className="fixed inset-0" />
+      {/* A lit sidebar link can be clicked: it opens that page and the tour goes on. */}
+      {box && step.anchor?.startsWith("nav-") && (
+        <button
+          type="button"
+          aria-label={`Open ${step.title}`}
+          className="fixed cursor-pointer rounded-xl"
+          style={box}
+          onClick={() => {
+            find(step.anchor ?? "")?.click();
+            forward();
+          }}
+        />
+      )}
 
       <section key={i} className="fade-up fixed w-[min(340px,calc(100vw-32px))] rounded-2xl border border-border bg-surface p-5" style={card}>
         <div className="flex items-start justify-between gap-3">
@@ -184,6 +197,22 @@ export function ProductTour() {
         </div>
         <h2 className="mt-4 text-base font-medium text-text">{step.title}</h2>
         <p className="mt-1.5 text-sm leading-6 text-text-2">{step.body}</p>
+        {box && step.anchor?.startsWith("nav-") && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+            <MousePointerClick size={13} strokeWidth={1.5} />
+            Click it to take a look, the tour goes on
+          </p>
+        )}
+        {step.extra && (
+          <div className="mt-4">
+            {step.extra === "demo" ? <DemoCount /> : step.extra === "search" ? <SearchTry onDone={forward} /> : step.extra === "radar" ? <RadarLive /> : step.extra === "ai" ? <AiWords /> : step.extra === "sniper" ? <SniperRule /> : <CommunityPeople />}
+          </div>
+        )}
+        {last && (
+          <div className="mt-4">
+            <FirstSteps onPick={close} />
+          </div>
+        )}
 
         {/* Progress: one segment per step, the done ones in the accent. */}
         <div className="mt-5 flex gap-1" aria-hidden="true">
@@ -210,22 +239,9 @@ export function ProductTour() {
               </button>
             )}
             {last ? (
-              <>
-                <button type="button" onClick={close} className="h-9 rounded-lg border border-border px-3 text-sm text-text-2 hover:bg-surface-2 hover:text-text">
-                  Done
-                </button>
-                <button
-                  ref={next}
-                  type="button"
-                  onClick={() => {
-                    close();
-                    router.push("/radar");
-                  }}
-                  className="h-9 whitespace-nowrap rounded-lg bg-text px-4 text-sm font-medium text-bg hover:opacity-90"
-                >
-                  Open Sol Radar
-                </button>
-              </>
+              <button ref={next} type="button" onClick={close} className="h-9 rounded-lg bg-text px-4 text-sm font-medium text-bg hover:opacity-90">
+                Done
+              </button>
             ) : (
               <button ref={next} type="button" onClick={forward} className="flex h-9 items-center gap-1.5 rounded-lg bg-text px-4 text-sm font-medium text-bg hover:opacity-90">
                 {i === 0 ? "Show me" : "Next"}
