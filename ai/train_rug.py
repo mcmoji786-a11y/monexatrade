@@ -190,7 +190,7 @@ def stream_rows(keep_paths=None, lag_path=None, sources=("external", "live")):
     if not days:
         return pd.DataFrame(), WalletBook()
     book = WalletBook()
-    rows = []
+    frames, n_rows = [], 0
     lag_cut = day_start(days[-1][0]) - 86_400
     lag_saved = False
     for i, (name, folder, src) in enumerate(days):
@@ -243,13 +243,29 @@ def stream_rows(keep_paths=None, lag_path=None, sources=("external", "live")):
                 lag_saved = True
             r.update(book.features(r["_buyers"]))
             book.add_later(r["start"] + WINDOW + HORIZON, r.pop("_buyers"), r["pump"], r["dump"])
-        rows.extend(base)
-        print(f"  {name} ({src}): {len(base):,} coins, {len(rows):,} so far, {len(book.stats):,} wallets on record", flush=True)
+        n_day = len(base)
+        if base:
+            frames.append(compact(pd.DataFrame(base)))
+            n_rows += len(base)
+        del base
+        print(f"  {name} ({src}): {n_day:,} coins, {n_rows:,} so far, {len(book.stats):,} wallets on record", flush=True)
         del t
     book.advance(float("inf"))
     if lag_path and not lag_saved:
         book.save(lag_path)
-    return pd.DataFrame(rows), book
+    return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()), book
+
+
+def compact(df):
+    """A day's coins as a small table: float32 numbers, not one Python dict per coin."""
+    for c in df.columns:
+        if c in ("start", "entry"):
+            continue
+        if df[c].dtype == "float64":
+            df[c] = df[c].astype("float32")
+        elif df[c].dtype == "int64":
+            df[c] = pd.to_numeric(df[c], downcast="integer")
+    return df
 
 
 def fit(train, target):

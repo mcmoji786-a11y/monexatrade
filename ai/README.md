@@ -49,3 +49,11 @@ Result 2026-11-15 (6,338 unseen coins): the old Auto trade rule (+100% / -40% / 
 about 7-8% a trade. The new one (crash chance <= 20%, double chance >= 20%, stop 20%,
 trailing 20%, take profit 3x, out within 10 min) made +4.0% and +1.9% a trade at 1% cost,
 about break-even at 2%. Only about 100 trades: not proven, demo only.
+
+## Imported public data
+`ai\import_jocry.py` brings in the PumpFun Launch-to-Graduation Corpus
+(jocry/Pumpfun_Memecoin_Corpus on Hugging Face, CC BY 4.0, 5 Jun - 14 Jul 2026, about 33.6M
+trades) as day folders under `E:\KixoData\external_days` (`KIXO_EXTRA`). Training reads them
+like Kixo's own days, trains one model on Kixo's data alone and one with the import, and keeps
+whichever does better on Kixo's own newest coins. Credit: "PumpFun Launch-to-Graduation
+Corpus" by jocry, licensed CC BY 4.0.
