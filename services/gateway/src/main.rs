@@ -485,6 +485,7 @@ async fn main() -> Result<()> {
         .route("/wallet/{address}/portfolio", get(portfolio_handler))
         .route("/wallet/{address}/live", get(live_trades_handler))
         .route("/ws/wallets", get(ws_wallets))
+        .route("/ws/chain-trades", get(ws_chain_trades))
         .route("/ws/token/{mint}", get(ws_token))
         .merge(admin_routes)
         .merge(account_routes)
@@ -1924,6 +1925,60 @@ async fn stream_wallets(mut socket: WebSocket, state: Arc<AppState>, wallets: st
             event = rx.recv() => match event {
                 Ok((mint, row)) if wallets.contains(&row.wallet) => {
                     let msg = json!({ "type": "trade", "mint": mint, "symbol": symbol(&state, &mint), "trade": row, "sol_usd": state.board.lock().expect("board lock").sol_usd });
+                    if socket.send(Message::Text(msg.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => return,
+            },
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ChainQuery {
+    min_sol: Option<f64>,
+}
+
+/// `GET /ws/chain-trades?min_sol=0.5`: every trade our engine decodes across Solana's
+/// launchpads, live, of at least `min_sol` (0.1 to 100, default 0.5). At most 8 a second
+/// per viewer, so a busy minute cannot flood a phone; the rest are dropped, not queued.
+async fn ws_chain_trades(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>, Query(q): Query<ChainQuery>) -> Response {
+    let min = q.min_sol.filter(|v| v.is_finite()).unwrap_or(0.5).clamp(0.1, 100.0);
+    ws.on_upgrade(move |socket| stream_chain_trades(socket, state, min))
+}
+
+async fn stream_chain_trades(mut socket: WebSocket, state: Arc<AppState>, min_sol: f64) {
+    let mut rx = state.trades.subscribe();
+    let mut window = Instant::now();
+    let mut sent = 0u32;
+    loop {
+        tokio::select! {
+            incoming = socket.recv() => match incoming {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                _ => {}
+            },
+            event = rx.recv() => match event {
+                Ok((mint, row)) if row.sol >= min_sol => {
+                    if window.elapsed() >= Duration::from_secs(1) {
+                        window = Instant::now();
+                        sent = 0;
+                    }
+                    if sent >= 8 {
+                        continue;
+                    }
+                    sent += 1;
+                    let (symbol, image, sol_usd) = {
+                        let b = state.board.lock().expect("board lock");
+                        let t = b.tokens.get(&mint);
+                        (
+                            t.map(|t| t.token.symbol.clone()).or_else(|| b.markets.get(&mint).map(|m| m.symbol)),
+                            t.and_then(|t| t.meta.as_ref()).and_then(|m| m.image.clone()),
+                            b.sol_usd,
+                        )
+                    };
+                    let msg = json!({ "mint": mint, "symbol": symbol, "image": image, "trade": row, "sol_usd": sol_usd });
                     if socket.send(Message::Text(msg.to_string().into())).await.is_err() {
                         return;
                     }

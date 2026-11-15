@@ -9,6 +9,7 @@ import { getFeed, getLeaders, getMe, money, type Leader, type SocialTrade, type 
 import { FollowButton, TradeLine, TraderAvatar } from "./social-bits";
 import { ProfileForm } from "./profile-form";
 import { FollowCounts, TradersTab } from "./people";
+import { ChainTrades } from "./chain-trades";
 
 type Me = { profile: TraderProfile | null; followers: number; following: number; following_handles: string[] };
 
@@ -18,7 +19,7 @@ export function CommunityBoard() {
   const [me, setMe] = useState<Me | null>(null);
   const [setupErr, setSetupErr] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [tab, setTab] = useState<"traders" | "feed" | "leaders" | null>(null);
+  const [tab, setTab] = useState<"traders" | "feed" | "chain" | "leaders" | null>(null);
 
   const loadMe = useCallback(() => {
     if (!signedIn) return;
@@ -37,7 +38,7 @@ export function CommunityBoard() {
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       <div>
         <h1 className="text-2xl font-medium text-text">Community</h1>
-        <p className="mt-1 max-w-2xl text-sm text-text-2">Follow Kixo traders, watch their trades as they happen, and copy the ones who win. Only demo trades are shown</p>
+        <p className="mt-1 max-w-2xl text-sm text-text-2">Find Kixo users, follow them and copy the ones who win, or watch every trade across Solana live</p>
       </div>
 
       {/* Your profile */}
@@ -87,8 +88,9 @@ export function CommunityBoard() {
       <div className="flex gap-1 border-b border-border" role="tablist">
         {(
           [
-            ["traders", "Traders"],
-            ["feed", "Live trades"],
+            ["traders", "Kixo users"],
+            ["feed", "Kixo trades"],
+            ["chain", "All Solana"],
             ["leaders", "Leaderboard"],
           ] as const
         ).map(([k, label]) => (
@@ -105,7 +107,7 @@ export function CommunityBoard() {
         ))}
       </div>
 
-      {shown === "traders" ? <TradersTab onFollow={loadMe} /> : shown === "feed" ? <Feed signedIn={signedIn} hasFollows={(me?.following ?? 0) > 0} /> : <Leaders following={following} />}
+      {shown === "traders" ? <TradersTab onFollow={loadMe} /> : shown === "feed" ? <Feed signedIn={signedIn} hasFollows={(me?.following ?? 0) > 0} /> : shown === "chain" ? <ChainTrades /> : <Leaders following={following} />}
     </section>
   );
 }
@@ -152,6 +154,7 @@ function Feed({ signedIn, hasFollows }: { signedIn: boolean; hasFollows: boolean
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
       <div className="flex gap-1 rounded-lg border border-border p-0.5 self-start" role="group" aria-label="Whose trades">
         {(
           [
@@ -169,6 +172,8 @@ function Feed({ signedIn, hasFollows }: { signedIn: boolean; hasFollows: boolean
             {label}
           </button>
         ))}
+      </div>
+        <span className="text-xs text-muted">Demo trades by Kixo users. For everyone on Solana, see All Solana</span>
       </div>
       <section className="rounded-xl border border-border bg-surface">
         {err ? (
