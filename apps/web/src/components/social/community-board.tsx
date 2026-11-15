@@ -8,15 +8,16 @@ import { useAccount, openLogin } from "@/lib/account";
 import { getFeed, getLeaders, getMe, money, type Leader, type SocialTrade, type TraderProfile } from "@/lib/social";
 import { FollowButton, TradeLine, TraderAvatar } from "./social-bits";
 import { ProfileForm } from "./profile-form";
+import { FollowCounts, TradersTab } from "./people";
 
-type Me = { profile: TraderProfile | null; followers: number; following: number };
+type Me = { profile: TraderProfile | null; followers: number; following: number; following_handles: string[] };
 
 export function CommunityBoard() {
   const auth = useAccount();
   const signedIn = auth.status === "signed-in";
   const [me, setMe] = useState<Me | null>(null);
   const [setupErr, setSetupErr] = useState<string | null>(null);
-  const [tab, setTab] = useState<"feed" | "leaders">("feed");
+  const [tab, setTab] = useState<"traders" | "feed" | "leaders" | null>(null);
 
   const loadMe = useCallback(() => {
     if (!signedIn) return;
@@ -27,6 +28,9 @@ export function CommunityBoard() {
   useEffect(() => {
     loadMe();
   }, [loadMe]);
+  // Following nobody yet: start on Traders, to find people. Otherwise their trades.
+  const shown = tab ?? (me && me.following > 0 ? "feed" : "traders");
+  const following = new Set(me?.following_handles ?? []);
 
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -57,7 +61,7 @@ export function CommunityBoard() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm text-text">{me.profile.display_name || `@${me.profile.handle}`}</p>
             <p className="font-mono text-xs text-muted">
-              @{me.profile.handle} · {me.followers} followers · {me.following} following{!me.profile.public && " · private"}
+              @{me.profile.handle} · <FollowCounts handle={me.profile.handle} followers={me.followers} following={me.following} />{!me.profile.public && " · private"}
             </p>
           </div>
           <Link href={`/u/${me.profile.handle}`} className="flex h-9 items-center rounded-lg border border-border px-3 text-sm text-text transition-colors hover:bg-surface-2">
@@ -69,6 +73,7 @@ export function CommunityBoard() {
       <div className="flex gap-1 border-b border-border" role="tablist">
         {(
           [
+            ["traders", "Traders"],
             ["feed", "Live trades"],
             ["leaders", "Leaderboard"],
           ] as const
@@ -77,16 +82,16 @@ export function CommunityBoard() {
             key={k}
             type="button"
             role="tab"
-            aria-selected={tab === k}
+            aria-selected={shown === k}
             onClick={() => setTab(k)}
-            className={`-mb-px h-11 border-b-2 px-3 text-sm transition-colors ${tab === k ? "border-emerald text-text" : "border-transparent text-text-2 hover:text-text"}`}
+            className={`-mb-px h-11 border-b-2 px-3 text-sm transition-colors ${shown === k ? "border-emerald text-text" : "border-transparent text-text-2 hover:text-text"}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {tab === "feed" ? <Feed signedIn={signedIn} hasFollows={(me?.following ?? 0) > 0} /> : <Leaders />}
+      {shown === "traders" ? <TradersTab onFollow={loadMe} /> : shown === "feed" ? <Feed signedIn={signedIn} hasFollows={(me?.following ?? 0) > 0} /> : <Leaders following={following} />}
     </section>
   );
 }
@@ -160,7 +165,7 @@ function Feed({ signedIn, hasFollows }: { signedIn: boolean; hasFollows: boolean
           <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
             <Users size={20} strokeWidth={1.5} className="text-muted" />
             <p className="text-sm text-text-2">{scope === "following" ? "No trades from the traders you follow yet" : "No public trades yet. Make your profile and be the first"}</p>
-            {scope === "following" && <p className="text-xs text-muted">Find traders on the leaderboard and follow them</p>}
+            {scope === "following" && <p className="text-xs text-muted">Find people in the Traders tab and follow them</p>}
           </div>
         ) : (
           <ul className="divide-y divide-border">
@@ -181,7 +186,7 @@ function Feed({ signedIn, hasFollows }: { signedIn: boolean; hasFollows: boolean
   );
 }
 
-function Leaders() {
+function Leaders({ following }: { following: Set<string> }) {
   const [period, setPeriod] = useState<"7d" | "30d" | "all">("7d");
   const [rows, setRows] = useState<Leader[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -244,7 +249,7 @@ function Leaders() {
                   {r.realized_usd >= 0 ? "+" : ""}
                   {money(r.realized_usd)}
                 </span>
-                <FollowButton handle={r.handle} initial={false} />
+                <FollowButton key={`${r.handle}:${following.has(r.handle)}`} handle={r.handle} initial={following.has(r.handle)} />
               </li>
             ))}
           </ul>

@@ -80,9 +80,26 @@ pub async fn me(State(c): State<SocialCtx>, headers: HeaderMap) -> Result<Json<V
     on(&c)?;
     let u = c.acct.user(&headers).await?;
     let p = profile_by_user(&c.acct, &u.id).await?;
-    let following = count(&c.acct, &format!("follows?follower=eq.{}", u.id)).await;
     let followers = count(&c.acct, &format!("follows?leader=eq.{}", u.id)).await;
-    Ok(Json(json!({ "profile": p.as_ref().map(public_view), "followers": followers, "following": following })))
+    // Who the caller follows, by handle, so Follow buttons everywhere show the truth.
+    let leaders: Vec<String> = c
+        .acct
+        .rest(reqwest::Method::GET, &format!("follows?follower=eq.{}&select=leader&limit=500", u.id), None)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().map(|r| r.iter().filter_map(|x| x["leader"].as_str().map(String::from)).collect()))
+        .unwrap_or_default();
+    let handles: Vec<Value> = if leaders.is_empty() {
+        Vec::new()
+    } else {
+        c.acct
+            .rest(reqwest::Method::GET, &format!("trader_profiles?user_id=in.({})&select=handle", leaders.join(",")), None)
+            .await
+            .ok()
+            .and_then(|v| v.as_array().map(|r| r.iter().map(|x| x["handle"].clone()).collect()))
+            .unwrap_or_default()
+    };
+    Ok(Json(json!({ "profile": p.as_ref().map(public_view), "followers": followers, "following": leaders.len(), "following_handles": handles })))
 }
 
 #[derive(Deserialize)]
@@ -267,6 +284,93 @@ pub async fn leaders(State(c): State<SocialCtx>, Query(q): Query<LeadersQuery>) 
         })
         .unwrap_or_default();
     Ok(Json(json!({ "leaders": rows })))
+}
+
+/// The caller's id when signed in (optional on public lists).
+async fn viewer(c: &SocialCtx, headers: &HeaderMap) -> Option<String> {
+    if headers.contains_key("authorization") {
+        c.acct.user(headers).await.ok().map(|u| u.id)
+    } else {
+        None
+    }
+}
+
+/// Public profiles as list rows: follower counts, and whether the viewer follows each.
+async fn trader_rows(c: &SocialCtx, profiles: Vec<Value>, me: Option<&str>) -> Vec<Value> {
+    if profiles.is_empty() {
+        return Vec::new();
+    }
+    let ids: Vec<&str> = profiles.iter().filter_map(|p| p["user_id"].as_str()).collect();
+    let list = ids.join(",");
+    let follows = c.acct.rest(reqwest::Method::GET, &format!("follows?leader=in.({list})&select=leader,follower&limit=50000"), None).await.ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    let mut counts: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
+    let mut mine: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in &follows {
+        if let Some(l) = f["leader"].as_str() {
+            *counts.entry(l).or_default() += 1;
+            if me.is_some() && f["follower"].as_str() == me {
+                mine.insert(l);
+            }
+        }
+    }
+    profiles
+        .iter()
+        .map(|p| {
+            let id = p["user_id"].as_str().unwrap_or_default();
+            json!({
+                "handle": p["handle"], "display_name": p["display_name"], "bio": p["bio"], "created_at": p["created_at"],
+                "followers": counts.get(id).copied().unwrap_or(0), "i_follow": mine.contains(id), "me": me == Some(id),
+            })
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+pub struct TradersQuery {
+    q: Option<String>,
+    sort: Option<String>,
+}
+
+/// `GET /social/traders?q=&sort=followers|new`: public traders to find and follow.
+/// The 200 newest (or matching) profiles are read; "followers" ranks those by followers.
+pub async fn traders(State(c): State<SocialCtx>, headers: HeaderMap, Query(q): Query<TradersQuery>) -> Result<Json<Value>, ApiErr> {
+    on(&c)?;
+    let me = viewer(&c, &headers).await;
+    let term: String = q.q.unwrap_or_default().to_lowercase().chars().filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_').take(20).collect();
+    let filter = if term.is_empty() { String::new() } else { format!("&or=(handle.ilike.*{term}*,display_name.ilike.*{term}*)") };
+    let v = c.acct.rest(reqwest::Method::GET, &format!("trader_profiles?public=eq.true&select=user_id,handle,display_name,bio,created_at&order=created_at.desc&limit=200{filter}"), None).await?;
+    let mut rows = trader_rows(&c, v.as_array().cloned().unwrap_or_default(), me.as_deref()).await;
+    if q.sort.as_deref() != Some("new") {
+        rows.sort_by(|a, b| num(&b["followers"]).total_cmp(&num(&a["followers"])));
+    }
+    rows.truncate(50);
+    Ok(Json(json!({ "traders": rows })))
+}
+
+#[derive(Deserialize)]
+pub struct WhoQuery {
+    who: Option<String>,
+}
+
+/// `GET /social/u/{handle}/people?who=followers|following`: the public profiles on
+/// either side of a trader's follows. Private profiles are left out.
+pub async fn people(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle): Path<String>, Query(q): Query<WhoQuery>) -> Result<Json<Value>, ApiErr> {
+    on(&c)?;
+    let me = viewer(&c, &headers).await;
+    let p = profile_by_handle(&c.acct, &handle).await?.filter(|p| p["public"] == json!(true) || p["user_id"].as_str() == me.as_deref()).ok_or((StatusCode::NOT_FOUND, "No trader with that handle".into()))?;
+    let uid = p["user_id"].as_str().unwrap_or_default();
+    let followers = q.who.as_deref() != Some("following");
+    let path = if followers { format!("follows?leader=eq.{uid}&select=follower&order=created_at.desc&limit=200") } else { format!("follows?follower=eq.{uid}&select=leader&order=created_at.desc&limit=200") };
+    let col = if followers { "follower" } else { "leader" };
+    let ids: Vec<String> = c.acct.rest(reqwest::Method::GET, &path, None).await?.as_array().into_iter().flatten().filter_map(|r| r[col].as_str().map(String::from)).collect();
+    if ids.is_empty() {
+        return Ok(Json(json!({ "people": [] })));
+    }
+    let v = c.acct.rest(reqwest::Method::GET, &format!("trader_profiles?user_id=in.({})&public=eq.true&select=user_id,handle,display_name,bio,created_at", ids.join(",")), None).await?;
+    let mut profiles = v.as_array().cloned().unwrap_or_default();
+    // Newest follow first, as the follows were read.
+    profiles.sort_by_key(|p| ids.iter().position(|i| Some(i.as_str()) == p["user_id"].as_str()).unwrap_or(usize::MAX));
+    Ok(Json(json!({ "people": trader_rows(&c, profiles, me.as_deref()).await })))
 }
 
 #[derive(Deserialize)]

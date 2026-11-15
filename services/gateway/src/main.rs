@@ -445,6 +445,8 @@ async fn main() -> Result<()> {
     let social_routes: Router<Arc<AppState>> = Router::new()
         .route("/social/me", get(social::me).put(social::save_me))
         .route("/social/u/{handle}", get(social::trader))
+        .route("/social/u/{handle}/people", get(social::people))
+        .route("/social/traders", get(social::traders))
         .route("/social/follow/{handle}", axum::routing::post(social::follow).delete(social::unfollow))
         .route("/social/feed", get(social::feed))
         .route("/social/leaders", get(social::leaders))

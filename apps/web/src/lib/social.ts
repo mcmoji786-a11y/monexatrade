@@ -46,7 +46,7 @@ async function call<T>(path: string, init: RequestInit = {}, auth = false): Prom
   return JSON.parse(text) as T;
 }
 
-export const getMe = () => call<{ profile: TraderProfile | null; followers: number; following: number }>("/social/me", {}, true);
+export const getMe = () => call<{ profile: TraderProfile | null; followers: number; following: number; following_handles: string[] }>("/social/me", {}, true);
 export const saveMe = (p: { handle: string; display_name: string; bio: string; public: boolean }) =>
   call<{ profile: TraderProfile }>("/social/me", { method: "PUT", body: JSON.stringify(p) }, true);
 export const getTrader = (handle: string) => call<Trader>(`/social/u/${encodeURIComponent(handle)}`);
@@ -54,6 +54,10 @@ export const follow = (handle: string, on: boolean) => call<{ following: boolean
 export const getFeed = (scope: "following" | "everyone", before?: number) =>
   call<{ items: SocialTrade[] }>(`/social/feed?scope=${scope}${before ? `&before=${before}` : ""}`, {}, scope === "following");
 export const getLeaders = (period: "7d" | "30d" | "all") => call<{ leaders: Leader[] }>(`/social/leaders?period=${period}`);
+/** A trader in a list: to find and follow. */
+export type TraderRow = { handle: string; display_name: string; bio: string; created_at: string; followers: number; i_follow: boolean; me: boolean };
+export const getTraders = (q: string, sort: "followers" | "new") => call<{ traders: TraderRow[] }>(`/social/traders?q=${encodeURIComponent(q)}&sort=${sort}`);
+export const getPeople = (handle: string, who: "followers" | "following") => call<{ people: TraderRow[] }>(`/social/u/${encodeURIComponent(handle)}/people?who=${who}`);
 export const getTraderTrades = (handle: string, after: number) => call<{ items: SocialTrade[] }>(`/social/trades/${encodeURIComponent(handle)}?after=${after}`);
 
 export const HANDLE_RE = /^[a-z0-9_]{3,20}$/;

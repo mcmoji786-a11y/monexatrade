@@ -10,6 +10,7 @@ import { addCopy, removeCopy, useCopies } from "@/lib/copy";
 import { useAccount, openLogin } from "@/lib/account";
 import { pushToast } from "@/lib/toast";
 import { FollowButton, TradeLine, TraderAvatar } from "./social-bits";
+import { FollowCounts } from "./people";
 import { ProfileForm } from "./profile-form";
 
 const AMOUNTS = [10, 25, 50, 100];
@@ -54,7 +55,7 @@ export function TraderView() {
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-xl font-medium text-text">{p.display_name || `@${p.handle}`}</h1>
           <p className="font-mono text-xs text-muted">
-            @{p.handle} · {t.followers} followers · {t.following} following
+            @{p.handle} · <FollowCounts key={t.followers} handle={p.handle} followers={t.followers} following={t.following} />
             {!p.public && " · private"}
           </p>
           {p.bio && <p className="mt-2 text-sm text-text-2">{p.bio}</p>}
