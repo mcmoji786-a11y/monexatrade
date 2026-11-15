@@ -36,3 +36,16 @@ service, so both compute the same numbers. Restart `serve.py` after retraining.
 Run `scripts\kixo-ai-retrain.cmd`. The running service loads the new models by itself within a
 minute. If training fails, the old models stay in use. The admin's System page shows whether
 the AI service answers and how many coins it scored.
+
+## Strategy Lab (Auto trade rule)
+```
+E:\KixoAI\venv\Scripts\python.exe ai\strategy_lab.py
+```
+Tries 2,880 buy/sell rules on coins the models never saw: picks on the older half, checks
+on the newer half, at 1% and 2% cost a side. Writes `E:\KixoAI\models\strategy_latest.json`.
+A rule counts only if it makes money on both halves. Run it after each retrain.
+
+Result 2026-11-15 (6,338 unseen coins): the old Auto trade rule (+100% / -40% / 1 h) lost
+about 7-8% a trade. The new one (crash chance <= 20%, double chance >= 20%, stop 20%,
+trailing 20%, take profit 3x, out within 10 min) made +4.0% and +1.9% a trade at 1% cost,
+about break-even at 2%. Only about 100 trades: not proven, demo only.

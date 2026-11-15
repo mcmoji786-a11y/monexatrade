@@ -303,10 +303,10 @@ export const PRESETS: { key: string; label: string; hint: string; patch: Partial
 export const AI_PRESET = {
   key: "kixo-ai",
   label: "Copy Kixo AI",
-  hint: "Buys the coins Kixo AI marks Good odds: under 20% dump risk with 15%+ 2x odds",
+  hint: "Buys the strongest Good odds coins (under 20% crash risk, 20%+ double chance) with a tight stop",
   patch: {
     aiMaxDump: 20,
-    aiMinPump: 15,
+    aiMinPump: 20,
     minSafety: 0,
     maxAgeSecs: 300,
     minHolders: null,
@@ -318,10 +318,12 @@ export const AI_PRESET = {
     socialsRequired: false,
     skipCopiedSymbols: true,
     skipRepeatRuggers: true,
-    takeProfitPct: 100,
-    stopLossPct: 40,
-    trailingPct: 0,
-    maxHoldMins: 60,
+    // Strategy Lab (ai/strategy_lab.py, 2026-11-15): tight exits beat +100% / -40% / 1 h
+    // on both halves of the unseen coins (-1.4% and +8.2% a trade vs -7.7% and -7.6%).
+    takeProfitPct: 200,
+    stopLossPct: 20,
+    trailingPct: 20,
+    maxHoldMins: 10,
     maxOpen: 5,
     maxPerHour: 10,
   } satisfies Partial<SniperSettings>,

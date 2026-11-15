@@ -190,9 +190,9 @@ export async function answer(input: string, given: ChatInput): Promise<ChatReply
   if (has(q, /copy kixo|copy the ai|copy ai|ai copy|auto ?trade|auto ?buy|khud trade|agent/)) {
     return {
       text: [
-        "Copy Kixo AI buys, on your demo account, the coins the AI marks Good odds (under 20% crash risk, 15%+ double chance), then sells at +100%, -40% or after an hour: the same way the model was tested",
+        "Copy Kixo AI buys, on your demo account, the strongest Good odds coins (under 20% crash risk, 20%+ double chance), then sells fast: at a 20% loss, 20% below its best price, at 3x, or after 10 minutes",
         "Turn it on in the Copy Kixo AI box on this page. It runs while Kixo is open; 24/7 trading on the server comes with the auto-trade wallet",
-        "Honest note: in testing, buying the AI's favourites still lost money after fees. Watch the demo results before trusting it with real money",
+        "Honest note: these fast exits did much better than holding for an hour on coins the AI never saw, but it is not proven yet. Use it on demo first",
       ],
       suggestions: ["Is the AI accurate?", "Best coins right now"],
     };

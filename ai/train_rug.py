@@ -76,7 +76,8 @@ ALL_TRADE_COLS = ["ts", "slot", "signature", "mint", "side", "sol_lamports", "to
 TRADE_COLS = ["signature", "mint", "wallet", "side", "ts", "slot", "sol_lamports", "v_sol", "v_tokens"]
 
 
-def load(kind):
+def load(kind, since=None):
+    """All rows of one kind; with `since` (unix seconds), only trades from then on."""
     frames = []
     cols = (lambda c: c in TRADE_COLS) if kind == "trades" else None
     for f in sorted(glob.glob(f"{DATA}/*/{kind}-*.csv.gz")):
@@ -92,6 +93,8 @@ def load(kind):
                 df = df.drop(columns=["signature"])
                 df["side"] = pd.Categorical(df.side, categories=["buy", "sell"])
                 df = df.drop_duplicates("key")
+                if since is not None:
+                    df = df[pd.to_numeric(df.ts, errors="coerce") >= since]
             frames.append(df)
         except (pd.errors.EmptyDataError, ValueError):
             pass

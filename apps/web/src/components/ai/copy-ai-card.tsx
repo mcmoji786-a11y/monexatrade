@@ -32,8 +32,8 @@ export function CopyAiCard() {
       <div className="border-b border-border px-5 py-4">
         <h2 className="text-base font-medium text-text">Let Kixo AI trade for you</h2>
         <p className="mt-1 text-sm text-text-2">
-          When the AI marks a new coin <span className="text-positive">Good odds</span>, {where} buys it. It sells by itself when the price doubles, falls 40%, or
-          after one hour
+          When the AI marks a new coin <span className="text-positive">Good odds</span> with a strong double chance, {where} buys it. It sells by itself fast: at
+          a 20% loss, when the price drops 20% from its best, at 3x, or after 10 minutes
         </p>
       </div>
 
@@ -119,7 +119,10 @@ export function CopyAiCard() {
             Every trade on the Sniper page
           </Link>
         </p>
-        <p>Honest note: in testing, buying the AI&apos;s favourites still lost money after fees. Try it on demo before real money</p>
+        <p>
+          Honest note: on coins the AI never saw, these exits did far better than holding an hour, but the result is not proven yet (about 100 test trades). Demo
+          only until it is
+        </p>
       </div>
     </section>
   );
