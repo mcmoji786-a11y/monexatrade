@@ -11,11 +11,13 @@ import { refLink, useReferral } from "@/lib/growth";
 import { resetDemo } from "@/lib/demo";
 import { deleteMyAccount, downloadMyData, updateSettings, useSettings, type Settings } from "@/lib/settings";
 import { pushToast } from "@/lib/toast";
+import { AlertChannels } from "@/components/alerts/alert-channels";
 
 const SECTIONS = [
   { id: "trading", label: "Trading" },
   { id: "demo", label: "Demo account" },
   { id: "notifications", label: "Notifications" },
+  { id: "alerts", label: "Alerts outside Kixo" },
   { id: "account", label: "Account" },
   { id: "data", label: "Data and privacy" },
   { id: "shortcuts", label: "Shortcuts" },
@@ -114,10 +116,15 @@ export function SettingsBoard() {
             <Row label="Desktop notifications" hint="Used by price alerts, Wallet Monitor and the sniper when this tab is in the background">
               <DesktopPermission />
             </Row>
-            <Row label="Telegram" hint="Alerts on your phone">
-              <span className="rounded border border-border px-2 py-0.5 text-xs text-muted">Soon</span>
-            </Row>
           </Card>
+
+          <section id="alerts" className="scroll-mt-20 rounded-xl border border-border bg-surface">
+            <header className="border-b border-border px-5 py-4">
+              <h2 className="text-sm font-medium text-text">Alerts outside Kixo</h2>
+              <p className="mt-0.5 text-xs text-text-2">Email, Telegram and Discord, even when Kixo is closed</p>
+            </header>
+            <AlertChannels />
+          </section>
 
           <AccountCard />
           <DataCard />

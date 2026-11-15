@@ -90,7 +90,7 @@ export function AlertsMenu() {
       </button>
       {open && (
         <div className="absolute right-0 z-30 mt-2 w-72 rounded-lg border border-border bg-surface-2 p-3 shadow-lg">
-          <p className="text-xs text-muted">While this page is open. Telegram and Discord alerts come with Wallet Monitor</p>
+          <p className="text-xs text-muted">While this page is open. Dev sells on starred coins also reach your Email, Telegram or Discord (Settings)</p>
           <div className="mt-2 flex flex-col">
             {OPTIONS.map((o) => (
               <label key={o.key} className="flex h-8 cursor-pointer items-center justify-between gap-3 text-sm text-text-2 hover:text-text">

@@ -185,6 +185,8 @@ pub struct FeatureFlags {
     pub ai_chat: bool,
     /// Community: trader profiles, follows, the trade feed and copying Kixo traders (social.rs).
     pub social: bool,
+    /// Alerts by Email, Telegram and Discord when Kixo is closed (alerts.rs).
+    pub alert_delivery: bool,
 }
 
 impl Default for FeatureFlags {
@@ -234,6 +236,7 @@ impl Default for FeatureFlags {
             ai_risk: true,
             ai_chat: true,
             social: true,
+            alert_delivery: true,
         }
     }
 }
@@ -353,6 +356,11 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
+    }
+
+    /// Whether alerts go out by Email, Telegram and Discord.
+    pub fn alert_delivery(&self) -> bool {
+        self.features.lock().expect("features lock").alert_delivery
     }
 
     /// Whether Community (social trading) is switched on.

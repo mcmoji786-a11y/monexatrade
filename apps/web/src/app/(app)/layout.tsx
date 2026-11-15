@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { PriceAlertWatcher } from "@/components/token/price-alerts";
+import { AlertSync } from "@/components/alerts/alert-sync";
 import { SniperEngine } from "@/components/sniper/sniper-engine";
 import { RealOrderEngine } from "@/components/trade/order-engine";
 import { GridEngine } from "@/components/trade/grid-engine";
@@ -26,6 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <PriceAlertWatcher />
+      <AlertSync />
       <SniperEngine />
       <RealOrderEngine />
       <GridEngine />

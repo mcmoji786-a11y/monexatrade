@@ -38,7 +38,7 @@ function PriceAlertButtonInner({ mint, symbol, mcUsd }: { mint: string; symbol: 
       {open && (
         <div className="absolute right-0 z-30 mt-2 w-72 rounded-lg border border-border bg-surface-2 p-3 shadow-lg">
           <p className="text-sm font-medium text-text">Market cap alert</p>
-          <p className="mt-0.5 text-xs text-muted">Now {usd(mcUsd)}. Fires once while Kixo is open in this browser</p>
+          <p className="mt-0.5 text-xs text-muted">Now {usd(mcUsd)}. Fires once, here and on your Email, Telegram or Discord (Settings)</p>
           <div className="mt-3 flex gap-1 rounded-lg border border-border p-0.5">
             {[true, false].map((a) => (
               <button

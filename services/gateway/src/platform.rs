@@ -31,13 +31,14 @@ const AUDIT_FILE: &str = "data/audit.jsonl";
 const OWNER_SESSION: Duration = Duration::from_secs(15 * 60);
 
 /// API keys the admin may set, with what each one is for.
-pub const SECRET_NAMES: [(&str, &str); 6] = [
+pub const SECRET_NAMES: [(&str, &str); 7] = [
     ("HELIUS_API_KEY", "Helius: main Solana data and the fast Sender path"),
     ("JUPITER_API_KEY", "Jupiter: swap routes for coins outside the launchpads"),
     ("X_BEARER_TOKEN", "X (Twitter): posts in the news feed"),
     ("REDDIT_CLIENT_ID", "Reddit: posts in the news feed (with the secret below)"),
     ("REDDIT_CLIENT_SECRET", "Reddit: client secret"),
     ("TELEGRAM_BOT_TOKEN", "Telegram bot: alerts to users"),
+    ("RESEND_API_KEY", "Resend: alert emails to users"),
 ];
 
 /// Every number the admin can change. Ranges are checked on save.

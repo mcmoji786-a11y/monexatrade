@@ -2,8 +2,9 @@
 
 import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Bell, MessageSquare, Plus, Send, Trash2 } from "lucide-react";
-import { GATEWAY_HTTP, GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
+import { Bell, Plus, Trash2 } from "lucide-react";
+import { AlertChannels } from "@/components/alerts/alert-channels";
+import { GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
 import { tokenHref } from "@/lib/open-token";
 import { MAX_MONITORED, useMonitor, type MonitoredWallet } from "@/lib/prefs";
 import { useNow } from "@/components/radar/use-radar-feed";
@@ -360,26 +361,10 @@ function useWalletActivity(wallets: MonitoredWallet[]) {
   return { activity: key ? activity : [], live: key ? live : false, fresh };
 }
 
-/** Where alerts go. Browser alerts work now; Telegram and Discord switch on once the
- *  gateway has Kixo's bot and accounts store these settings. */
+/** Where alerts go: the browser while Kixo is open, and Email, Telegram or Discord
+ *  when it is closed (sent by the gateway, components/alerts). */
 function Delivery() {
   const m = useMonitor();
-  const [status, setStatus] = useState<{
-    telegram: boolean;
-    server_delivery: boolean;
-  } | null>(null);
-  useEffect(() => {
-    fetch(`${GATEWAY_HTTP}/alerts/status`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, []);
-  const webhookOk =
-    !m.prefs.discordWebhook ||
-    /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+$/.test(
-      m.prefs.discordWebhook.trim(),
-    );
-
   const enableBrowser = async () => {
     if (
       !m.prefs.browser &&
@@ -412,66 +397,10 @@ function Delivery() {
         </label>
       </Channel>
 
-      <Channel
-        icon={Send}
-        title="Telegram"
-        state={status?.telegram ? "Bot ready" : "Bot not connected yet"}
-        on={false}
-      >
-        <ol className="list-decimal space-y-1 pl-4 text-xs text-text-2">
-          <li>
-            Open Kixo&apos;s Telegram bot (link appears here once it is live)
-          </li>
-          <li>Press Start. The bot replies with your chat ID</li>
-          <li>Paste the chat ID below</li>
-        </ol>
-        <input
-          value={m.prefs.telegramChatId}
-          onChange={(e) => m.set({ telegramChatId: e.target.value.trim() })}
-          placeholder="Chat ID, for example 123456789"
-          inputMode="numeric"
-          className="mt-2 h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none placeholder:font-sans placeholder:text-muted focus:border-emerald/50"
-        />
-      </Channel>
-
-      <Channel
-        icon={MessageSquare}
-        title="Discord"
-        state={
-          m.prefs.discordWebhook
-            ? webhookOk
-              ? "Webhook saved"
-              : "Check the link"
-            : "Not set"
-        }
-        on={false}
-      >
-        <ol className="list-decimal space-y-1 pl-4 text-xs text-text-2">
-          <li>
-            In your Discord server: channel settings, Integrations, Webhooks,
-            New webhook
-          </li>
-          <li>Copy the webhook URL and paste it below</li>
-        </ol>
-        <input
-          value={m.prefs.discordWebhook}
-          onChange={(e) => m.set({ discordWebhook: e.target.value.trim() })}
-          placeholder="https://discord.com/api/webhooks/…"
-          spellCheck={false}
-          className={`mt-2 h-9 w-full rounded-lg border bg-bg px-3 font-mono text-xs text-text outline-none placeholder:font-sans placeholder:text-muted focus:border-emerald/50 ${
-            webhookOk ? "border-border" : "border-negative/50"
-          }`}
-        />
-        <p className="mt-1 text-[11px] text-muted">
-          Anyone with this link can post in that channel. Keep it private
-        </p>
-      </Channel>
-
-      <p className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-text-2">
-        {status?.server_delivery
-          ? "Telegram and Discord alerts are live, even when Kixo is closed"
-          : "Telegram and Discord delivery switch on when Kixo accounts launch. Until then your settings stay in this browser, and browser alerts work now"}
-      </p>
+      <div className="-mx-4 border-t border-border">
+        <p className="px-5 pt-4 text-sm text-text">When Kixo is closed</p>
+        <AlertChannels />
+      </div>
     </aside>
   );
 }

@@ -12,6 +12,7 @@ mod devs;
 mod dex;
 mod growth;
 mod settings;
+mod alerts;
 mod social;
 mod support;
 mod jupiter;
@@ -431,6 +432,16 @@ async fn main() -> Result<()> {
         .route("/wallet/{address}/activity", get(activity_handler))
         .with_state(ActivityCtx { app: state.clone(), acct: acct.clone() });
 
+    let alerts_ctx = alerts::AlertsCtx { acct: acct.clone(), admin: admin_state.clone(), state: state.clone(), http: state.http.clone() };
+    alerts::spawn(alerts_ctx.clone());
+    let alerts_routes: Router<Arc<AppState>> = Router::new()
+        .route("/alerts/status", get(alerts::status))
+        .route("/alerts/me", get(alerts::me).put(alerts::save))
+        .route("/alerts/telegram/link", axum::routing::post(alerts::telegram_link))
+        .route("/alerts/telegram/unlink", axum::routing::post(alerts::telegram_unlink))
+        .route("/alerts/test", axum::routing::post(alerts::test))
+        .with_state(alerts_ctx);
+
     let social_routes: Router<Arc<AppState>> = Router::new()
         .route("/social/me", get(social::me).put(social::save_me))
         .route("/social/u/{handle}", get(social::trader))
@@ -470,7 +481,6 @@ async fn main() -> Result<()> {
         .route("/address/{address}/kind", get(address_kind_handler))
         .route("/wallet/{address}/portfolio", get(portfolio_handler))
         .route("/wallet/{address}/live", get(live_trades_handler))
-        .route("/alerts/status", get(alerts_status))
         .route("/ws/wallets", get(ws_wallets))
         .route("/ws/token/{mint}", get(ws_token))
         .merge(admin_routes)
@@ -487,6 +497,7 @@ async fn main() -> Result<()> {
         .merge(ai_routes)
         .merge(chat_routes)
         .merge(social_routes)
+        .merge(alerts_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)
@@ -1869,14 +1880,6 @@ mod img_tests {
         assert!(!proxy_allowed("https://printer.local/a.png"));
         assert!(!proxy_allowed("file:///etc/passwd"));
     }
-}
-
-/// `GET /alerts/status`: which outside delivery channels are set up on this gateway.
-/// Telegram needs Kixo's bot token in the environment; Discord uses each user's own
-/// webhook, delivered by the gateway once alerts are stored per account.
-async fn alerts_status() -> Json<serde_json::Value> {
-    let telegram = monexa_common::secret("TELEGRAM_BOT_TOKEN").is_some();
-    Json(json!({ "telegram": telegram, "discord": false, "server_delivery": false }))
 }
 
 /// Wallets one connection may watch, so a page cannot ask for the whole chain.

@@ -216,3 +216,16 @@ export function useMonitor() {
     set: (patch: Partial<Omit<MonitorPrefs, "wallets">>) => monitor.set({ ...monitor.get(), ...patch }),
   };
 }
+
+/* Alerts sent by the gateway when Kixo is closed (lib/alerts.ts): it reads these stores
+   and writes back what the server changed (a price alert that fired). */
+export const alertInputs = {
+  get: () => ({ price: priceAlerts.get().list, wallets: monitor.get().wallets, watch: watch.get().mints, devSells: alerts.get().devSells, discordWebhook: monitor.get().discordWebhook }),
+  subscribe: (l: () => void) => {
+    const off = [priceAlerts.subscribe(l), monitor.subscribe(l), watch.subscribe(l), alerts.subscribe(l)];
+    return () => off.forEach((f) => f());
+  },
+  setPrice: (list: PriceAlert[]) => priceAlerts.set({ list }),
+  setWallets: (wallets: MonitoredWallet[]) => monitor.set({ ...monitor.get(), wallets }),
+  setWatch: (mints: string[]) => watch.set({ mints }),
+};
