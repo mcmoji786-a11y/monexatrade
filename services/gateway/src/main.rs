@@ -457,6 +457,7 @@ async fn main() -> Result<()> {
         .route("/stats", get(stats_handler))
         .route("/metrics/public", get(metrics_handler))
         .route("/ws/new-tokens", get(ws_new_tokens))
+        .route("/search", get(search_handler))
         .route("/token/{mint}", get(token_handler))
         .route("/token/{mint}/wallets", get(wallets_handler))
         .route("/token/{mint}/labels", get(labels_handler))
@@ -972,6 +973,69 @@ fn is_mint(s: &str) -> bool {
 
 /// `GET /token/{mint}`: one token's market data, for a trade page whose token is not
 /// (or no longer) on the live board; `null` when the provider does not know it.
+#[derive(serde::Deserialize)]
+struct SearchQuery {
+    q: String,
+}
+
+type SearchCache = HashMap<String, (Instant, serde_json::Value)>;
+static SEARCHES: std::sync::Mutex<Option<SearchCache>> = std::sync::Mutex::new(None);
+
+/// `GET /search?q=BONK` (or an address): coins for an X cashtag or the search box. Coins
+/// Kixo saw launch with that exact symbol come first when they are newer than any market
+/// listing; then market tokens, verified and deepest liquidity first. Cached 30 seconds.
+async fn search_handler(State(state): State<Arc<AppState>>, Query(q): Query<SearchQuery>) -> Json<serde_json::Value> {
+    let raw: String = q.q.trim().trim_start_matches('$').chars().filter(|c| c.is_ascii_alphanumeric()).take(44).collect();
+    if raw.is_empty() {
+        return Json(json!({ "query": raw, "results": [] }));
+    }
+    let key = raw.to_lowercase();
+    if let Some((at, v)) = SEARCHES.lock().expect("search cache").as_ref().and_then(|m| m.get(&key).cloned()) {
+        if at.elapsed() < Duration::from_secs(30) {
+            return Json(v);
+        }
+    }
+    let found = jupiter::search_any(&state.http, &raw).await;
+    let answered = found.is_some();
+    let market = found.unwrap_or_default();
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    {
+        let board = state.board.lock().expect("board lock");
+        let mut fresh: Vec<_> = board.tokens.values().filter(|t| t.token.symbol.eq_ignore_ascii_case(&raw) || t.token.mint == raw).collect();
+        fresh.sort_by_key(|t| std::cmp::Reverse(t.token.timestamp));
+        for t in fresh.into_iter().take(5) {
+            if seen.insert(t.token.mint.clone()) {
+                out.push(json!({
+                    "mint": t.token.mint, "symbol": t.token.symbol, "name": t.token.name,
+                    "image": t.meta.as_ref().and_then(|m| m.image.clone()),
+                    "mc_usd": t.market.as_ref().and_then(|m| m.mc_usd), "liquidity_usd": null,
+                    "verified": false, "launchpad": t.token.launchpad, "created_ts": t.token.timestamp, "source": "new",
+                }));
+            }
+        }
+    }
+    let mut market: Vec<_> = market.into_iter().filter(|t| seen.insert(t.mint.clone())).collect();
+    market.sort_by(|a, b| b.verified.cmp(&a.verified).then(b.liquidity_usd.unwrap_or(0.0).total_cmp(&a.liquidity_usd.unwrap_or(0.0))));
+    for t in market.into_iter().take(12) {
+        out.push(json!({
+            "mint": t.mint, "symbol": t.symbol, "name": t.name, "image": t.image, "mc_usd": t.mc_usd,
+            "liquidity_usd": t.liquidity_usd, "verified": t.verified, "launchpad": t.launchpad, "created_at": t.created_at, "source": "market",
+        }));
+    }
+    let v = json!({ "query": raw, "results": out, "busy": !answered });
+    if !answered {
+        return Json(v);
+    }
+    let mut cache = SEARCHES.lock().expect("search cache");
+    let m = cache.get_or_insert_with(HashMap::new);
+    if m.len() > 2_000 {
+        m.clear();
+    }
+    m.insert(key, (Instant::now(), v.clone()));
+    Json(v)
+}
+
 async fn token_handler(
     State(state): State<Arc<AppState>>,
     Path(mint): Path<String>,

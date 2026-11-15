@@ -254,6 +254,21 @@ pub async fn fetch_mints(http: &reqwest::Client, mints: &[String]) -> PollResult
     fetch(http, &format!("{BASE}/search?query={query}"), "search").await
 }
 
+/// Any token by symbol, name or address (an X cashtag, the search box): not only
+/// memecoins, since people mention $SOL or $JUP too.
+/// None when Jupiter did not answer (rate limited or down), so the caller does not keep it.
+pub async fn search_any(http: &reqwest::Client, query: &str) -> Option<Vec<MarketToken>> {
+    let q: String = query.chars().filter(|c| c.is_ascii_alphanumeric()).take(44).collect();
+    if q.is_empty() {
+        return Some(Vec::new());
+    }
+    let res = http.get(format!("{BASE}/search?query={q}")).timeout(Duration::from_secs(8)).send().await.ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    res.json::<Vec<RawToken>>().await.ok().map(|raw| raw.into_iter().map(MarketToken::from).collect())
+}
+
 async fn fetch(http: &reqwest::Client, url: &str, label: &str) -> PollResult {
     let res = match http.get(url).timeout(Duration::from_secs(8)).send().await {
         Ok(r) => r,
