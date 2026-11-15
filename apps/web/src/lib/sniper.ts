@@ -318,8 +318,9 @@ export const AI_PRESET = {
     socialsRequired: false,
     skipCopiedSymbols: true,
     skipRepeatRuggers: true,
-    // Strategy Lab (ai/strategy_lab.py, 2026-11-15): tight exits beat +100% / -40% / 1 h
-    // on both halves of the unseen coins (-1.4% and +8.2% a trade vs -7.7% and -7.6%).
+    // Strategy Lab (ai/strategy_lab.py), latest check 2026-11-15 after retraining on 60,356
+    // coins: about break-even on unseen coins (-0.2% and +0.1% a trade at 1% cost a side),
+    // against -3% for buying every coin. The AI page shows the latest check to users.
     takeProfitPct: 200,
     stopLossPct: 20,
     trailingPct: 20,

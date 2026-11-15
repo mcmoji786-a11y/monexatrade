@@ -65,6 +65,28 @@ if not boosters:
     sys.exit(f"no models in {MODELS}: run ai\\train_rug.py first")
 
 
+def strategy_summary():
+    """The Strategy Lab's latest check of the Copy Kixo AI rule (strategy_lab.py), both
+    halves of the coins the models never saw together; None before the lab has run."""
+    try:
+        s = json.load(open(f"{MODELS}/strategy_latest.json"))
+        cur = s["current_auto_trade"]
+        halves = [h for h in (cur.get("search"), cur.get("test")) if h]
+        trades = sum(h["trades"] for h in halves)
+        if not trades:
+            return None
+        return {
+            "made": s.get("made"),
+            "cost_each_side": s.get("cost_each_side"),
+            "trades": trades,
+            "win_rate": sum(h["win_rate"] * h["trades"] for h in halves) / trades,
+            "avg_return": sum(h["avg"] * h["trades"] for h in halves) / trades,
+            "coins": (s.get("coins") or {}).get("unseen"),
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _predict_many(x):
     maybe_reload()
     return {k: b.predict(x) for k, b in boosters.items()}
@@ -106,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/backtest/status":
             return self._send(200, lab.status())
         if self.path == "/health":
-            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest")})
+            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest"), "strategy": strategy_summary()})
         else:
             self._send(404, {"error": "not found"})
 

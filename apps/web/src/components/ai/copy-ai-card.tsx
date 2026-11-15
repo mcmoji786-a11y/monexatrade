@@ -1,4 +1,6 @@
 "use client";
+import { GATEWAY_HTTP } from "@/lib/gateway";
+import { useEffect, useState } from "react";
 /* Auto trade with Kixo AI ("Copy Kixo AI"): the sniper engine with the AI's rules
    (lib/sniper.ts AI_PRESET). Three plain steps: amount, start, results. Buys go to the
    account the sniper trades on (demo by default). */
@@ -8,6 +10,31 @@ import { useSniperAccount } from "@/components/sniper/sniper-engine";
 import { tokenHref } from "@/lib/open-token";
 
 const AMOUNTS = [10, 25, 50, 100];
+
+type Strategy = { made: string | null; trades: number; win_rate: number; avg_return: number; cost_each_side: number | null };
+
+/** The latest honest check of this rule on coins the AI never saw (Strategy Lab). */
+function LatestCheck() {
+  const [s, setS] = useState<Strategy | null>(null);
+  useEffect(() => {
+    fetch(`${GATEWAY_HTTP}/ai/overview`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => setS(v?.model?.strategy ?? null))
+      .catch(() => setS(null));
+  }, []);
+  if (!s) return null;
+  // Within half a percent of zero is break-even, neither a win nor a loss.
+  const flat = Math.abs(s.avg_return) < 0.005;
+  const up = s.avg_return >= 0;
+  const when = s.made ? new Date(s.made).toLocaleDateString([], { day: "numeric", month: "short" }) : "";
+  return (
+    <p className={`mt-3 rounded-lg border px-3 py-2 text-xs leading-5 ${flat ? "border-border bg-bg text-text-2" : up ? "border-positive/30 bg-positive/5 text-text-2" : "border-warning/30 bg-warning/5 text-text-2"}`}>
+      Latest check{when ? ` (${when})` : ""}: on {s.trades} trades in coins the AI never saw, {(s.win_rate * 100).toFixed(0)}% won and the average was{" "}
+      <span className={`font-mono ${flat ? "text-text" : up ? "text-positive" : "text-negative"}`}>{flat ? "about 0%" : `${up ? "+" : ""}${(s.avg_return * 100).toFixed(1)}%`}</span> a trade after
+      costs{flat ? ": about break-even, while buying every new coin loses. Try it on demo first" : up ? "" : ". It is losing lately: try it on demo, not with real money"}
+    </p>
+  );
+}
 
 export function CopyAiCard() {
   const { settings, positions, update } = useSniper();
@@ -35,6 +62,7 @@ export function CopyAiCard() {
           When the AI marks a new coin <span className="text-positive">Good odds</span> with a strong double chance, {where} buys it. It sells by itself fast: at
           a 20% loss, when the price drops 20% from its best, at 3x, or after 10 minutes
         </p>
+        <LatestCheck />
       </div>
 
       <ol className="grid gap-px bg-border md:grid-cols-3">

@@ -137,7 +137,8 @@ def main():
     results.sort(key=lambda x: x[1]["avg"], reverse=True)
     print(f"  {len(results):,} rules with {MIN_TRADES}+ trades on the search half", flush=True)
 
-    current = {"max_dump": 0.20, "min_pump": 0.15, "tp": 1.0, "sl": 0.4, "trail": 0.0, "hold_min": 60}
+    # The rule the site runs now: Copy Kixo AI (web lib/sniper.ts AI_PRESET).
+    current = {"max_dump": 0.20, "min_pump": 0.20, "tp": 2.0, "sl": 0.2, "trail": 0.2, "hold_min": 10}
     every = {"max_dump": 1.0, "min_pump": 0.0, "tp": 1.0, "sl": 0.4, "trail": 0.0, "hold_min": 60}
 
     def line(name, rule):

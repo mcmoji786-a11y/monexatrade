@@ -434,7 +434,7 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
         "best": best,
         "track": track,
         "calls": calls,
-        "model": model.map(|m| json!({ "trained": m["trained"], "coins": m["coins"], "targets": m["targets"], "backtest": m["backtest"] })),
+        "model": model.map(|m| json!({ "trained": m["trained"], "coins": m["coins"], "targets": m["targets"], "backtest": m["backtest"], "strategy": m["strategy"] })),
     }))
 }
 
