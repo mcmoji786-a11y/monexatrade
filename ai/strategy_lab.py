@@ -26,7 +26,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from features import WINDOW, model_columns, prepare  # noqa: E402
-from train_rug import OUT, build_rows, compact, load, load_cards  # noqa: E402
+from train_rug import OUT, stream_rows  # noqa: E402
 
 HORIZON = 3600
 COST = 0.01
@@ -100,16 +100,13 @@ def main():
     print("loading...", flush=True)
     # Only the newest quarter of coins is unseen by the models (train_rug.py splits at the
     # 75% point of coin start times); load trades from just before there, an hour of margin.
-    # Every coin, so each wallet's record is complete; the models only saw the oldest 75%.
-    coins = load("coins").drop_duplicates("mint").set_index("mint")
-    t = load("trades")
-    cards = load_cards()
-    t, names = compact(t.drop_duplicates("key").drop(columns=["key"]))
-    t = prepare(t)
-    df, _ = build_rows(t, coins, cards, t.ts.max(), keep_paths=True, names=names)
-    del t
-    split = df.start.quantile(0.75)
-    unseen = df[df.start > split].copy()
+    # Every coin, day by day, so each wallet's record is complete; prices kept for Kixo's
+    # own coins only. The models never saw Kixo's newest 75%-quarter (train_rug.py).
+    df, _ = stream_rows(keep_paths=lambda src, start: src == "live")
+    live = df[df.src == "live"]
+    split = live.start.quantile(0.75)
+    unseen = live[live.start > split].copy()
+    del df
     print(f"  {len(df):,} coins, {len(unseen):,} unseen by the models", flush=True)
 
     for target in ("dump", "pump"):

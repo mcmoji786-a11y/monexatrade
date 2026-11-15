@@ -22,6 +22,7 @@ LAUNCHPADS = ["pump.fun", "letsbonk.fun", "bags", "met-dbc", "raydium-launchlab"
 # A wallet counts once it has this many earlier coins on record.
 MIN_RECORD = 2
 WHALE_SOL = 5.0
+SYSTEM_PROGRAM = "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
 
 
 def prepare(t: pd.DataFrame) -> pd.DataFrame:
@@ -31,6 +32,9 @@ def prepare(t: pd.DataFrame) -> pd.DataFrame:
             t[c] = pd.to_numeric(t[c], errors="coerce")
     t = t.dropna(subset=["ts", "sol_lamports", "v_sol", "v_tokens"])
     t = t[(t.v_sol > 0) & (t.v_tokens > 0)]
+    # The System Program shows up as a "wallet" on some decoded trades: it is no trader.
+    if "wallet" in t.columns:
+        t.loc[t.wallet == SYSTEM_PROGRAM, "wallet"] = None
     t["price"] = t.v_sol / t.v_tokens
     t["sol"] = t.sol_lamports / 1e9
     t["buy"] = t.side == "buy"
@@ -85,10 +89,9 @@ class WalletBook:
             "rep_dbl_rate": rate_sum / known if known else 0.0,
         }
 
-    def save(self, path, names=None):
-        """Wallets with a record worth keeping, for the live service (by address: training
-        counts wallets by number, `names` turns them back)."""
-        keep = {(str(names[w]) if names is not None else w): s for w, s in self.stats.items() if s[0] >= MIN_RECORD}
+    def save(self, path):
+        """Wallets with a record worth keeping, for the live service."""
+        keep = {w: s for w, s in self.stats.items() if s[0] >= MIN_RECORD}
         with open(path + ".tmp", "w") as fh:
             json.dump(keep, fh, separators=(",", ":"))
         os.replace(path + ".tmp", path)
@@ -104,10 +107,11 @@ class WalletBook:
 
 
 def early_buyers(early: pd.DataFrame, creator) -> list:
+    """Wallets that bought early, without the creator and without unknown wallets."""
     b = early[early.buy]
     if creator:
         b = b[b.wallet != creator]
-    return list(dict.fromkeys(b.wallet.tolist()))
+    return [w for w in dict.fromkeys(b.wallet.tolist()) if isinstance(w, str) and w]
 
 
 def features(early: pd.DataFrame, creator, launchpad, card, book: WalletBook | None = None) -> dict | None:
@@ -157,6 +161,15 @@ def features(early: pd.DataFrame, creator, launchpad, card, book: WalletBook | N
         "buy_pace": float(len(buys) / max(1.0, early.ts.iloc[-1] - start)),
     }
     out.update((book or WalletBook()).features(early_buyers(early, creator)))
+    if card.get("external"):
+        # Imported public data has no social links and only part of the creator record:
+        # unknown, not "none", so the model does not learn a false pattern.
+        nan = float("nan")
+        out.update({"has_x": nan, "has_tg": nan, "has_web": nan, "dev_died_fast": nan, "dev_graduated": nan})
+        if rep.get("coins") is None:
+            out["dev_coins"] = nan
+        if rep.get("rugged") is None:
+            out["dev_rugged"] = nan
     return out
 
 
