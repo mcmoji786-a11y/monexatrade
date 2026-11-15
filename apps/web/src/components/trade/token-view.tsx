@@ -26,6 +26,8 @@ import { SafetyBadge } from "@/components/token/safety-badge";
 import { AiRiskChip } from "@/components/token/ai-risk-chip";
 import { DevRecord } from "@/components/token/dev-record";
 import { NoteButton } from "@/components/notes/note-button";
+import { startTradeTour, TradeTour } from "@/components/tour/trade-tour";
+import { CircleHelp } from "lucide-react";
 import { money, signed } from "./trade-panel";
 import { DockableTrade } from "./floating-trade";
 import { OrdersCard } from "./orders-card";
@@ -84,7 +86,7 @@ export function TokenView() {
 
       <div className="flex flex-col lg:flex-row">
         <div className="flex min-w-0 flex-1 flex-col">
-          <section className="h-[520px] md:h-(--chart-h)" style={{ "--chart-h": `${chartH}px` } as React.CSSProperties}>
+          <section data-tour="trade-chart" className="h-[520px] md:h-(--chart-h)" style={{ "--chart-h": `${chartH}px` } as React.CSSProperties}>
             <PriceChart
               symbol={row.symbol}
               mint={mint}
@@ -101,11 +103,13 @@ export function TokenView() {
         <Splitter axis="col" value={sideW} onChange={setSideW} invert label="Resize side panel" />
         <aside className="flex flex-col lg:w-(--side-w) lg:shrink-0" style={{ "--side-w": `${sideW}px` } as React.CSSProperties}>
           <FlowStrip row={row} book={book} solUsd={feed.solUsd} now={now} />
-          <div id="trade-box" className="scroll-mt-16">
+          <div id="trade-box" data-tour="trade-box" className="scroll-mt-16">
             <DockableTrade symbol={row.symbol} mint={mint} />
           </div>
           <MyPosition mint={mint} livePrice={row.priceUsd} />
-          <OrdersCard mint={mint} symbol={row.symbol} />
+          <div data-tour="trade-orders">
+            <OrdersCard mint={mint} symbol={row.symbol} />
+          </div>
           <GridCard mint={mint} symbol={row.symbol} />
           <TokenInfo row={row} launch={launch} />
           <Safety row={row} launch={launch} market={market} />
@@ -118,6 +122,7 @@ export function TokenView() {
         </aside>
       </div>
       <MobileTradeBar symbol={row.symbol} />
+      <TradeTour />
     </div>
   );
 }
@@ -307,7 +312,7 @@ function Header({
           </div>
         </div>
 
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+        <div data-tour="trade-tools" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {safety && <SafetyBadge safety={safety} size="md" />}
           <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
@@ -315,11 +320,14 @@ function Header({
           <NoteButton kind="coin" target={r.mint} label={r.symbol} />
           <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />
           <AiButton input={() => inputFromRow(r)} safety={safety} />
+          <button type="button" onClick={startTradeTour} title="A walk through this page" aria-label="Page tour" className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-2 transition-colors hover:bg-surface-2 hover:text-text">
+            <CircleHelp size={14} strokeWidth={1.5} />
+          </button>
         </div>
       </div>
 
       {/* Figures: one strip, the market cap leads */}
-      <dl className="no-scrollbar flex overflow-x-auto border-t border-border">
+      <dl data-tour="trade-figures" className="no-scrollbar flex overflow-x-auto border-t border-border">
         <div className="flex shrink-0 flex-col justify-center px-4 py-2.5">
           <dt className="text-[11px] text-muted">Market cap</dt>
           <dd>

@@ -84,6 +84,8 @@ fn failed(ip: IpAddr) {
         g.fails.remove(&ip);
         g.locked.insert(ip, Instant::now());
         tracing::warn!(%ip, minutes = LOCK_FOR.as_secs() / 60, "admin: address locked out after repeated wrong keys");
+        // Not from unit tests, which would leave a stray data/audit.jsonl in the crate folder.
+        #[cfg(not(test))]
         crate::platform::audit(Some(SocketAddr::new(ip, 0)), "admin_lockout", serde_json::json!({ "attempts": n }));
     }
     if g.fails.len() > 10_000 {

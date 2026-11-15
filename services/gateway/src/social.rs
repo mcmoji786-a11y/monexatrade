@@ -456,6 +456,11 @@ pub struct TradesQuery {
 /// `GET /social/trades/{handle}?after=<id>`: a public trader's newest trades, for copying.
 pub async fn trades(State(c): State<SocialCtx>, Path(handle): Path<String>, Query(q): Query<TradesQuery>) -> Result<Json<Value>, ApiErr> {
     on(&c)?;
+    // Only a handle's own characters reach the database (a null byte made it fail).
+    let handle = handle.trim_start_matches('@').to_lowercase();
+    if !(3..=20).contains(&handle.len()) || !handle.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') {
+        return Err((StatusCode::NOT_FOUND, "No trader with that handle".into()));
+    }
     let v = c
         .acct
         .rest(reqwest::Method::POST, "rpc/trader_trades", Some(json!({ "p_handle": handle.to_lowercase(), "p_after": q.after.unwrap_or(0), "p_limit": 50 })))

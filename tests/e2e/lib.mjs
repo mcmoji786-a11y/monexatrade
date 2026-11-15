@@ -55,6 +55,7 @@ export async function tempUser(tag) {
     return [r.status, await r.text()];
   };
   call.id = u.id;
+  call.token = s.access_token;
   call.email = email;
   return call;
 }

@@ -31,7 +31,7 @@ export function DevRecord({ report: d, creator }: { report: DevReport | null | u
             : `This creator launched ${d.coins} earlier coin${d.coins === 1 ? "" : "s"}`;
 
   return (
-    <section className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5 ${tone}`} aria-label="Creator record">
+    <section data-tour="trade-dev" className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5 ${tone}`} aria-label="Creator record">
       <p className="flex min-w-0 items-center gap-2 text-sm text-text">
         <Icon size={15} strokeWidth={1.5} className={`shrink-0 ${iconTone}`} />
         <span className="min-w-0">{headline}</span>

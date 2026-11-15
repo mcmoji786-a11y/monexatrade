@@ -192,3 +192,26 @@ export function FirstSteps({ onPick }: { onPick: () => void }) {
     </ul>
   );
 }
+
+/** What the letters on the chart mean (price-chart.tsx MARKS). */
+export function MarksLegend() {
+  const marks = [
+    { l: "D", c: "#e0a63e", t: "Creator" },
+    { l: "S", c: "#e4e4e7", t: "Smart wallet" },
+    { l: "W", c: "#67e8f9", t: "Whale" },
+    { l: "E", c: "#e5484d", t: "Sniper exit" },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-border bg-bg px-3 py-3">
+      {marks.map((m, i) => (
+        <span key={m.l} className="fade-up flex items-center gap-2 text-xs text-text-2" style={{ animationDelay: `${80 + i * 90}ms` }}>
+          <span className="flex h-5 min-w-5 items-center justify-center rounded px-1 font-mono text-[10px] font-semibold text-[#08090a]" style={{ backgroundColor: m.c }}>
+            {m.l}B
+          </span>
+          {m.t}
+        </span>
+      ))}
+      <span className="col-span-2 mt-1 text-[11px] text-muted">B is a buy, S a sell. The Marks button turns them off</span>
+    </div>
+  );
+}

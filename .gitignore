@@ -10,3 +10,6 @@ data/
 target-test/
 
 __pycache__/
+
+# Security test report (tests/security/run.mjs writes it on every run)
+tests/security/last-report.json

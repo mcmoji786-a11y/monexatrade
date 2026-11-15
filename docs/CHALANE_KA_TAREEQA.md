@@ -95,3 +95,9 @@ AI ki training isi data par hogi.
 - Kixo chal raha ho to `apps\web` folder mein: `pnpm test:e2e`
 - Sirf kuch hisse: `pnpm test:e2e demo alerts` (groups: health, demo, lossLimit, community, alerts, notes, backtest)
 - Har test ke liye ek temporary account banta hai aur test ke baad delete ho jata hai. Jis hisse ki SQL migration nahi chali, woh "SKIP" dikhata hai.
+
+## Security test
+- Kixo chal raha ho to project folder mein: `node tests/security/run.mjs`. Taqreeban 15,000 checks, 4–5 minute mein.
+- Sirf kuch hisse: `node tests/security/run.mjs B H` (A routes, B admin, C doosre user ka data, D kharab input, E kharab address, F injection aur SSRF, G CORS, H Supabase, I website, J git history)
+- Nateeja `tests/security/last-report.json` mein likha jata hai. Yeh file git mein nahi jati.
+- Admin ki ghalat-key koshishen 5 se kam rakhi gayi hain aur aakhir mein sahi key se count saaf ho jata hai, is liye admin lock nahi hota.

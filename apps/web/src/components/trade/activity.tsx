@@ -91,7 +91,8 @@ export function Activity({
 
   return (
     <CoinLabelsContext.Provider value={labels}>
-    <section className="min-h-[360px]">
+    {/* On wide screens it fills the column down to the end of the side panel. */}
+    <section data-tour="trade-activity" className="flex min-h-[360px] flex-col lg:flex-1">
       <div role="tablist" className="no-scrollbar flex h-11 items-center gap-1 overflow-x-auto border-b border-border px-2">
         {TABS.map((t) => (
           <button
@@ -121,7 +122,8 @@ export function Activity({
       ) : book.status === "untracked" ? (
         <Empty>Loading trades from this coin&apos;s pool</Empty>
       ) : (
-        <div className="max-h-[520px] overflow-y-auto">
+        <div className="relative h-[520px] lg:h-auto lg:min-h-[420px] lg:flex-1">
+        <div className="absolute inset-0 overflow-y-auto">
           {tab === "trades" &&
             (who !== "all" && !trades.some(tradeShown) ? (
               <LabelEmpty who={who} labels={labels} smart={smart} seenLaunch={seenLaunch} />
@@ -147,6 +149,7 @@ export function Activity({
             </>
           )}
           {tab === "positions" && <Positions focus={focus} setFocus={setFocus} position={wallets?.focus ?? null} loaded={wallets != null} solUsd={solUsd} now={now} />}
+        </div>
         </div>
       )}
     </section>

@@ -468,7 +468,8 @@ pub async fn transfer_send(State(c): State<WalletCtx>, headers: HeaderMap, Json(
 /// `GET /kixo-wallet/status/{sig}`: whether a deposit landed.
 pub async fn status(State(c): State<WalletCtx>, headers: HeaderMap, Path(sig): Path<String>) -> Result<Json<Value>, ApiErr> {
     c.acct.user(&headers).await.map_err(auth)?;
-    if sig.len() > 100 || !sig.bytes().all(|b| b.is_ascii_alphanumeric()) {
+    // A real signature is 64 bytes in base58; anything else never reaches Solana.
+    if sig.len() > 100 || bs58::decode(&sig).into_vec().map_or(true, |b| b.len() != 64) {
         return Err(err(StatusCode::BAD_REQUEST, "not a signature"));
     }
     let rpc = crate::trade::Rpc { http: c.app.http.clone(), url: c.app.config.helius_rpc_url() };

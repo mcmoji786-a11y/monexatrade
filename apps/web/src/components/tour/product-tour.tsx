@@ -7,7 +7,7 @@
    where the sidebar is hidden, the card shows in the middle. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, MousePointerClick, Search, Wallet, X, type LucideIcon } from "lucide-react";
-import { AiWords, CommunityPeople, DemoCount, FirstSteps, RadarLive, SearchTry, SniperRule } from "./tour-previews";
+import { AiWords, CommunityPeople, DemoCount, FirstSteps, MarksLegend, RadarLive, SearchTry, SniperRule } from "./tour-previews";
 import { KixoMark } from "@/components/brand";
 import { useAccount } from "@/lib/account";
 import { useFeatures } from "@/lib/features";
@@ -21,8 +21,8 @@ export function startTour() {
   window.dispatchEvent(new Event(EVENT));
 }
 
-type Extra = "demo" | "search" | "radar" | "ai" | "sniper" | "community";
-type Step = { anchor: string | null; icon: LucideIcon | "brand"; title: string; body: string; extra?: Extra };
+type Extra = "demo" | "search" | "radar" | "ai" | "sniper" | "community" | "marks";
+export type Step = { anchor: string | null; icon: LucideIcon | "brand"; title: string; body: string; extra?: Extra };
 
 const navIcon = (slug: string): LucideIcon => NAV_GROUPS.flatMap((g) => g.items).find((i) => i.slug === slug)?.icon ?? Check;
 
@@ -54,20 +54,43 @@ function visible(el: HTMLElement | null) {
   const r = el.getBoundingClientRect();
   return r.width > 0 && r.height > 0 ? r : null;
 }
-function done() {
+export function tourDone(key = DONE_KEY) {
   try {
-    return localStorage.getItem(DONE_KEY) === "1";
+    return localStorage.getItem(key) === "1";
   } catch {
     return true;
   }
 }
-function markDone() {
+function markDone(key: string) {
   try {
-    localStorage.setItem(DONE_KEY, "1");
+    localStorage.setItem(key, "1");
   } catch {}
 }
 
+const always = () => true;
+
+/** The whole-site tour, mounted once in the app shell. */
 export function ProductTour() {
+  return <Tour steps={STEPS} doneKey={DONE_KEY} event={EVENT} label="Kixo tour" finale={(close) => <FirstSteps onPick={close} />} />;
+}
+
+/** A guided tour on the real screen. Starts by itself once (signed in, no dialog open,
+    `ready()` true), or on `event`. */
+export function Tour({
+  steps: allSteps,
+  doneKey,
+  event,
+  label,
+  finale,
+  ready = always,
+}: {
+  steps: Step[];
+  doneKey: string;
+  event: string;
+  label: string;
+  finale?: (close: () => void) => React.ReactNode;
+  ready?: () => boolean;
+}) {
   const f = useFeatures();
   const auth = useAccount();
   const [open, setOpen] = useState(false);
@@ -77,13 +100,13 @@ export function ProductTour() {
   const next = useRef<HTMLButtonElement>(null);
 
   // Steps whose part of the screen exists (a page switched off has no link).
-  const steps = useMemo(() => (open ? STEPS.filter((s) => !s.anchor || find(s.anchor)) : STEPS), [open]);
+  const steps = useMemo(() => (open ? allSteps.filter((s) => !s.anchor || find(s.anchor)) : allSteps), [open, allSteps]);
   const step = steps[Math.min(i, steps.length - 1)];
 
   const close = useCallback(() => {
-    markDone();
+    markDone(doneKey);
     setOpen(false);
-  }, []);
+  }, [doneKey]);
 
   // Replay from Settings.
   useEffect(() => {
@@ -91,17 +114,17 @@ export function ProductTour() {
       setI(0);
       setOpen(true);
     };
-    window.addEventListener(EVENT, go);
-    return () => window.removeEventListener(EVENT, go);
-  }, []);
+    window.addEventListener(event, go);
+    return () => window.removeEventListener(event, go);
+  }, [event]);
 
   // First visit after signing up: wait until setup dialogs (terms, wallet) are closed.
   useEffect(() => {
-    if (!f.tour || auth.status !== "signed-in" || open || done()) return;
+    if (!f.tour || auth.status !== "signed-in" || open || tourDone(doneKey)) return;
     let calm = 0;
     const id = setInterval(() => {
       const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
-      calm = dialog ? 0 : calm + 1;
+      calm = dialog || !ready() ? 0 : calm + 1;
       // Two quiet seconds in a row, so the page has settled.
       if (calm >= 2) {
         clearInterval(id);
@@ -110,7 +133,7 @@ export function ProductTour() {
       }
     }, 1_000);
     return () => clearInterval(id);
-  }, [f.tour, auth.status, open]);
+  }, [f.tour, auth.status, open, doneKey, ready]);
 
   // Follow the lit part of the screen as the page scrolls or resizes.
   useLayoutEffect(() => {
@@ -122,7 +145,7 @@ export function ProductTour() {
       setBox(r ? { top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 } : null);
     };
     const el = step.anchor ? find(step.anchor) : null;
-    el?.scrollIntoView({ block: "nearest" });
+    el?.scrollIntoView({ block: el.getBoundingClientRect().height > window.innerHeight * 0.6 ? "start" : "nearest" });
     measure();
     const id = setInterval(measure, 400);
     window.addEventListener("resize", measure);
@@ -153,15 +176,21 @@ export function ProductTour() {
 
   if (!open || !f.tour) return null;
 
-  // Where the card goes: beside a sidebar link, under a top-bar part, or centred.
+  // Where the card goes: beside a sidebar link, inside a big part (a chart), under or
+  // above a small one, or centred.
+  const vh = typeof window === "undefined" ? 800 : window.innerHeight;
+  const CARD_H = 330;
+  const clampX = (x: number) => Math.max(16, Math.min(x, vw - CARD_W - 16));
   let card: React.CSSProperties;
   if (!box) card = { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
-  else if (box.left + box.width + 16 + CARD_W < vw && box.left < 320) card = { top: Math.max(16, Math.min(box.top - 8, window.innerHeight - 460)), left: box.left + box.width + 16 };
-  else card = { top: box.top + box.height + 12, left: Math.max(16, Math.min(box.left + box.width - CARD_W, vw - CARD_W - 16)) };
+  else if (box.left + box.width + 16 + CARD_W < vw && box.left < 320) card = { top: Math.max(16, Math.min(box.top - 8, vh - 460)), left: box.left + box.width + 16 };
+  else if (box.height > vh * 0.45 || box.width > vw * 0.5) card = { top: Math.max(16, Math.min(box.top + 16, vh - CARD_H - 16)), left: clampX(box.left + box.width - CARD_W - 16) };
+  else if (box.top + box.height + 12 + CARD_H < vh) card = { top: box.top + box.height + 12, left: clampX(box.left + box.width - CARD_W) };
+  else card = { top: Math.max(16, box.top - CARD_H - 12), left: clampX(box.left + box.width - CARD_W) };
 
   const Icon = step.icon;
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Kixo tour">
+    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={label}>
       {/* The dim layer, with a hole over the part being explained. */}
       {box ? (
         <div className="tour-glide pointer-events-none fixed rounded-xl border border-emerald/60" style={{ ...box, boxShadow: "0 0 0 9999px rgb(0 0 0 / 0.66)" }}>
@@ -205,14 +234,10 @@ export function ProductTour() {
         )}
         {step.extra && (
           <div className="mt-4">
-            {step.extra === "demo" ? <DemoCount /> : step.extra === "search" ? <SearchTry onDone={forward} /> : step.extra === "radar" ? <RadarLive /> : step.extra === "ai" ? <AiWords /> : step.extra === "sniper" ? <SniperRule /> : <CommunityPeople />}
+            {step.extra === "demo" ? <DemoCount /> : step.extra === "search" ? <SearchTry onDone={forward} /> : step.extra === "radar" ? <RadarLive /> : step.extra === "ai" ? <AiWords /> : step.extra === "sniper" ? <SniperRule /> : step.extra === "marks" ? <MarksLegend /> : <CommunityPeople />}
           </div>
         )}
-        {last && (
-          <div className="mt-4">
-            <FirstSteps onPick={close} />
-          </div>
-        )}
+        {last && finale && <div className="mt-4">{finale(close)}</div>}
 
         {/* Progress: one segment per step, the done ones in the accent. */}
         <div className="mt-5 flex gap-1" aria-hidden="true">
