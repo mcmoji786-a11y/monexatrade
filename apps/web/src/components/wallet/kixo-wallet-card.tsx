@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Check, ClipboardPaste, Copy, Download, KeyRound, Loader2, Lock, ShieldCheck, Ticket, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, ClipboardPaste, Copy, Download, Fingerprint, KeyRound, Loader2, Lock, ShieldCheck, Ticket, Wallet } from "lucide-react";
 import { getPromo, redeemPromo, type PromoState } from "@/lib/marketing";
 import { useAccount } from "@/lib/account";
 import {
   createWallet,
   downloadRecovery,
+  enablePasskeyUnlock,
+  hasPasskeyUnlock,
+  passkeyAvailable,
+  removePasskeyUnlock,
+  unlockWithPasskey,
   exportRecovery,
   lockWallet,
   passwordProblem,
@@ -182,9 +187,12 @@ function Create({ compact }: { compact: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supported, setSupported] = useState(true);
+  const [pkOk, setPkOk] = useState(false);
+  const [usePk, setUsePk] = useState(true);
 
   useEffect(() => {
     void walletSupported().then(setSupported);
+    void passkeyAvailable().then(setPkOk);
   }, []);
 
   const problem = pw ? passwordProblem(pw) : null;
@@ -197,7 +205,7 @@ function Create({ compact }: { compact: boolean }) {
         setBusy(true);
         setError(null);
         try {
-          await createWallet(pw);
+          await createWallet(pw, { passkey: pkOk && usePk });
           setPw("");
           setAgain("");
         } catch (err) {
@@ -223,6 +231,15 @@ function Create({ compact }: { compact: boolean }) {
             </div>
           </div>
           <p className="text-xs text-muted">{problem ?? mismatch ?? "Separate from your Google or email login. At least 10 characters"}</p>
+          {pkOk && (
+            <label className="flex items-start gap-2 text-sm text-text-2">
+              <input type="checkbox" checked={usePk} onChange={(e) => setUsePk(e.target.checked)} className="mt-0.5 accent-emerald" />
+              <span>
+                Also open it with fingerprint or Face ID on this device
+                <span className="block text-xs text-muted">One touch instead of the password. The key stays on this device</span>
+              </span>
+            </label>
+          )}
           {error && <p role="alert" className="text-sm text-negative">{error}</p>}
           <button type="submit" disabled={busy || !!problem || !pw || again !== pw} className={`${primary} w-fit`}>
             {busy ? <Loader2 size={16} strokeWidth={1.5} className="animate-spin" /> : <KeyRound size={16} strokeWidth={1.5} />}
@@ -281,6 +298,9 @@ function CodeInput({ id, value, onChange, sentTo }: { id: string; value: string;
 }
 
 function Unlock({ twoFa }: { twoFa: boolean }) {
+  // The wallet panel renders in the browser only, so this device's storage can be read here.
+  const [pk] = useState(() => hasPasskeyUnlock());
+  const [pkBusy, setPkBusy] = useState(false);
   const [pw, setPw] = useState("");
   const [code, setCode] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -311,7 +331,29 @@ function Unlock({ twoFa }: { twoFa: boolean }) {
         }
       }}
     >
-      <Header title="Unlock your Kixo wallet" sub={twoFa ? "Your wallet password, and a code from your email because 2FA is on" : "Enter your wallet password. It stays unlocked until you close this tab"} />
+      <Header title="Unlock your Kixo wallet" sub={pk ? "One touch with fingerprint or Face ID, or your wallet password below" : twoFa ? "Your wallet password, and a code from your email because 2FA is on" : "Enter your wallet password. It stays unlocked until you close this tab"} />
+      {pk && (
+        <button
+          type="button"
+          disabled={pkBusy}
+          onClick={async () => {
+            setPkBusy(true);
+            setError(null);
+            try {
+              await unlockWithPasskey();
+              void refreshBalance();
+            } catch (err) {
+              setError(err instanceof Error && err.name === "NotAllowedError" ? "Fingerprint or Face ID was cancelled" : message(err));
+            } finally {
+              setPkBusy(false);
+            }
+          }}
+          className={`${primary} w-fit`}
+        >
+          {pkBusy ? <Loader2 size={16} strokeWidth={1.5} className="animate-spin" /> : <Fingerprint size={16} strokeWidth={1.5} />}
+          Unlock with fingerprint or Face ID
+        </button>
+      )}
       <div className="grid gap-3">
         <div>
           <label htmlFor="kw-unlock" className="text-xs text-text-2">Wallet password</label>
@@ -340,7 +382,7 @@ function Open({ address, twoFa, deposits }: { address: string; twoFa: boolean; d
   const port = usePortfolio(address);
   const solUsd = port.data?.sol_usd ?? null;
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
-  const [more, setMore] = useState<null | "twofa" | "recovery" | "promo">(null);
+  const [more, setMore] = useState<null | "twofa" | "recovery" | "promo" | "passkey">(null);
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-3">
@@ -387,6 +429,7 @@ function Open({ address, twoFa, deposits }: { address: string; twoFa: boolean; d
           <ShieldCheck size={14} strokeWidth={1.5} className={twoFa ? "text-emerald" : ""} />
           2FA {twoFa ? "on" : "off"}
         </button>
+        <PasskeyToggle open={more === "passkey"} onToggle={() => setMore(more === "passkey" ? null : "passkey")} />
         <button type="button" className="flex items-center gap-1.5 text-text-2 hover:text-text" onClick={() => setMore(more === "promo" ? null : "promo")}>
           <Ticket size={14} strokeWidth={1.5} />
           Promo code
@@ -395,6 +438,7 @@ function Open({ address, twoFa, deposits }: { address: string; twoFa: boolean; d
       {more === "twofa" && <TwoFa on={twoFa} onDone={() => setMore(null)} />}
       {more === "promo" && <PromoBox />}
       {more === "recovery" && <ExportRecovery onDone={() => setMore(null)} />}
+      {more === "passkey" && <PasskeySetup onDone={() => setMore(null)} />}
     </div>
   );
 }
@@ -671,6 +715,81 @@ function Withdraw({ balance }: { balance: number | null }) {
         {label}
       </button>
       <p className="text-center text-xs text-muted">Network fee about 0.000005 SOL. Transfers cannot be undone</p>
+    </form>
+  );
+}
+
+/** Fingerprint / Face ID on this device: shown only where the browser supports it. */
+function PasskeyToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const [ok, setOk] = useState(false);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    void passkeyAvailable().then(setOk);
+  }, []);
+  // Read on every render: it changes when the setup below finishes (`open` closes).
+  const on = hasPasskeyUnlock() && !open;
+  const setOn = () => setTick((t) => t + 1);
+  if (!ok) return null;
+  return (
+    <button
+      type="button"
+      className="flex items-center gap-1.5 text-text-2 hover:text-text"
+      onClick={() => {
+        if (on) {
+          removePasskeyUnlock();
+          setOn();
+          pushToast({ tone: "info", title: "Fingerprint unlock turned off on this device", body: "Your wallet password still opens it" });
+        } else onToggle();
+      }}
+    >
+      <Fingerprint size={14} strokeWidth={1.5} className={on ? "text-emerald" : ""} />
+      Fingerprint {on ? "on" : "off"}
+    </button>
+  );
+}
+
+function PasskeySetup({ onDone }: { onDone: () => void }) {
+  const [pw, setPw] = useState("");
+  const [code, setCode] = useState("");
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="flex flex-col gap-3 rounded-lg border border-border bg-bg/60 p-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          await enablePasskeyUnlock(pw, sentTo ? code : undefined);
+          setPw("");
+          pushToast({ tone: "good", title: "Fingerprint unlock is on", body: "Next time, one touch opens your wallet on this device" });
+          onDone();
+        } catch (err) {
+          if (err instanceof WalletError && err.status === 428) {
+            try {
+              setSentTo(await sendWalletCode());
+            } catch (e2) {
+              setError(message(e2));
+            }
+          } else setError(err instanceof Error && err.name === "NotAllowedError" ? "Fingerprint or Face ID was cancelled" : message(err));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="text-sm text-text-2">Your wallet password opens the key once, then your fingerprint or Face ID locks a copy on this device only. Kixo never gets it</p>
+      <div>
+        <label htmlFor="kw-pk" className="text-xs text-text-2">Wallet password</label>
+        <input id="kw-pk" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} className={`${input} mt-2`} />
+      </div>
+      {sentTo && <CodeInput id="kw-pk-code" value={code} onChange={setCode} sentTo={sentTo} />}
+      <button type="submit" disabled={busy || !pw || (!!sentTo && code.length !== 6)} className={`${primary} w-fit`}>
+        {busy ? <Loader2 size={16} strokeWidth={1.5} className="animate-spin" /> : <Fingerprint size={16} strokeWidth={1.5} />}
+        Turn on
+      </button>
+      {error && <p role="alert" className="text-sm text-negative">{error}</p>}
     </form>
   );
 }

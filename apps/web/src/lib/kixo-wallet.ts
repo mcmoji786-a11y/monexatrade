@@ -7,6 +7,12 @@
  * user's wallet password (PBKDF2-SHA256, 600,000 rounds, then AES-256-GCM). Kixo's server
  * stores only the locked copy and cannot open it. Unlocking happens here too; the open
  * key is kept in memory as a non-extractable CryptoKey and is gone when the tab closes.
+ *
+ * Fingerprint / Face ID (passkeys): after the password opens the key once on a device, the
+ * key can also be locked with a passkey on that device (WebAuthn PRF: the authenticator
+ * gives a secret only after the user's fingerprint or face, which never leaves it). That
+ * second locked copy stays in this browser's storage only; Kixo's server never sees it.
+ * The password and the recovery file stay the way back in on any other device.
  */
 
 import { useSyncExternalStore } from "react";
@@ -193,7 +199,7 @@ export function passwordProblem(p: string): string | null {
  * Makes the wallet: a new key, locked with `password`, stored on the account. Returns the
  * recovery file text for the user to download. The open key never leaves this tab.
  */
-export async function createWallet(password: string): Promise<{ address: string; recovery: string }> {
+export async function createWallet(password: string, opts: { passkey?: boolean } = {}): Promise<{ address: string; recovery: string; passkey: boolean }> {
   const problem = passwordProblem(password);
   if (problem) throw new WalletError(problem);
   const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -210,13 +216,17 @@ export async function createWallet(password: string): Promise<{ address: string;
   const proof = new Uint8Array(await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(`Kixo wallet ${userId} ${address}`)));
   await call("/kixo-wallet", { pubkey: address, locked, proof: b64(proof) });
   const recovery = recoveryText(seed, pub, address);
+  // Fingerprint / Face ID on this device, when asked for. A cancelled prompt leaves the
+  // wallet made, with the password as the way in.
+  let passkey = false;
+  if (opts.passkey) passkey = await passkeyLock(seed, address).then(() => true, () => false);
   seed.fill(0);
   check.fill(0);
   signer = key;
   signerPubkey = address;
   set({ recovery: { address, text: recovery } });
   await refreshWallet();
-  return { address, recovery };
+  return { address, recovery, passkey };
 }
 
 /** Asks for an email code (2FA). Returns the masked address it went to. */
@@ -236,6 +246,136 @@ export async function unlockWallet(password: string, code?: string) {
   signer = key;
   signerPubkey = pubkey;
   set({ status: "unlocked" });
+}
+
+/* ---------------- Fingerprint / Face ID (passkey) ---------------- */
+
+type PasskeyLocked = { v: 1; pubkey: string; cred: string; salt: string; iv: string; ciphertext: string };
+const PASSKEY_INFO = new TextEncoder().encode("kixo-wallet-passkey-v1");
+const passkeyStore = () => `kixo.wallet.passkey.${(state.info?.pubkey ?? "").slice(0, 44)}`;
+
+function readPasskey(): PasskeyLocked | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(passkeyStore()) ?? "null") as PasskeyLocked | null;
+    return v && v.v === 1 && v.pubkey === state.info?.pubkey ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether this browser can lock the wallet with a passkey (needs the PRF extension). */
+export async function passkeyAvailable(): Promise<boolean> {
+  if (typeof window === "undefined" || !window.PublicKeyCredential || !window.isSecureContext) return false;
+  try {
+    const caps = await (PublicKeyCredential as unknown as { getClientCapabilities?: () => Promise<Record<string, boolean>> }).getClientCapabilities?.();
+    if (caps && "extension:prf" in caps) return !!caps["extension:prf"];
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/** Whether this device can open the wallet with fingerprint / Face ID. */
+export const hasPasskeyUnlock = () => typeof window !== "undefined" && !!readPasskey();
+
+type PrfOut = { prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } } };
+
+async function passkeySecret(cred: Uint8Array, salt: Uint8Array): Promise<CryptoKey> {
+  const a = (await navigator.credentials.get({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: "public-key", id: buf(cred) }],
+      userVerification: "required",
+      timeout: 60_000,
+      extensions: { prf: { eval: { first: buf(salt) } } } as AuthenticationExtensionsClientInputs,
+    },
+  })) as PublicKeyCredential | null;
+  const out = (a?.getClientExtensionResults() as PrfOut | undefined)?.prf?.results?.first;
+  if (!out) throw new WalletError("This device's passkey cannot open a wallet. Use your password");
+  return aesFrom(new Uint8Array(out));
+}
+
+async function aesFrom(secret: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey("raw", buf(secret), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new ArrayBuffer(32), info: buf(PASSKEY_INFO) }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+
+/** Makes a passkey on this device and keeps a copy of the key locked by it, here only. */
+async function passkeyLock(seed: Uint8Array, pubkey: string) {
+  const userId = (await import("./account")).currentUserId() ?? pubkey;
+  const uid = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`kixo:${userId}`))).slice(0, 16);
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  const c = (await navigator.credentials.create({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: "Kixo", id: location.hostname },
+      user: { id: buf(uid), name: `Kixo wallet ${pubkey.slice(0, 4)}…${pubkey.slice(-4)}`, displayName: "Kixo wallet" },
+      pubKeyCredParams: [
+        { type: "public-key", alg: -7 },
+        { type: "public-key", alg: -257 },
+      ],
+      authenticatorSelection: { userVerification: "required", residentKey: "preferred" },
+      timeout: 60_000,
+      extensions: { prf: { eval: { first: buf(salt) } } } as AuthenticationExtensionsClientInputs,
+    },
+  })) as PublicKeyCredential | null;
+  if (!c) throw new WalletError("No passkey was made");
+  const ext = c.getClientExtensionResults() as PrfOut;
+  if (ext.prf?.enabled === false) throw new WalletError("This device's passkeys cannot lock a wallet. Your password still works");
+  const cred = new Uint8Array(c.rawId);
+  // Some authenticators give the secret at creation; others only on the first use.
+  const first = ext.prf?.results?.first;
+  const key = first ? await aesFrom(new Uint8Array(first)) : await passkeySecret(cred, salt);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: buf(iv) }, key, buf(seed)));
+  const stored: PasskeyLocked = { v: 1, pubkey, cred: b64(cred), salt: b64(salt), iv: b64(iv), ciphertext: b64(ct) };
+  localStorage.setItem(`kixo.wallet.passkey.${pubkey}`, JSON.stringify(stored));
+  subs.forEach((fn) => fn());
+}
+
+/** Turns on fingerprint / Face ID for this device: the password opens the key once. */
+export async function enablePasskeyUnlock(password: string, code?: string) {
+  const r = await call<{ pubkey: string; locked: Locked }>("/kixo-wallet/locked", { code: code || undefined });
+  const seed = await unlockSeed(r.locked, password);
+  try {
+    const { pubkey, key } = await openSeed(seed);
+    if (pubkey !== r.pubkey) throw new WalletError("This key does not match your wallet address");
+    await passkeyLock(seed, pubkey);
+    signer = key;
+    signerPubkey = pubkey;
+    set({ status: "unlocked" });
+  } finally {
+    seed.fill(0);
+  }
+}
+
+/** Opens the wallet with fingerprint / Face ID on this device. */
+export async function unlockWithPasskey() {
+  const p = readPasskey();
+  if (!p) throw new WalletError("Fingerprint unlock is not set up on this device");
+  const key = await passkeySecret(unb64(p.cred), unb64(p.salt));
+  let seed: Uint8Array;
+  try {
+    seed = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf(unb64(p.iv)) }, key, buf(unb64(p.ciphertext))));
+  } catch {
+    throw new WalletError("This passkey does not open this wallet. Use your password");
+  }
+  const opened = await openSeed(seed);
+  seed.fill(0);
+  if (opened.pubkey !== state.info?.pubkey) throw new WalletError("This key does not match your wallet address");
+  signer = opened.key;
+  signerPubkey = opened.pubkey;
+  set({ status: "unlocked" });
+}
+
+/** Turns fingerprint / Face ID off on this device (the password still works). */
+export function removePasskeyUnlock() {
+  try {
+    localStorage.removeItem(passkeyStore());
+  } catch {
+    // Storage blocked: nothing was stored.
+  }
+  subs.forEach((fn) => fn());
 }
 
 /** Downloads the recovery file again: the wallet password opens the locked copy here,
