@@ -12,9 +12,11 @@ import { AdminGate, AdminSignOut, ApiKeys, AuditLog, OwnerUnlock, PlatformSettin
 import { ALL_ON, FEATURE_LIST, type Features } from "@/lib/features";
 import { GATEWAY_HTTP } from "@/lib/gateway";
 import { SupportInbox } from "./support-inbox";
+import { KolsAdmin } from "./kols-admin";
+import { BadgeCheck } from "lucide-react";
 import { FALLBACK_CONFIG, type GatewayTier, type RewardsConfig } from "@/lib/rewards";
 
-type View = "system" | "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
+type View = "kols" | "system" | "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
 /** `preview`: a design only, nothing on it saves yet. */
 const NAV: { key: View; label: string; icon: typeof Gauge; preview?: boolean }[] = [
   { key: "overview", label: "Dashboard", icon: Gauge },
@@ -27,6 +29,7 @@ const NAV: { key: View; label: string; icon: typeof Gauge; preview?: boolean }[]
   { key: "platform", label: "Platform settings", icon: Settings2 },
   { key: "keys", label: "API keys", icon: KeyRound },
   { key: "support", label: "Support inbox", icon: LifeBuoy },
+  { key: "kols", label: "KOLs", icon: BadgeCheck },
   { key: "review", label: "Annual review", icon: CalendarRange, preview: true },
   { key: "rewards", label: "Rewards settings", icon: SlidersHorizontal, preview: true },
   { key: "creators", label: "Creator requests", icon: Megaphone },
@@ -116,6 +119,7 @@ function AdminApp() {
             </>
           )}
           {view === "features" && <FeaturesEditor />}
+          {view === "kols" && <KolsAdmin />}
           {view === "review" && <Review />}
           {view === "rewards" && <RewardsEditor live={live} />}
           {view === "creators" && <Creators />}

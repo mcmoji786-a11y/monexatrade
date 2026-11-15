@@ -197,6 +197,8 @@ pub struct FeatureFlags {
     pub sniper_backtest: bool,
     /// Old automatic demo trades deleted every 6 hours (cleanup.rs).
     pub db_cleanup: bool,
+    /// KOL Tracker: named traders' wallets, their trades and the coins they bought (kols.rs).
+    pub kol_tracker: bool,
 }
 
 impl Default for FeatureFlags {
@@ -255,6 +257,7 @@ impl Default for FeatureFlags {
             chart_marks: true,
             sniper_backtest: true,
             db_cleanup: true,
+            kol_tracker: true,
         }
     }
 }
@@ -429,6 +432,10 @@ impl AdminState {
     /// Whether the database clean-up runs.
     pub fn db_cleanup(&self) -> bool {
         self.features.lock().expect("features lock").db_cleanup
+    }
+
+    pub fn kol_tracker(&self) -> bool {
+        self.features.lock().expect("features lock").kol_tracker
     }
 
     pub fn loss_limit(&self) -> bool {

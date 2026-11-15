@@ -1,10 +1,12 @@
 "use client";
 import { memo } from "react";
+import { useCoinKols } from "@/lib/kols";
+import { useFeatures } from "@/lib/features";
 import { TradeLink } from "@/components/token/trade-link";
 import { QuickBuy } from "@/components/trade/quick-buy";
 
 import { useRadarFilters } from "@/lib/prefs";
-import { ArrowUpRight, EyeOff, Brain, History, Fish, Globe, Send, TrendingDown, Users, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, EyeOff, Brain, History, Fish, Globe, Send, TrendingDown, Users, type LucideIcon } from "lucide-react";
 import { StarButton } from "@/components/token/star-button";
 import type { Check } from "@/lib/risk";
 import { launchSignals, safetyScore } from "@/lib/safety";
@@ -66,6 +68,8 @@ function TokenCardView({
   xShare: { others: number; kind: "account" | "post" } | null;
 }) {
   const { blockDev } = useRadarFilters();
+  const kols = useCoinKols(token.mint);
+  const feat = useFeatures();
   const open = useOpenToken();
   const age = now / 1000 - token.timestamp;
   const meta = token.meta;
@@ -117,6 +121,7 @@ function TokenCardView({
     });
   if (xShare?.kind === "account") flags.push({ key: "x-acc", tone: "warn", glyph: true, text: `Same X account · ${xShare.others + 1}`, title: `${xShare.others + 1} new coins claim the same X account. A project has one coin; copies often borrow a real account` });
   if (!original && repeated) flags.push({ key: "sym", tone: "warn", text: `Same symbol · ${sameSymbol + 1}`, title: "Other new coins use this symbol too. None is verified or established, so none is confirmed as the original" });
+  if (feat.kol_tracker && kols.length > 0) flags.push({ key: "kol", tone: "info", icon: BadgeCheck, text: `${kols.length} KOL${kols.length === 1 ? "" : "s"} bought`, title: `Bought in the last 24 hours by ${kols.map((k) => (k.x ? `${k.name} (@${k.x})` : k.name)).join(", ")}` });
   if (smart > 0) flags.push({ key: "smart", tone: "info", icon: Brain, text: `${smart} smart wallet${smart === 1 ? "" : "s"}`, title: "Smart wallets hold this coin: profitable on 3+ coins at a human pace" });
   if (m?.whale_buys_1h) flags.push({ key: "whale", tone: "info", icon: Fish, text: `${m.whale_buys_1h} whale buy${m.whale_buys_1h === 1 ? "" : "s"}`, title: "Buys of 5 SOL or more, last hour" });
   if (d && d.rugged === 0 && d.graduated > 0) flags.push({ key: "grad", tone: "good", icon: History, text: `Dev graduated ${d.graduated}/${d.coins}`, title: devTitle(d) });

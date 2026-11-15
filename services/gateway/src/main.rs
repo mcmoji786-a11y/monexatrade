@@ -14,6 +14,7 @@ mod growth;
 mod settings;
 mod alerts;
 mod cleanup;
+mod kols;
 mod limits;
 mod notes;
 mod social;
@@ -447,6 +448,16 @@ async fn main() -> Result<()> {
 
     tokio::spawn(social::backfill(acct.clone()));
     tokio::spawn(cleanup::run(acct.clone(), admin_state.clone()));
+    let kol_ctx = kols::KolCtx { app: state.clone(), admin: admin_state.clone() };
+    tokio::spawn(kols::run(state.clone()));
+    let kol_routes: Router<Arc<AppState>> = Router::new()
+        .route("/kols", get(kols::kols))
+        .route("/kols/coins", get(kols::coins))
+        .route("/kols/coin/{mint}", get(kols::coin))
+        .route("/ws/kols", get(kols::ws))
+        .route("/admin/kols", get(kols::admin_get).put(kols::admin_put))
+        .with_state(kol_ctx);
+
     let social_routes: Router<Arc<AppState>> = Router::new()
         .route("/social/me", get(social::me).put(social::save_me))
         .route("/social/u/{handle}", get(social::trader))
@@ -512,6 +523,7 @@ async fn main() -> Result<()> {
         .merge(social_routes)
         .merge(alerts_routes)
         .merge(limits_routes)
+        .merge(kol_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)

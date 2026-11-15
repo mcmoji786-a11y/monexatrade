@@ -25,6 +25,7 @@ import { launchSignals, rowSignals, safetyScore, type Safety } from "@/lib/safet
 import { SafetyBadge } from "@/components/token/safety-badge";
 import { AiRiskChip } from "@/components/token/ai-risk-chip";
 import { DevRecord } from "@/components/token/dev-record";
+import { KolBadge } from "@/components/kols/kol-badge";
 import { NoteButton } from "@/components/notes/note-button";
 import { startTradeTour, TradeTour } from "@/components/tour/trade-tour";
 import { CircleHelp } from "lucide-react";
@@ -315,6 +316,7 @@ function Header({
         <div data-tour="trade-tools" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {safety && <SafetyBadge safety={safety} size="md" />}
           <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
+          <KolBadge mint={r.mint} size="md" />
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
           <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
           <NoteButton kind="coin" target={r.mint} label={r.symbol} />
