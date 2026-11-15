@@ -28,7 +28,7 @@ use std::{
 
 const PER_VISITOR: usize = 20;
 const PER_VISITOR_WINDOW: Duration = Duration::from_secs(600);
-const MAX_MESSAGE: usize = 600;
+const MAX_MESSAGE: usize = 1500;
 const MAX_HISTORY: usize = 6;
 const REST_AFTER_LIMIT: Duration = Duration::from_secs(60);
 

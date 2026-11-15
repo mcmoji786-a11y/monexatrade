@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, Loader2, ScanSearch } from "lucide-react";
-import { answer, askModel, looksSecret, SECRET_REPLY, STARTERS, type AiOverview, type ChatReply } from "@/lib/ai-chat";
+import { answer, askModel, plain, looksSecret, SECRET_REPLY, STARTERS, type AiOverview, type ChatReply } from "@/lib/ai-chat";
 import { riskTitle, verdict } from "@/lib/ai-risk";
 import { tokenHref } from "@/lib/open-token";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
@@ -12,13 +12,6 @@ import { TokenLogo } from "@/components/token/token-bits";
 import { StarButton } from "@/components/token/star-button";
 import { QuickBuy } from "@/components/trade/quick-buy";
 
-/** Model replies as plain text: markdown marks would show as stray symbols. */
-const plain = (t: string) =>
-  t
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g, "$1$2")
-    .replace(/^#{1,6}\s*/gm, "")
-    .replace(/^\s*[-*]\s+/gm, "• ");
 
 type Msg = { id: number; role: "user"; text: string } | { id: number; role: "ai"; reply: ChatReply };
 

@@ -45,6 +45,14 @@ export const SECRET_REPLY: ChatReply = {
   suggestions: ["How do I keep my wallet safe?", "Best coins right now"],
 };
 
+/** Model replies as plain text: markdown marks would show as stray symbols. */
+export const plain = (t: string) =>
+  t
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g, "$1$2")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ");
+
 /** Asks Kixo AI's language model through the gateway. null = answer from Kixo's own data. */
 export async function askModel(message: string, history: { role: "user" | "assistant"; content: string }[]): Promise<{ reply: string } | { refused: true } | null> {
   try {
