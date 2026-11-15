@@ -12,6 +12,14 @@ import { TokenLogo } from "@/components/token/token-bits";
 import { StarButton } from "@/components/token/star-button";
 import { QuickBuy } from "@/components/trade/quick-buy";
 
+/** Model replies as plain text: markdown marks would show as stray symbols. */
+const plain = (t: string) =>
+  t
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g, "$1$2")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ");
+
 type Msg = { id: number; role: "user"; text: string } | { id: number; role: "ai"; reply: ChatReply };
 
 export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
@@ -41,7 +49,7 @@ export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
       const history = msgs.slice(-6).map((m) => (m.role === "user" ? { role: "user" as const, content: m.text } : { role: "assistant" as const, content: m.reply.text.join("\n") }));
       const [model, local] = await Promise.all([askModel(t, history), answer(t, { tokens: feed.tokens, overview })]);
       if (model && "refused" in model) reply = SECRET_REPLY;
-      else if (model) reply = { text: model.reply.split(/\n+/).map((l) => l.trim()).filter(Boolean), coins: local.coins, suggestions: local.suggestions };
+      else if (model) reply = { text: plain(model.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean), coins: local.coins, suggestions: local.suggestions };
       else reply = local;
     }
     setMsgs((m) => [...m, { id: nextId.current++, role: "ai", reply }]);
@@ -52,7 +60,7 @@ export function AiChatPanel({ overview }: { overview: AiOverview | null }) {
   const chips = msgs.length === 0 ? STARTERS : last?.role === "ai" ? (last.reply.suggestions ?? []) : [];
 
   return (
-    <section className="flex h-[560px] min-w-0 flex-col rounded-xl border border-border bg-surface">
+    <section className="flex h-140 min-w-0 flex-col rounded-xl border border-border bg-surface">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <ScanSearch size={16} strokeWidth={1.5} className="text-emerald" />
         <h2 className="text-sm font-medium text-text">Ask Kixo AI</h2>

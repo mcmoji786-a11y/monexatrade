@@ -2,8 +2,8 @@
 //!
 //! The browser never holds a model key. The gateway adds Kixo's live data (the coin asked
 //! about, the AI's current Good odds and Danger coins) to a system prompt that keeps the
-//! model on Solana, crypto and Kixo, and asks the free providers in turn: Gemini, Groq,
-//! OpenRouter (each only when its key is in `.env`). A provider that is rate limited or
+//! model on Solana, crypto and Kixo, and asks the free providers in turn: Groq (fastest),
+//! Gemini, OpenRouter (each only when its key is in `.env`). A provider that is rate limited or
 //! down rests for a minute and the next one answers. When none can, the reply says
 //! `fallback` and the browser answers from Kixo's own data (lib/ai-chat.ts), so the chat
 //! never stops.
@@ -44,20 +44,25 @@ struct Provider {
     url: &'static str,
     key: String,
     model: String,
+    /// Keeps "thinking" models short, for a quick chat answer.
+    effort: Option<&'static str>,
 }
 
-fn provider(name: &'static str, url: &'static str, key_var: &str, model_var: &str, default_model: &str) -> Option<Provider> {
+fn provider(name: &'static str, url: &'static str, key_var: &str, model_var: &str, default_model: &str, effort: Option<&'static str>) -> Option<Provider> {
     let key = std::env::var(key_var).ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty())?;
     let model = std::env::var(model_var).ok().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| default_model.to_string());
-    Some(Provider { name, url, key, model })
+    Some(Provider { name, url, key, model, effort })
 }
 
-/// The free providers with a key in `.env`, in order. All speak the OpenAI chat format.
+/// The free providers with a key in `.env`, fastest first (tested 2026-11-15: Groq about
+/// 1 s, OpenRouter's Nemotron about 2 s, Gemini Flash about 7 s). All speak the OpenAI
+/// chat format. Models change often: override with GROQ_MODEL, GEMINI_MODEL,
+/// OPENROUTER_MODEL in `.env`.
 fn providers() -> Vec<Provider> {
     [
-        provider("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-2.5-flash"),
-        provider("groq", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "GROQ_MODEL", "llama-3.3-70b-versatile"),
-        provider("openrouter", "https://openrouter.ai/api/v1/chat/completions", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+        provider("groq", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "GROQ_MODEL", "openai/gpt-oss-120b", Some("low")),
+        provider("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-3.5-flash", Some("none")),
+        provider("openrouter", "https://openrouter.ai/api/v1/chat/completions", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free", None),
     ]
     .into_iter()
     .flatten()
@@ -198,12 +203,20 @@ Scope: answer only about Solana, crypto, blockchain, trading, DeFi, wallets and 
 
 Kixo: Sol Radar (new coins live), Discover, a trade page with charts, a demo account with virtual $10,000 at live prices and real fees, a Sniper (auto-buys new coins by rules), Smart Money and copy trading, Wallet Tracker and Monitor, alerts, and Kixo AI. Kixo AI watches each new coin's first 2 minutes and gives one word: Danger (high chance of a 70%+ crash within the hour), Careful, Calm, or Good odds (under 20% crash chance and 15%+ chance to double). When it says Danger, about half of coins crashed in testing versus 8% normally. Auto trade (Copy Kixo AI) buys Good odds coins on the demo account and sells at +100%, -40% or after an hour.
 
+Solana facts (current, prefer these over older knowledge):
+- SOL pays fees; a normal transaction costs a fraction of a cent, plus an optional priority fee in busy times. Jito tips buy faster landing and some protection from sandwich bots.
+- Pump.fun: anyone creates a coin for almost nothing; it trades on a bonding curve where the price rises as people buy; at 100% of the curve it graduates to PumpSwap, pump.fun's own AMM. Most coins never graduate. Bonk.fun (LetsBonk) works the same way on Raydium LaunchLab. Meteora has a similar curve (DBC). Bags and Moonshot are other launchpads.
+- Raydium is Solana's largest AMM (standard and concentrated pools) and runs LaunchLab. Serum is dead; its order book continues as OpenBook. Jupiter is the main swap aggregator (best route across DEXes) and offers limit orders and DCA; those are Jupiter's, not Raydium's. LaunchLab is open to anyone, not vetted. Orca and Meteora are other DEXes.
+- Wallets: Phantom, Solflare, Backpack. A seed phrase or private key gives full control; never share it. Token accounts hold each token; closing empty ones returns a little SOL rent.
+- Rug signs: dev sells everything, bundled wallets holding a big share, snipers holding a big share, top 10 holding over 30%, a dev with earlier rugs, mint or freeze authority still active (pump.fun coins have both revoked).
+
 Rules:
+- If you are not sure of a fact, say so plainly instead of guessing.
 - Use the LIVE DATA below for any coin facts. Never invent prices, holders or numbers. If the data does not have it, say so and suggest opening the coin on Kixo.
 - Chances are given as 0 to 1; say them as percentages.
 - Never promise profit or tell someone to put money in. Explain risk plainly; most new memecoins go to zero. Suggest the demo account, small sizes and a stop loss.
 - Never ask for a seed phrase or private key, and warn that anyone asking for one is a scammer.
-- Reply in the user's language (English, Urdu, Roman Urdu or Hindi). Keep it short: under 120 words unless asked for more. Plain words, no tables.";
+- Reply in the user's language AND script. If they write Urdu or Hindi words in Latin letters (Roman Urdu, like \"kya hai\", \"kaise bachun\"), reply in Roman Urdu with Latin letters only: never Devanagari or Arabic script. Use Urdu script or Devanagari only if the user wrote in it. Keep it short: under 120 words unless asked for more. Plain text only: no markdown, no ** or # signs, no tables.";
 
 #[derive(Deserialize)]
 pub struct Turn {
@@ -262,14 +275,11 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
         if resting {
             continue;
         }
-        let res = ctx
-            .http
-            .post(p.url)
-            .bearer_auth(&p.key)
-            .timeout(Duration::from_secs(20))
-            .json(&json!({ "model": p.model, "messages": messages, "max_tokens": 450, "temperature": 0.4 }))
-            .send()
-            .await;
+        let mut req = json!({ "model": p.model, "messages": messages, "max_tokens": 700, "temperature": 0.4 });
+        if let Some(e) = p.effort {
+            req["reasoning_effort"] = json!(e);
+        }
+        let res = ctx.http.post(p.url).bearer_auth(&p.key).timeout(Duration::from_secs(25)).json(&req).send().await;
         match res {
             Ok(r) if r.status().is_success() => {
                 if let Ok(v) = r.json::<Value>().await {
