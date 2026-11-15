@@ -27,7 +27,8 @@ while ((FreeGB) -lt 4 -and $waited -lt 60) {
 }
 if ((FreeGB) -lt 4) {
     Write-Log ("skipped: only {0:N1} GB of memory free" -f (FreeGB))
-    exit 0
+    # Not a success: the daily trainer tries again later.
+    exit 2
 }
 
 Write-Log "training started"
