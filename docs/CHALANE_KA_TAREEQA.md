@@ -84,3 +84,14 @@ AI ki training isi data par hogi.
 - Admin sirf isi PC se khulta hai (`.env` mein `ADMIN_ALLOWED_IPS`). Server par apna IP ya VPN daalein.
 - 5 ghalat keys par woh address 30 minute ke liye band ho jata hai, aur yeh log mein likha jata hai.
 - Pata ya key kabhi chat ya kisi ko na bhejein. Shak ho to `.env` mein `ADMIN_TOKEN` aur `.env.local` mein `ADMIN_PATH` badal kar website aur gateway restart karein.
+
+## Watchdog (khud dobara chalna)
+- `scripts\kixo-start.cmd` ab ek watchdog bhi chalata hai. Woh har 10 second mein gateway, Kixo AI aur website check karta hai. Koi hissa band ho ya jawab na de to taqreeban 30 second mein dobara chala deta hai.
+- Gateway chal raha ho lekin 30 second se jawab na de raha ho (atak gaya ho), to watchdog use band karke dobara chalata hai.
+- Log: `E:\KixoData\logs\watchdog.log`
+- Build ya update ke waqt pehle `scripts\kixo-stop.cmd` chalayein. Yeh watchdog ko bhi band karta hai, warna watchdog purana gateway dobara chala dega. Sirf dekhte rehne ke liye (restart ke baghair) `E:\KixoData\watchdog.pause` naam ki khaali file bana dein.
+
+## Automatic tests
+- Kixo chal raha ho to `apps\web` folder mein: `pnpm test:e2e`
+- Sirf kuch hisse: `pnpm test:e2e demo alerts` (groups: health, demo, lossLimit, community, alerts, notes, backtest)
+- Har test ke liye ek temporary account banta hai aur test ke baad delete ho jata hai. Jis hisse ki SQL migration nahi chali, woh "SKIP" dikhata hai.

@@ -195,6 +195,8 @@ pub struct FeatureFlags {
     pub notes: bool,
     pub chart_marks: bool,
     pub sniper_backtest: bool,
+    /// Old automatic demo trades deleted every 6 hours (cleanup.rs).
+    pub db_cleanup: bool,
 }
 
 impl Default for FeatureFlags {
@@ -252,6 +254,7 @@ impl Default for FeatureFlags {
             notes: true,
             chart_marks: true,
             sniper_backtest: true,
+            db_cleanup: true,
         }
     }
 }
@@ -421,6 +424,11 @@ impl AdminState {
     /// Whether the sniper test on the last 24 hours is on.
     pub fn sniper_backtest(&self) -> bool {
         self.features.lock().expect("features lock").sniper_backtest
+    }
+
+    /// Whether the database clean-up runs.
+    pub fn db_cleanup(&self) -> bool {
+        self.features.lock().expect("features lock").db_cleanup
     }
 
     pub fn loss_limit(&self) -> bool {

@@ -13,6 +13,7 @@ mod dex;
 mod growth;
 mod settings;
 mod alerts;
+mod cleanup;
 mod limits;
 mod notes;
 mod social;
@@ -445,6 +446,7 @@ async fn main() -> Result<()> {
         .with_state(alerts_ctx);
 
     tokio::spawn(social::backfill(acct.clone()));
+    tokio::spawn(cleanup::run(acct.clone(), admin_state.clone()));
     let social_routes: Router<Arc<AppState>> = Router::new()
         .route("/social/me", get(social::me).put(social::save_me))
         .route("/social/u/{handle}", get(social::trader))

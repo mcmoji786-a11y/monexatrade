@@ -49,6 +49,7 @@ export type Features = {
   notes: boolean;
   chart_marks: boolean;
   sniper_backtest: boolean;
+  db_cleanup: boolean;
   alert_delivery: boolean;
   weekly_recap: boolean;
   achievements: boolean;
@@ -105,6 +106,7 @@ export const ALL_ON: Features = {
   notes: true,
   chart_marks: true,
   sniper_backtest: true,
+  db_cleanup: true,
   alert_delivery: true,
   weekly_recap: true,
   achievements: true,
@@ -145,6 +147,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "loss_limit", label: "Daily loss limit", hint: "Users set a daily loss; after it, buying stops until their midnight (selling always works). Off here: no limit is enforced" },
   { key: "notes", label: "Notes", hint: "Users' own private notes on coins and wallets, saved to their account (migration 0016)" },
   { key: "chart_marks", label: "Chart marks", hint: "Trade page chart: small marks where the creator and smart wallets bought or sold" },
+  { key: "db_cleanup", label: "Database clean-up", hint: "Every 6 hours, demo trades made by the sniper, copy trading and grids older than 60 days are deleted (DEMO_AUTO_KEEP_DAYS), so the free database does not fill up. Manual trades, balances and real trades stay" },
   { key: "sniper_backtest", label: "Sniper test on yesterday", hint: "Sniper page: run your rules on the last 24 hours of real launches and see what would have happened" },
   { key: "tour", label: "Welcome tour", hint: "A one-minute guided tour of the platform for new users, step by step on the real screen. Users can replay it from Settings" },
   { key: "social", label: "Community", hint: "Trader profiles, following traders, the live trade feed, the leaderboard and one-tap copying of Kixo traders (demo trades only)" },

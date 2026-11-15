@@ -296,6 +296,8 @@ async fn set_follow(c: SocialCtx, headers: HeaderMap, handle: String, follow: bo
         return Err((StatusCode::BAD_REQUEST, "You cannot follow yourself".into()));
     }
     if follow {
+        // A follower shows in the trader's followers list only with a profile of their own.
+        let _ = ensure_profile(&c.acct, &u.id).await;
         if count(&c.acct, &format!("follows?follower=eq.{}", u.id)).await >= 500 {
             return Err((StatusCode::BAD_REQUEST, "You follow 500 traders already".into()));
         }

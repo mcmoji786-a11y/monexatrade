@@ -41,6 +41,13 @@ if errorlevel 1 (
   echo The Kixo website is already running.
 )
 
+rem The watchdog brings back any part that stops (scripts\kixo-watchdog.ps1).
+powershell -NoProfile -Command "if (-not (Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'kixo-watchdog.ps1' })) { exit 1 }"
+if errorlevel 1 (
+  echo Starting the Kixo watchdog...
+  start "Kixo watchdog" /MIN powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\kixo-watchdog.ps1"
+)
+
 echo.
 echo Kixo is starting. Website: http://localhost:3000
 echo Data is saved to E:\KixoData  (see E:\KixoData\status.json)

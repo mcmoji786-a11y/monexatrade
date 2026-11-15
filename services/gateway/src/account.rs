@@ -181,6 +181,26 @@ impl AccountState {
         res.is_ok_and(|r| r.status().is_success())
     }
 
+    /// Deletes the rows `path` selects and returns how many went, without sending them
+    /// back (a clean-up can remove many thousands at once).
+    pub(crate) async fn delete_count(&self, path: &str) -> Result<u64, (StatusCode, String)> {
+        let res = self
+            .http
+            .delete(format!("{}/rest/v1/{path}", self.url))
+            .header("apikey", &self.service)
+            .bearer_auth(&self.service)
+            .header("Prefer", "return=minimal,count=exact")
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await
+            .map_err(|_| (StatusCode::BAD_GATEWAY, "database unreachable".into()))?;
+        if !res.status().is_success() {
+            return Err((StatusCode::SERVICE_UNAVAILABLE, format!("database answered {}", res.status())));
+        }
+        // "Content-Range: */1234" carries the count.
+        Ok(res.headers().get("content-range").and_then(|v| v.to_str().ok()).and_then(|v| v.rsplit('/').next()).and_then(|n| n.parse().ok()).unwrap_or(0))
+    }
+
     pub(crate) async fn rest(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, (StatusCode, String)> {
         let mut req = self
             .http
