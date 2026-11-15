@@ -183,6 +183,8 @@ pub struct FeatureFlags {
     pub ai_risk: bool,
     /// Ask Kixo AI answers with a language model (ai_chat.rs); off = built-in answers only.
     pub ai_chat: bool,
+    /// Community: trader profiles, follows, the trade feed and copying Kixo traders (social.rs).
+    pub social: bool,
 }
 
 impl Default for FeatureFlags {
@@ -231,6 +233,7 @@ impl Default for FeatureFlags {
             auto_wallet: true,
             ai_risk: true,
             ai_chat: true,
+            social: true,
         }
     }
 }
@@ -350,6 +353,11 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
+    }
+
+    /// Whether Community (social trading) is switched on.
+    pub fn social(&self) -> bool {
+        self.features.lock().expect("features lock").social
     }
 
     /// Whether Ask Kixo AI may use a language model.

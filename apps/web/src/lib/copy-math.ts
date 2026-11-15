@@ -58,8 +58,11 @@ export function exitLiquidity(leaderRealizedSol: number, copyReturnPct: number |
 
 /** A demo copy can move to real once it has a record worth trusting. */
 export const PROMOTE_MIN_SELLS = 5;
-export function promoteBlock(c: { venue: "demo" | "real"; sells: number; realized: number }, exitLiq: boolean): string | null {
+export function promoteBlock(c: { venue: "demo" | "real"; sells: number; realized: number; leader?: string }, exitLiq: boolean): string | null {
   if (c.venue !== "demo") return "Already real";
+  // A Kixo trader ("@handle") trades on demo: copying it with real money waits until
+  // real trades can be shared.
+  if (c.leader?.startsWith("@")) return "Kixo traders are copied on demo";
   if (exitLiq) return "Its copiers lose money: it sells into them";
   if (c.sells < PROMOTE_MIN_SELLS) return `Needs ${PROMOTE_MIN_SELLS} closed copies on demo first (${c.sells} so far)`;
   if (c.realized <= 0) return "Not profitable on demo yet";

@@ -1,0 +1,73 @@
+"use client";
+/* Community (gateway social.rs, migration 0012): trader profiles, follows, the trade feed,
+   the leaderboard and a trader's trades for copying. Only demo trades are public, and only
+   for traders who made a public profile. */
+import { GATEWAY_HTTP } from "./gateway";
+import { accessToken } from "./account";
+
+export type TraderProfile = { handle: string; display_name: string; bio: string; public: boolean; created_at: string };
+export type TraderStats = { realized_usd: number; trades: number; win_rate: number; best_usd: number; volume_usd: number } | null;
+export type SocialTrade = {
+  id: number;
+  handle?: string;
+  display_name?: string;
+  mint: string;
+  symbol: string;
+  side: "buy" | "sell";
+  usd: number;
+  price_usd: number;
+  realized_usd: number | null;
+  remaining?: number | null;
+  tokens?: number | null;
+  source: string;
+  ts: string;
+};
+export type Trader = {
+  profile: TraderProfile;
+  own: boolean;
+  i_follow: boolean;
+  followers: number;
+  following: number;
+  stats: { d7: TraderStats; d30: TraderStats; all: TraderStats };
+  trades: SocialTrade[];
+};
+export type Leader = { rank: number; handle: string; display_name: string; realized_usd: number; trades: number; win_rate: number; best_usd: number; followers: number };
+
+async function call<T>(path: string, init: RequestInit = {}, auth = false): Promise<T> {
+  const token = accessToken();
+  if (auth && !token) throw new Error("Sign in first");
+  const res = await fetch(`${GATEWAY_HTTP}${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...(init.headers ?? {}) },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
+  return JSON.parse(text) as T;
+}
+
+export const getMe = () => call<{ profile: TraderProfile | null; followers: number; following: number }>("/social/me", {}, true);
+export const saveMe = (p: { handle: string; display_name: string; bio: string; public: boolean }) =>
+  call<{ profile: TraderProfile }>("/social/me", { method: "PUT", body: JSON.stringify(p) }, true);
+export const getTrader = (handle: string) => call<Trader>(`/social/u/${encodeURIComponent(handle)}`);
+export const follow = (handle: string, on: boolean) => call<{ following: boolean }>(`/social/follow/${encodeURIComponent(handle)}`, { method: on ? "POST" : "DELETE" }, true);
+export const getFeed = (scope: "following" | "everyone", before?: number) =>
+  call<{ items: SocialTrade[] }>(`/social/feed?scope=${scope}${before ? `&before=${before}` : ""}`, {}, scope === "following");
+export const getLeaders = (period: "7d" | "30d" | "all") => call<{ leaders: Leader[] }>(`/social/leaders?period=${period}`);
+export const getTraderTrades = (handle: string, after: number) => call<{ items: SocialTrade[] }>(`/social/trades/${encodeURIComponent(handle)}?after=${after}`);
+
+export const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
+
+export function timeAgo(iso: string, now = Date.now()) {
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86_400)}d`;
+}
+
+export function money(v: number) {
+  const a = Math.abs(v);
+  const s = a >= 1000 ? `${(a / 1000).toFixed(a >= 10_000 ? 0 : 1)}K` : a.toFixed(2);
+  return `${v < 0 ? "−" : ""}$${s}`;
+}

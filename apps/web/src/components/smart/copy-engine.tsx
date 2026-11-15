@@ -11,9 +11,12 @@ import { launchSignals, safetyScore } from "@/lib/safety";
 import { pushToast } from "@/lib/toast";
 import { tokenHref } from "@/lib/open-token";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
+import { getTraderTrades } from "@/lib/social";
 
 type Ctx = { venue: Venue | null; solUsd: number | null; safety: (mint: string) => number | null; demoHeld: (mint: string) => number };
-type Msg = { type: string; mint: string; symbol: string | null; trade: TradeRow; sol_usd?: number | null };
+/** `left`: what the leader still holds after a sell, when the message already knows it
+ *  (a Kixo trader's trade); otherwise it is looked up on chain. */
+type Msg = { type: string; mint: string; symbol: string | null; trade: TradeRow; sol_usd?: number | null; left?: number };
 
 const DAY = 86_400_000;
 
@@ -63,7 +66,7 @@ async function copySell(cp: Copy, m: Msg, c: Ctx) {
   const sym = pos.symbol;
   const now = Date.now();
   try {
-    const share = mirrorFraction(m.trade.tokens, await leaderLeft(m.mint, cp.leader));
+    const share = mirrorFraction(m.trade.tokens, m.left ?? (await leaderLeft(m.mint, cp.leader)));
     const held = await heldNow(c, cp.venue, m.mint);
     if (held <= 0) {
       updateCopy(cp.id, (x) => {
@@ -118,7 +121,63 @@ export function CopyEngine() {
       demoHeld: (mint) => account?.positions.find((p) => p.mint === mint)?.tokens ?? 0,
     };
   }, [venue, feed, account]);
-  const leaders = on ? [...new Set(copies.filter((c) => c.status === "running").map((c) => c.leader))].sort().join(",") : "";
+  const running = on ? copies.filter((c) => c.status === "running") : [];
+  const leaders = [...new Set(running.map((c) => c.leader).filter((l) => !l.startsWith("@")))].sort().join(",");
+  const traders = [...new Set(running.map((c) => c.leader).filter((l) => l.startsWith("@")))].sort().join(",");
+
+  // Kixo traders ("@handle"): their new demo trades, asked every 3 seconds. Only trades
+  // made after the copy started are copied, never the history.
+  useEffect(() => {
+    if (!traders) return;
+    const handles = traders.split(",").map((h) => h.slice(1));
+    const after = new Map<string, number>();
+    const recent = new Map<string, { leader: string; at: number }[]>();
+    let stop = false;
+    let queue: Promise<void> = Promise.resolve();
+    const tick = async () => {
+      for (const h of handles) {
+        try {
+          const r = await getTraderTrades(h, after.get(h) ?? 0);
+          if (stop) return;
+          const first = !after.has(h);
+          const top = r.items[0]?.id ?? after.get(h) ?? 0;
+          after.set(h, Math.max(after.get(h) ?? 0, top));
+          if (first) continue;
+          for (const t of [...r.items].reverse()) {
+            const solUsd = ctx.current.solUsd;
+            const m: Msg = {
+              type: "trade",
+              mint: t.mint,
+              symbol: t.symbol || null,
+              sol_usd: solUsd,
+              left: t.side === "sell" ? Math.max(0, t.remaining ?? 0) : undefined,
+              trade: { is_buy: t.side === "buy", wallet: `@${h}`, tokens: t.tokens ?? 0, price_sol: solUsd ? t.price_usd / solUsd : 0 } as unknown as TradeRow,
+            };
+            if (t.side === "buy") {
+              const list = (recent.get(t.mint) ?? []).filter((b) => Date.now() - b.at < 60 * 60_000);
+              list.push({ leader: `@${h}`, at: Date.now() });
+              recent.set(t.mint, list);
+            }
+            queue = queue.then(async () => {
+              const c = ctx.current;
+              for (const cp of getCopies()) {
+                if (cp.status !== "running" || cp.leader !== `@${h}` || cp.venue !== "demo") continue;
+                await (t.side === "buy" ? copyBuy(cp, m, c, recent) : copySell(cp, m, c));
+              }
+            });
+          }
+        } catch {
+          // The next tick tries again.
+        }
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 3_000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, [traders]);
 
   useEffect(() => {
     if (!leaders) return;

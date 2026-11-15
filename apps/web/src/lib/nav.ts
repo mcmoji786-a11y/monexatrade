@@ -15,6 +15,7 @@ import {
   ScanSearch,
   Settings,
   Trophy,
+  Users,
   Wallet,
 } from "lucide-react";
 
@@ -43,6 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Account",
     items: [
       { slug: "portfolio", label: "Portfolio", phase: "Phase 1", icon: ChartPie, live: true },
+      { slug: "community", label: "Community", phase: "Phase 2", icon: Users, live: true },
       { slug: "competition", label: "Competition", phase: "Phase 1", icon: Trophy, live: true },
       { slug: "rewards", label: "Rewards", phase: "Phase 1", icon: Gift, live: true },
     ],
@@ -60,4 +62,4 @@ export const NAV_GROUPS: NavGroup[] = [
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Sections that have their own page and must not use the placeholder route. */
-export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "tracker", "sniper", "rewards", "portfolio", "competition", "settings", "support", "news", "ai"]);
+export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "tracker", "sniper", "rewards", "portfolio", "competition", "settings", "support", "news", "ai", "community"]);

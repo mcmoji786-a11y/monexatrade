@@ -12,6 +12,7 @@ mod devs;
 mod dex;
 mod growth;
 mod settings;
+mod social;
 mod support;
 mod jupiter;
 mod metadata;
@@ -430,6 +431,15 @@ async fn main() -> Result<()> {
         .route("/wallet/{address}/activity", get(activity_handler))
         .with_state(ActivityCtx { app: state.clone(), acct: acct.clone() });
 
+    let social_routes: Router<Arc<AppState>> = Router::new()
+        .route("/social/me", get(social::me).put(social::save_me))
+        .route("/social/u/{handle}", get(social::trader))
+        .route("/social/follow/{handle}", axum::routing::post(social::follow).delete(social::unfollow))
+        .route("/social/feed", get(social::feed))
+        .route("/social/leaders", get(social::leaders))
+        .route("/social/trades/{handle}", get(social::trades))
+        .with_state(social::SocialCtx { acct: acct.clone(), admin: admin_state.clone() });
+
     let account_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/sync", axum::routing::post(account::sync))
         .route("/account/me", get(account::me_handler))
@@ -475,6 +485,7 @@ async fn main() -> Result<()> {
         .merge(news_routes)
         .merge(ai_routes)
         .merge(chat_routes)
+        .merge(social_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)

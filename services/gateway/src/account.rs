@@ -130,7 +130,7 @@ impl AccountState {
         let text = res.text().await.unwrap_or_default();
         if !status.is_success() {
             tracing::warn!(%status, table, "database insert failed");
-            let msg = if text.contains("PGRST205") || text.contains("does not exist") || text.contains("Could not find the table") { "not set up yet: run the latest migration" } else { "database error" };
+            let msg = if text.contains("PGRST205") || text.contains("PGRST202") || text.contains("does not exist") || text.contains("Could not find the table") || text.contains("Could not find the function") { "not set up yet: run the latest migration" } else { "database error" };
             return Err((StatusCode::SERVICE_UNAVAILABLE, msg.into()));
         }
         Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
@@ -198,7 +198,7 @@ impl AccountState {
         if !status.is_success() {
             tracing::warn!(%status, table = path.split('?').next().unwrap_or(""), "database request failed");
             // A migration that has not been run shows up as a missing table (PGRST205).
-            let msg = if text.contains("PGRST205") || text.contains("does not exist") || text.contains("Could not find the table") { "not set up yet: run the latest migration" } else { "database error" };
+            let msg = if text.contains("PGRST205") || text.contains("PGRST202") || text.contains("does not exist") || text.contains("Could not find the table") || text.contains("Could not find the function") { "not set up yet: run the latest migration" } else { "database error" };
             return Err((StatusCode::SERVICE_UNAVAILABLE, msg.into()));
         }
         Ok(serde_json::from_str(&text).unwrap_or(Value::Null))

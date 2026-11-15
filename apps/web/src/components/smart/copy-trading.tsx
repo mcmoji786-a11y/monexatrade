@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -181,7 +182,13 @@ function CopyRow({ c, leader }: { c: Copy; leader: CopyLeader | null }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="flex flex-wrap items-center gap-2 text-sm">
           <span className={`size-1.5 rounded-full ${c.status === "running" ? "bg-emerald" : "bg-muted"}`} />
-          <WalletLink address={c.leader} />
+          {c.leader.startsWith("@") ? (
+            <Link href={`/u/${c.leader.slice(1)}`} className="text-text hover:underline">
+              {c.leader} <span className="text-xs text-muted">Kixo trader</span>
+            </Link>
+          ) : (
+            <WalletLink address={c.leader} />
+          )}
           <span className={`rounded border px-1.5 text-[11px] ${c.venue === "real" ? "border-emerald/30 text-emerald" : "border-warning/30 text-warning"}`}>{c.venue}</span>
           <span className="text-xs text-muted">{c.status === "running" ? "Running" : `Paused${c.pausedWhy ? `: ${c.pausedWhy}` : ""}`}</span>
         </span>

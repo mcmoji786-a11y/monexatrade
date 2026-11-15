@@ -85,7 +85,8 @@ export function useCopies(): Copy[] {
 
 export function addCopy(leader: string, venue: Venue, rules: Partial<CopyRules>): string | null {
   load();
-  if (copies.some((c) => c.leader === leader && c.venue === venue)) return "You already copy this wallet here";
+  if (copies.some((c) => c.leader === leader && c.venue === venue)) return leader.startsWith("@") ? "You already copy this trader" : "You already copy this wallet here";
+  if (leader.startsWith("@") && venue !== "demo") return "Kixo traders are copied on demo";
   if (copies.length >= MAX_COPIES) return `At most ${MAX_COPIES} copies`;
   save([
     { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, leader, venue, rules: { ...DEFAULT_RULES, ...rules }, status: "running", createdAt: Date.now(), positions: {}, realized: 0, buys: 0, sells: 0, buyTimes: [], events: [] },
