@@ -199,6 +199,10 @@ pub struct FeatureFlags {
     pub db_cleanup: bool,
     /// KOL Tracker: named traders' wallets, their trades and the coins they bought (kols.rs).
     pub kol_tracker: bool,
+    /// X Tracker: alerts when chosen X accounts post a contract address (xtrack.rs).
+    pub x_tracker: bool,
+    /// The Kixo AI developer API with keys (devapi.rs).
+    pub dev_api: bool,
 }
 
 impl Default for FeatureFlags {
@@ -258,6 +262,8 @@ impl Default for FeatureFlags {
             sniper_backtest: true,
             db_cleanup: true,
             kol_tracker: true,
+            x_tracker: true,
+            dev_api: true,
         }
     }
 }
@@ -432,6 +438,14 @@ impl AdminState {
     /// Whether the database clean-up runs.
     pub fn db_cleanup(&self) -> bool {
         self.features.lock().expect("features lock").db_cleanup
+    }
+
+    pub fn x_tracker(&self) -> bool {
+        self.features.lock().expect("features lock").x_tracker
+    }
+
+    pub fn dev_api(&self) -> bool {
+        self.features.lock().expect("features lock").dev_api
     }
 
     pub fn kol_tracker(&self) -> bool {

@@ -136,9 +136,8 @@ pub async fn kols(State(c): State<KolCtx>) -> Result<Json<Value>, (StatusCode, S
     Ok(Json(json!({ "kols": out })))
 }
 
-/// `GET /kols/coins`: for each coin a KOL bought in the last 24 hours, which KOLs.
-pub async fn coins(State(c): State<KolCtx>) -> Result<Json<Value>, (StatusCode, String)> {
-    on(&c)?;
+/// For each coin a KOL bought in the last 24 hours, which KOLs (also for the API).
+pub fn coins_now() -> Value {
     let names = by_address();
     let s = seen().lock().expect("kols seen lock");
     let mut out = serde_json::Map::new();
@@ -148,7 +147,13 @@ pub async fn coins(State(c): State<KolCtx>) -> Result<Json<Value>, (StatusCode, 
             out.insert(mint.clone(), Value::Array(list));
         }
     }
-    Ok(Json(json!({ "coins": out })))
+    Value::Object(out)
+}
+
+/// `GET /kols/coins`: for each coin a KOL bought in the last 24 hours, which KOLs.
+pub async fn coins(State(c): State<KolCtx>) -> Result<Json<Value>, (StatusCode, String)> {
+    on(&c)?;
+    Ok(Json(json!({ "coins": coins_now() })))
 }
 
 /// `GET /kols/coin/{mint}`: the KOLs who bought this coin in the last 24 hours.

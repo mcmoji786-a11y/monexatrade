@@ -94,7 +94,7 @@ const PUBLIC = [
   /^\/search$/, /^\/smart-money$/, /^\/token\//, /^\/wallet\/[^/]+\/(activity|balance|kixo-pnl|live|portfolio)$/, /^\/address\//, /^\/img$/,
   /^\/price$/, /^\/competition\/onchain$/, /^\/ai\/(risk|overview|chat)$/, /^\/social\/(feed|leaders|traders|trades\/|u\/)/, /^\/alerts\/status$/,
   /^\/sniper\/backtest$/, /^\/demo\/leaderboard$/, /^\/trade\/(config|sender)$/, /^\/ops\/client-error$/, /^\/track\//, /^\/support\/(diagnose|live|presence|ws)$/,
-  /^\/ws\//, /^\/promo$/,
+  /^\/ws\//, /^\/promo$/, /^\/kols/, /^\/x-tracker\/status$/,
 ];
 const isPublic = (p) => PUBLIC.some((r) => r.test(p));
 const isAdmin = (p) => p.startsWith("/admin/");

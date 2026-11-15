@@ -192,7 +192,7 @@ fn email_ready() -> bool {
     monexa_common::secret("RESEND_API_KEY").is_some()
 }
 
-fn site() -> String {
+pub(crate) fn site() -> String {
     std::env::var("SITE_URL").ok().map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "http://localhost:3000".into())
 }
 
@@ -268,6 +268,14 @@ async fn send(c: &AlertsCtx, row: &Row, title: &str, body: &str, link: Option<St
         }
     }
     out
+}
+
+/// An alert to one user by id, if they have a channel on (X Tracker uses it).
+pub fn notify(c: &AlertsCtx, user: &str, title: String, body: String, link: Option<String>) {
+    let row = mem().lock().expect("alerts lock").rows.get(user).cloned();
+    if let Some(row) = row {
+        alert(c, row, title, body, link);
+    }
 }
 
 /// An alert, within the user's hourly limit, sent in the background.

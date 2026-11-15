@@ -15,7 +15,9 @@ mod settings;
 mod alerts;
 mod cleanup;
 mod cashback;
+mod devapi;
 mod kols;
+mod xtrack;
 mod limits;
 mod notes;
 mod social;
@@ -439,6 +441,7 @@ async fn main() -> Result<()> {
 
     let alerts_ctx = alerts::AlertsCtx { acct: acct.clone(), admin: admin_state.clone(), state: state.clone(), http: state.http.clone() };
     alerts::spawn(alerts_ctx.clone());
+    let alerts_ctx_for_x = alerts_ctx.clone();
     let alerts_routes: Router<Arc<AppState>> = Router::new()
         .route("/alerts/status", get(alerts::status))
         .route("/alerts/me", get(alerts::me).put(alerts::save))
@@ -449,6 +452,22 @@ async fn main() -> Result<()> {
 
     tokio::spawn(social::backfill(acct.clone()));
     tokio::spawn(cleanup::run(acct.clone(), admin_state.clone()));
+    let x_ctx = xtrack::XCtx { acct: acct.clone(), admin: admin_state.clone(), alerts: alerts_ctx_for_x.clone(), http: state.http.clone() };
+    tokio::spawn(xtrack::run(x_ctx.clone()));
+    let x_routes: Router<Arc<AppState>> = Router::new()
+        .route("/x-tracker/status", get(xtrack::status))
+        .route("/x-tracker/me", get(xtrack::me).put(xtrack::save))
+        .with_state(x_ctx);
+    let dev_ctx = devapi::DevCtx { acct: acct.clone(), admin: admin_state.clone() };
+    let dev_routes: Router<Arc<AppState>> = Router::new()
+        .route("/developer/keys", get(devapi::list).post(devapi::create))
+        .route("/developer/keys/{id}", axum::routing::delete(devapi::revoke))
+        .route("/v1/ai/risk", get(devapi::v1_risk))
+        .route("/v1/ai/recent", get(devapi::v1_recent))
+        .route("/v1/kols/coins", get(devapi::v1_kols))
+        .route("/v1/usage", get(devapi::v1_usage))
+        .with_state(dev_ctx);
+
     let kol_ctx = kols::KolCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(kols::run(state.clone()));
     let kol_routes: Router<Arc<AppState>> = Router::new()
@@ -529,6 +548,8 @@ async fn main() -> Result<()> {
         .merge(limits_routes)
         .merge(kol_routes)
         .merge(cashback_routes)
+        .merge(x_routes)
+        .merge(dev_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)

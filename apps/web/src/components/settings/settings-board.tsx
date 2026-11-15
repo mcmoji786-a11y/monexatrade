@@ -12,6 +12,7 @@ import { resetDemo } from "@/lib/demo";
 import { deleteMyAccount, downloadMyData, updateSettings, useSettings, type Settings } from "@/lib/settings";
 import { pushToast } from "@/lib/toast";
 import { AlertChannels } from "@/components/alerts/alert-channels";
+import { DeveloperKeys } from "@/components/settings/developer-keys";
 import { useFeatures } from "@/lib/features";
 import { refreshLimits, useLimits } from "@/components/safety/loss-limit";
 import { startTour } from "@/components/tour/product-tour";
@@ -22,6 +23,7 @@ const SECTIONS = [
   { id: "safety", label: "Safety" },
   { id: "notifications", label: "Notifications" },
   { id: "alerts", label: "Alerts outside Kixo" },
+  { id: "developer", label: "Developer API" },
   { id: "account", label: "Account" },
   { id: "data", label: "Data and privacy" },
   { id: "shortcuts", label: "Shortcuts" },
@@ -148,6 +150,14 @@ export function SettingsBoard() {
               <p className="mt-0.5 text-xs text-text-2">Email, Telegram and Discord, even when Kixo is closed</p>
             </header>
             <AlertChannels />
+          </section>
+
+          <section id="developer" className="scroll-mt-20 rounded-xl border border-border bg-surface">
+            <header className="border-b border-border px-5 py-4">
+              <h2 className="text-sm font-medium text-text">Developer API</h2>
+              <p className="mt-0.5 text-xs text-text-2">Keys for the Kixo AI API</p>
+            </header>
+            <DeveloperKeys />
           </section>
 
           <AccountCard />
