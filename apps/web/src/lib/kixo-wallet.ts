@@ -263,13 +263,24 @@ function readPasskey(): PasskeyLocked | null {
   }
 }
 
-/** Whether this browser can lock the wallet with a passkey (needs the PRF extension). */
+/** What this device calls its built-in unlock, for labels. */
+export function unlockName(): string {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  if (/iPhone|iPad/.test(ua)) return "Face ID";
+  if (/Android/.test(ua)) return "fingerprint";
+  if (/Windows/.test(ua)) return "Windows Hello";
+  if (/Mac/.test(ua)) return "Touch ID";
+  return "fingerprint";
+}
+
+/** Whether this device has its own fingerprint, Face ID or Windows Hello that can lock
+    the wallet (needs the PRF extension). PCs without one only see the password. */
 export async function passkeyAvailable(): Promise<boolean> {
   if (typeof window === "undefined" || !window.PublicKeyCredential || !window.isSecureContext) return false;
   try {
+    if (!(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable())) return false;
     const caps = await (PublicKeyCredential as unknown as { getClientCapabilities?: () => Promise<Record<string, boolean>> }).getClientCapabilities?.();
-    if (caps && "extension:prf" in caps) return !!caps["extension:prf"];
-    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    return caps && "extension:prf" in caps ? !!caps["extension:prf"] : true;
   } catch {
     return false;
   }
@@ -314,7 +325,8 @@ async function passkeyLock(seed: Uint8Array, pubkey: string) {
         { type: "public-key", alg: -7 },
         { type: "public-key", alg: -257 },
       ],
-      authenticatorSelection: { userVerification: "required", residentKey: "preferred" },
+      // This device's own unlock only: no phone QR code or security key prompts.
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
       timeout: 60_000,
       extensions: { prf: { eval: { first: buf(salt) } } } as AuthenticationExtensionsClientInputs,
     },

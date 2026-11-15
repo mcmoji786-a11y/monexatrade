@@ -10,6 +10,7 @@ import {
   enablePasskeyUnlock,
   hasPasskeyUnlock,
   passkeyAvailable,
+  unlockName,
   removePasskeyUnlock,
   unlockWithPasskey,
   exportRecovery,
@@ -188,7 +189,7 @@ function Create({ compact }: { compact: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [supported, setSupported] = useState(true);
   const [pkOk, setPkOk] = useState(false);
-  const [usePk, setUsePk] = useState(true);
+  const [usePk, setUsePk] = useState(false);
 
   useEffect(() => {
     void walletSupported().then(setSupported);
@@ -235,7 +236,7 @@ function Create({ compact }: { compact: boolean }) {
             <label className="flex items-start gap-2 text-sm text-text-2">
               <input type="checkbox" checked={usePk} onChange={(e) => setUsePk(e.target.checked)} className="mt-0.5 accent-emerald" />
               <span>
-                Also open it with fingerprint or Face ID on this device
+                Also open it with {unlockName()} on this device
                 <span className="block text-xs text-muted">One touch instead of the password. The key stays on this device</span>
               </span>
             </label>
@@ -331,7 +332,7 @@ function Unlock({ twoFa }: { twoFa: boolean }) {
         }
       }}
     >
-      <Header title="Unlock your Kixo wallet" sub={pk ? "One touch with fingerprint or Face ID, or your wallet password below" : twoFa ? "Your wallet password, and a code from your email because 2FA is on" : "Enter your wallet password. It stays unlocked until you close this tab"} />
+      <Header title="Unlock your Kixo wallet" sub={pk ? `One touch with ${unlockName()}, or your wallet password below` : twoFa ? "Your wallet password, and a code from your email because 2FA is on" : "Enter your wallet password. It stays unlocked until you close this tab"} />
       {pk && (
         <button
           type="button"
@@ -343,7 +344,7 @@ function Unlock({ twoFa }: { twoFa: boolean }) {
               await unlockWithPasskey();
               void refreshBalance();
             } catch (err) {
-              setError(err instanceof Error && err.name === "NotAllowedError" ? "Fingerprint or Face ID was cancelled" : message(err));
+              setError(err instanceof Error && err.name === "NotAllowedError" ? `${unlockName()} was cancelled` : message(err));
             } finally {
               setPkBusy(false);
             }
@@ -351,7 +352,7 @@ function Unlock({ twoFa }: { twoFa: boolean }) {
           className={`${primary} w-fit`}
         >
           {pkBusy ? <Loader2 size={16} strokeWidth={1.5} className="animate-spin" /> : <Fingerprint size={16} strokeWidth={1.5} />}
-          Unlock with fingerprint or Face ID
+          Unlock with {unlockName()}
         </button>
       )}
       <div className="grid gap-3">
@@ -719,7 +720,7 @@ function Withdraw({ balance }: { balance: number | null }) {
   );
 }
 
-/** Fingerprint / Face ID on this device: shown only where the browser supports it. */
+/** Quick unlock (fingerprint, Face ID, Windows Hello): shown only where this device has one. */
 function PasskeyToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const [ok, setOk] = useState(false);
   const [, setTick] = useState(0);
@@ -738,12 +739,12 @@ function PasskeyToggle({ open, onToggle }: { open: boolean; onToggle: () => void
         if (on) {
           removePasskeyUnlock();
           setOn();
-          pushToast({ tone: "info", title: "Fingerprint unlock turned off on this device", body: "Your wallet password still opens it" });
+          pushToast({ tone: "info", title: "Quick unlock turned off on this device", body: "Your wallet password still opens it" });
         } else onToggle();
       }}
     >
       <Fingerprint size={14} strokeWidth={1.5} className={on ? "text-emerald" : ""} />
-      Fingerprint {on ? "on" : "off"}
+      Quick unlock {on ? "on" : "off"}
     </button>
   );
 }
@@ -764,7 +765,7 @@ function PasskeySetup({ onDone }: { onDone: () => void }) {
         try {
           await enablePasskeyUnlock(pw, sentTo ? code : undefined);
           setPw("");
-          pushToast({ tone: "good", title: "Fingerprint unlock is on", body: "Next time, one touch opens your wallet on this device" });
+          pushToast({ tone: "good", title: "Quick unlock is on", body: "Next time, one touch opens your wallet on this device" });
           onDone();
         } catch (err) {
           if (err instanceof WalletError && err.status === 428) {
@@ -773,13 +774,13 @@ function PasskeySetup({ onDone }: { onDone: () => void }) {
             } catch (e2) {
               setError(message(e2));
             }
-          } else setError(err instanceof Error && err.name === "NotAllowedError" ? "Fingerprint or Face ID was cancelled" : message(err));
+          } else setError(err instanceof Error && err.name === "NotAllowedError" ? `${unlockName()} was cancelled` : message(err));
         } finally {
           setBusy(false);
         }
       }}
     >
-      <p className="text-sm text-text-2">Your wallet password opens the key once, then your fingerprint or Face ID locks a copy on this device only. Kixo never gets it</p>
+      <p className="text-sm text-text-2">Your wallet password opens the key once, then {unlockName()} locks a copy on this device only. Kixo never gets it</p>
       <div>
         <label htmlFor="kw-pk" className="text-xs text-text-2">Wallet password</label>
         <input id="kw-pk" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} className={`${input} mt-2`} />
