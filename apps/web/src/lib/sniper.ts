@@ -318,9 +318,9 @@ export const AI_PRESET = {
     socialsRequired: false,
     skipCopiedSymbols: true,
     skipRepeatRuggers: true,
-    // Strategy Lab (ai/strategy_lab.py), latest check 2026-11-15 after retraining on 60,356
-    // coins: about break-even on unseen coins (-0.2% and +0.1% a trade at 1% cost a side),
-    // against -3% for buying every coin. The AI page shows the latest check to users.
+    // Checked by the Strategy Lab (ai/strategy_lab.py) after every training. The results move
+    // with the market (break-even to about -4% a trade lately, against -3% for buying every
+    // coin), so the AI page shows the latest check to users instead of a fixed number here.
     takeProfitPct: 200,
     stopLossPct: 20,
     trailingPct: 20,
