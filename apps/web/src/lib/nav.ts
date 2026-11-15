@@ -5,7 +5,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Brain,
   ChartPie,
-  ChartCandlestick,
   Compass,
   Crosshair,
   Gift,
@@ -34,7 +33,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Tools",
     items: [
-      { slug: "perps", label: "Perps", phase: "Phase 2", icon: ChartCandlestick, live: true },
       { slug: "sniper", label: "Sniper", phase: "Phase 1", icon: Crosshair, live: true },
       { slug: "ai", label: "Kixo AI", phase: "Phase 2", icon: ScanSearch, live: true },
       { slug: "smart-money", label: "Smart Money", phase: "Phase 1", icon: Brain, live: true },
@@ -64,4 +62,4 @@ export const NAV_GROUPS: NavGroup[] = [
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** Sections that have their own page and must not use the placeholder route. */
-export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "tracker", "sniper", "rewards", "portfolio", "competition", "settings", "support", "news", "ai", "community", "perps"]);
+export const BUILT = new Set(["discover", "radar", "smart-money", "wallets", "tracker", "sniper", "rewards", "portfolio", "competition", "settings", "support", "news", "ai", "community"]);

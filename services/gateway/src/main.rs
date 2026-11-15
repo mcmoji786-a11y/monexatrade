@@ -11,7 +11,6 @@ mod book;
 mod devs;
 mod dex;
 mod growth;
-mod perps;
 mod settings;
 mod social;
 mod support;
@@ -441,15 +440,6 @@ async fn main() -> Result<()> {
         .route("/social/trades/{handle}", get(social::trades))
         .with_state(social::SocialCtx { acct: acct.clone(), admin: admin_state.clone() });
 
-    let perps_ctx = perps::PerpsCtx { acct: acct.clone(), admin: admin_state.clone(), http: state.http.clone() };
-    tokio::spawn(perps::run(perps_ctx.clone()));
-    let perps_routes: Router<Arc<AppState>> = Router::new()
-        .route("/perps/markets", get(perps::markets))
-        .route("/perps/positions", get(perps::positions))
-        .route("/perps/open", axum::routing::post(perps::open))
-        .route("/perps/close", axum::routing::post(perps::close))
-        .with_state(perps_ctx);
-
     let account_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/sync", axum::routing::post(account::sync))
         .route("/account/me", get(account::me_handler))
@@ -497,7 +487,6 @@ async fn main() -> Result<()> {
         .merge(ai_routes)
         .merge(chat_routes)
         .merge(social_routes)
-        .merge(perps_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)

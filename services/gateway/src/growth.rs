@@ -125,7 +125,7 @@ pub async fn claim(State(a): State<Arc<AccountState>>, headers: HeaderMap, Json(
 }
 
 /// "2026-11-07T10:20:30.123+00:00" to unix seconds (UTC, as Postgres sends it).
-pub(crate) fn parse_iso(s: &str) -> Option<i64> {
+fn parse_iso(s: &str) -> Option<i64> {
     let (date, time) = s.split_once('T')?;
     let mut d = date.split('-').map(|p| p.parse::<i64>().ok());
     let (y, m, dd) = (d.next()??, d.next()??, d.next()??);

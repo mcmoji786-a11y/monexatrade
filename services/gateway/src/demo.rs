@@ -322,8 +322,7 @@ pub async fn get_account(State(c): State<DemoCtx>, headers: HeaderMap) -> Result
             opened_at: p["opened_at"].as_str().unwrap_or("").to_string(),
         });
     }
-    // Open demo perps count at what closing them now would return (perps.rs).
-    let equity = cash + positions.iter().map(|p| p.value_usd.unwrap_or(0.0)).sum::<f64>() + crate::perps::open_value(&c.acct, &u.id).await;
+    let equity = cash + positions.iter().map(|p| p.value_usd.unwrap_or(0.0)).sum::<f64>();
     Ok(Json(Account { cash_usd: cash, start_usd: start, round, positions, equity_usd: equity }))
 }
 

@@ -185,8 +185,6 @@ pub struct FeatureFlags {
     pub ai_chat: bool,
     /// Community: trader profiles, follows, the trade feed and copying Kixo traders (social.rs).
     pub social: bool,
-    /// Demo perps on Hyperliquid prices (perps.rs).
-    pub perps: bool,
 }
 
 impl Default for FeatureFlags {
@@ -236,7 +234,6 @@ impl Default for FeatureFlags {
             ai_risk: true,
             ai_chat: true,
             social: true,
-            perps: true,
         }
     }
 }
@@ -356,11 +353,6 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
-    }
-
-    /// Whether demo perps are switched on.
-    pub fn perps(&self) -> bool {
-        self.features.lock().expect("features lock").perps
     }
 
     /// Whether Community (social trading) is switched on.
