@@ -60,7 +60,7 @@ export function liqPrice(side: "long" | "short", entry: number, leverage: number
   return side === "long" ? entry * (1 - 1 / leverage + mm) : entry * (1 + 1 / leverage - mm);
 }
 
-/** A price with sensible decimals for anything from BTC to kPEPE. */
+/** A price with sensible decimals for anything from SOL to kBONK. */
 export function px(v: number) {
   if (!Number.isFinite(v)) return "—";
   const d = v >= 1000 ? 1 : v >= 1 ? 3 : v >= 0.01 ? 5 : 7;

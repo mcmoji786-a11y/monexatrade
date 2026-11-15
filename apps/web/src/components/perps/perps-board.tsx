@@ -17,7 +17,7 @@ export function PerpsBoard() {
   const [markets, setMarkets] = useState<PerpMarket[] | null>(null);
   const [fee, setFee] = useState(0.00045);
   const [err, setErr] = useState<string | null>(null);
-  const [coin, setCoin] = useState("BTC");
+  const [coin, setCoin] = useState("SOL");
   const [q, setQ] = useState("");
   const [pos, setPos] = useState<{ open: PerpOpen[]; closed: PerpClosed[] } | null>(null);
   // Trading needs the database update (migration 0013); prices work without it.
@@ -67,7 +67,7 @@ export function PerpsBoard() {
             <h1 className="text-2xl font-medium text-text">Perps</h1>
             <span className="rounded-md border border-warning/30 px-2 py-0.5 text-xs text-warning">Demo</span>
           </div>
-          <p className="mt-1 text-sm text-text-2">Long or short with leverage on live Hyperliquid prices, with your demo balance, real fees and funding</p>
+          <p className="mt-1 text-sm text-text-2">Long or short on Solana coins with leverage, live Hyperliquid prices, your demo balance, real fees and funding</p>
         </div>
       </div>
 

@@ -34,6 +34,13 @@ const INFO_URL: &str = "https://api.hyperliquid.xyz/info";
 const TAKER_FEE: f64 = 0.000_45;
 const MIN_MARGIN_USD: f64 = 1.0;
 
+/// Kixo is a Solana terminal, so only Solana coins are offered (Hyperliquid names; a "k"
+/// prefix means 1,000 tokens). Anything else on Hyperliquid is left out.
+const SOLANA: &[&str] = &[
+    "SOL", "JUP", "kBONK", "WIF", "PYTH", "JTO", "W", "TNSR", "POPCAT", "BOME", "MOODENG", "GOAT", "PNUT", "ME", "PENGU",
+    "FARTCOIN", "GRIFFAIN", "TRUMP", "MELANIA", "PUMP", "MET", "2Z", "ZETA", "RENDER", "GRASS", "IO", "USELESS", "SKR",
+];
+
 #[derive(Clone, Debug)]
 pub struct Market {
     pub coin: String,
@@ -112,6 +119,9 @@ async fn refresh(http: &reqwest::Client) -> bool {
             continue;
         }
         let Some(coin) = u["name"].as_str() else { continue };
+        if !SOLANA.contains(&coin) {
+            continue;
+        }
         let mark = num(&c["markPx"]);
         if !(mark > 0.0) {
             continue;
@@ -184,7 +194,7 @@ fn market_view(m: &Market) -> Value {
     })
 }
 
-/// `GET /perps/markets`: the 60 busiest markets.
+/// `GET /perps/markets`: the Solana markets, busiest first.
 pub async fn markets(State(c): State<PerpsCtx>) -> Result<Json<Value>, ApiErr> {
     on(&c)?;
     let b = book().lock().expect("perps book");
