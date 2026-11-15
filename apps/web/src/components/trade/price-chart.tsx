@@ -19,6 +19,8 @@ import {
 import { dispose, init, registerYAxis, type Chart, type KLineData } from "klinecharts";
 import { price, usd, type Candle } from "@/lib/gateway";
 import type { BookState } from "./use-token-book";
+import { useSmartWallets } from "@/lib/labels";
+import { useFeatures } from "@/lib/features";
 
 const INTERVALS = [
   { label: "5s", secs: 5 },
@@ -45,9 +47,10 @@ const TOOLS = [
 
 /** Marker letters: D dev, W whale, E early buyer, then B buy or S sell. */
 const MARKS = {
-  dev: { letter: "D", color: "#e0a63e" },
-  whale: { letter: "W", color: "#67e8f9" },
-  sniper: { letter: "E", color: "#e5484d" },
+  dev: { letter: "D", color: "#e0a63e", label: "Creator" },
+  smart: { letter: "S", color: "#e4e4e7", label: "Smart wallet" },
+  whale: { letter: "W", color: "#67e8f9", label: "Whale, 5 SOL or more" },
+  sniper: { letter: "E", color: "#e5484d", label: "Sniper exit" },
 };
 
 type Mode = "mc" | "price";
@@ -128,6 +131,11 @@ export function PriceChart({
   const [unit, setUnit] = useState<Unit>("usd");
   const [tool, setTool] = useState<string | null>(null);
   const [magnet, setMagnet] = useState(false);
+  // Marks: the creator's, smart wallets', whales' trades and sniper exits on the chart.
+  const feat = useFeatures();
+  const smartSet = useSmartWallets();
+  const [marksOn, setMarksOn] = useState(true);
+  const showMarks = feat.chart_marks && marksOn;
   const [indicators, setIndicators] = useState<string[]>([]);
   const [menu, setMenu] = useState(false);
   const [hover, setHover] = useState<KLineData | null>(null);
@@ -312,17 +320,17 @@ export function PriceChart({
     }
   }, [indicators]);
 
-  // Smart markers: dev trades, whale trades and sniper exits, newest 60.
+  // Marks: creator trades, smart wallets, whale trades and sniper exits, newest 60.
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
     c.removeOverlay({ groupId: "marks" });
-    if (!live) return;
+    if (!live || !showMarks) return;
     const scale = (showUnit === "usd" ? (solUsd ?? 1) : 1) / (mode === "price" && tokenSupply ? tokenSupply : 1);
-    const marks = book.trades.filter((t) => t.dev || t.whale || (t.sniper && !t.is_buy)).slice(0, 60);
+    const marks = book.trades.filter((t) => t.dev || smartSet.has(t.wallet) || t.whale || (t.sniper && !t.is_buy)).slice(0, 60);
     for (const t of marks) {
-      const kind = t.dev ? MARKS.dev : t.whale ? MARKS.whale : MARKS.sniper;
-      const color = t.dev ? kind.color : t.is_buy ? "#4cc38a" : "#e5484d";
+      const kind = t.dev ? MARKS.dev : smartSet.has(t.wallet) ? MARKS.smart : t.whale ? MARKS.whale : MARKS.sniper;
+      const color = t.dev || kind === MARKS.smart ? kind.color : t.is_buy ? "#4cc38a" : "#e5484d";
       c.createOverlay({
         name: "simpleAnnotation",
         groupId: "marks",
@@ -336,7 +344,7 @@ export function PriceChart({
         },
       });
     }
-  }, [live, book, interval, mode, showUnit, solUsd, tokenSupply]);
+  }, [live, book, interval, mode, showUnit, solUsd, tokenSupply, showMarks, smartSet]);
 
   // Drawing tools.
   const draw = (name: string | null) => {
@@ -386,6 +394,16 @@ export function PriceChart({
             Indicators <ChevronDown size={12} strokeWidth={1.5} />
           </button>
         </div>
+        {feat.chart_marks && live && (
+          <>
+            <Divider />
+            <span title={`Marks on the chart, B buy and S sell: ${Object.values(MARKS).map((m) => `${m.letter} ${m.label}`).join(", ")}`}>
+              <Toggle on={marksOn} onClick={() => setMarksOn((v) => !v)}>
+                Marks
+              </Toggle>
+            </span>
+          </>
+        )}
         <Divider />
         <Pair a="MC" b="Price" on={mode === "mc" ? 0 : 1} onChange={(i) => setMode(i === 0 ? "mc" : "price")} />
         {(live || dex) && solUsd != null && (

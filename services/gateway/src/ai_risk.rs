@@ -510,3 +510,49 @@ mod tests {
         assert!(!s.pending.contains_key("aiB"));
     }
 }
+
+/* ---------------- Sniper rules on the last 24 hours (ai/backtest.py) ---------------- */
+
+/// One test at a time across the gateway (each walks a day of launches), and one every
+/// five seconds per visitor.
+fn backtest_gate() -> &'static (tokio::sync::Semaphore, std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, Instant>>) {
+    static G: std::sync::OnceLock<(tokio::sync::Semaphore, std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, Instant>>)> = std::sync::OnceLock::new();
+    G.get_or_init(|| (tokio::sync::Semaphore::new(1), std::sync::Mutex::new(std::collections::HashMap::new())))
+}
+
+/// `POST /sniper/backtest`: a sniper rule run on yesterday's real launches.
+pub async fn backtest(
+    State(c): State<AiCtx>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    Json(rule): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    use axum::http::StatusCode;
+    if !c.admin.sniper_backtest() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "The sniper test is switched off right now".into()));
+    }
+    {
+        let mut seen = backtest_gate().1.lock().expect("backtest lock");
+        if seen.get(&addr.ip()).is_some_and(|t| t.elapsed() < Duration::from_secs(5)) {
+            return Err((StatusCode::TOO_MANY_REQUESTS, "One test every few seconds".into()));
+        }
+        if seen.len() > 5_000 {
+            seen.clear();
+        }
+        seen.insert(addr.ip(), Instant::now());
+    }
+    let _permit = tokio::time::timeout(Duration::from_secs(20), backtest_gate().0.acquire())
+        .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Busy with another test. Try again in a moment".to_string()))?
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Busy".to_string()))?;
+    let res = c
+        .app
+        .http
+        .post(format!("{}/backtest", url()))
+        .json(&rule)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "The AI service is not running. Start Kixo with kixo-start".to_string()))?;
+    let v: serde_json::Value = res.json().await.map_err(|_| (StatusCode::BAD_GATEWAY, "Bad answer from the AI service".to_string()))?;
+    Ok(Json(v))
+}

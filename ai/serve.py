@@ -65,6 +65,16 @@ if not boosters:
     sys.exit(f"no models in {MODELS}: run ai\\train_rug.py first")
 
 
+def _predict_many(x):
+    maybe_reload()
+    return {k: b.predict(x) for k, b in boosters.items()}
+
+
+from backtest import Lab  # noqa: E402
+
+lab = Lab(_predict_many)
+
+
 def predict(body):
     maybe_reload()
     t = pd.DataFrame(body.get("trades") or [])
@@ -93,17 +103,24 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path == "/backtest/status":
+            return self._send(200, lab.status())
         if self.path == "/health":
             self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest")})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/predict":
+        if self.path not in ("/predict", "/backtest"):
             return self._send(404, {"error": "not found"})
         n = int(self.headers.get("content-length") or 0)
         if n <= 0 or n > MAX_BODY:
             return self._send(400, {"error": "bad body"})
+        if self.path == "/backtest":
+            try:
+                return self._send(200, lab.run(json.loads(self.rfile.read(n))))
+            except Exception as e:
+                return self._send(400, {"error": str(e)[:200]})
         try:
             body = json.loads(self.rfile.read(n))
             out = predict(body)

@@ -83,6 +83,9 @@ pub async fn today(a: &AccountState, app: &crate::AppState, user: &str) -> Today
 
 /// Err with the user-facing reason when buying is paused for the day.
 pub async fn check_buy(a: &AccountState, app: &crate::AppState, user: &str, demo: bool) -> Result<(), String> {
+    if crate::admin::global().is_some_and(|g| !g.loss_limit()) {
+        return Ok(());
+    }
     let t = today(a, app, user).await;
     let lost = if demo { t.demo_lost } else { t.real_lost };
     if t.limit > 0.0 && lost >= t.limit {

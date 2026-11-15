@@ -12,6 +12,7 @@ import { resetDemo } from "@/lib/demo";
 import { deleteMyAccount, downloadMyData, updateSettings, useSettings, type Settings } from "@/lib/settings";
 import { pushToast } from "@/lib/toast";
 import { AlertChannels } from "@/components/alerts/alert-channels";
+import { useFeatures } from "@/lib/features";
 import { refreshLimits, useLimits } from "@/components/safety/loss-limit";
 import { startTour } from "@/components/tour/product-tour";
 
@@ -32,6 +33,7 @@ const SLIPPAGE = [100, 500, 1000, 2000];
  *  the account, so they apply on every device. */
 export function SettingsBoard() {
   const { settings: s, loaded, save } = useSettings();
+  const feat = useFeatures();
   const t = s.trading;
   const up = (f: (s: Settings) => Settings) => updateSettings(f);
   const trading = (p: Partial<Settings["trading"]>) => up((x) => ({ ...x, trading: { ...x.trading, ...p } }));
@@ -103,13 +105,15 @@ export function SettingsBoard() {
           </Card>
 
           <Card id="safety" title="Safety" sub="Guard rails you set for yourself. They apply to demo and real">
-            <Row label="Daily loss limit" hint="After losing this much in a day, buying stops until your midnight. Selling always works. Demo and real are counted apart">
-              <LossLimitInput value={s.safety.daily_loss_limit_usd} onChange={(v) => safety({ daily_loss_limit_usd: v })} />
-            </Row>
-            <LossToday />
-            <Row label="Ask before buying a Danger coin" hint="When Kixo AI gives a coin a high chance of crashing within the hour">
+            {feat.loss_limit && (
+              <Row label="Daily loss limit" hint="After losing this much in a day, buying stops until your midnight. Selling always works. Demo and real are counted apart">
+                <LossLimitInput value={s.safety.daily_loss_limit_usd} onChange={(v) => safety({ daily_loss_limit_usd: v })} />
+              </Row>
+            )}
+            {feat.loss_limit && <LossToday />}
+            {feat.danger_warning && <Row label="Ask before buying a Danger coin" hint="When Kixo AI gives a coin a high chance of crashing within the hour">
               <Switch on={s.safety.warn_danger} onChange={(v) => safety({ warn_danger: v })} label="Ask before buying a Danger coin" />
-            </Row>
+            </Row>}
           </Card>
 
           <Card id="notifications" title="Notifications" sub="Pop-ups at the bottom right while Kixo is open">

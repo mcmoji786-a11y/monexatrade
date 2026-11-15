@@ -25,6 +25,7 @@ import { launchSignals, rowSignals, safetyScore, type Safety } from "@/lib/safet
 import { SafetyBadge } from "@/components/token/safety-badge";
 import { AiRiskChip } from "@/components/token/ai-risk-chip";
 import { DevRecord } from "@/components/token/dev-record";
+import { NoteButton } from "@/components/notes/note-button";
 import { money, signed } from "./trade-panel";
 import { DockableTrade } from "./floating-trade";
 import { OrdersCard } from "./orders-card";
@@ -311,6 +312,7 @@ function Header({
           <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
           <BigMovesButton book={book} solUsd={solUsd} now={now} />
           <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
+          <NoteButton kind="coin" target={r.mint} label={r.symbol} />
           <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />
           <AiButton input={() => inputFromRow(r)} safety={safety} />
         </div>

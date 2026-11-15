@@ -43,6 +43,12 @@ export type Features = {
   ai_chat: boolean;
   social: boolean;
   tour: boolean;
+  dev_record: boolean;
+  danger_warning: boolean;
+  loss_limit: boolean;
+  notes: boolean;
+  chart_marks: boolean;
+  sniper_backtest: boolean;
   alert_delivery: boolean;
   weekly_recap: boolean;
   achievements: boolean;
@@ -93,6 +99,12 @@ export const ALL_ON: Features = {
   ai_chat: true,
   social: true,
   tour: true,
+  dev_record: true,
+  danger_warning: true,
+  loss_limit: true,
+  notes: true,
+  chart_marks: true,
+  sniper_backtest: true,
   alert_delivery: true,
   weekly_recap: true,
   achievements: true,
@@ -128,6 +140,12 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
   { key: "alert_delivery", label: "Alerts by Email, Telegram, Discord", hint: "Price alerts, Wallet Monitor trades and dev sells on starred coins reach users when Kixo is closed. Telegram needs TELEGRAM_BOT_TOKEN, email needs RESEND_API_KEY (Admin, Keys)" },
+  { key: "dev_record", label: "Creator record", hint: "Trade page: the creator's earlier coins in plain words (launched, rugged, died fast, graduated)" },
+  { key: "danger_warning", label: "Danger question", hint: "One more question before a manual buy of a coin Kixo AI calls Danger. Users can turn it off for themselves" },
+  { key: "loss_limit", label: "Daily loss limit", hint: "Users set a daily loss; after it, buying stops until their midnight (selling always works). Off here: no limit is enforced" },
+  { key: "notes", label: "Notes", hint: "Users' own private notes on coins and wallets, saved to their account (migration 0016)" },
+  { key: "chart_marks", label: "Chart marks", hint: "Trade page chart: small marks where the creator and smart wallets bought or sold" },
+  { key: "sniper_backtest", label: "Sniper test on yesterday", hint: "Sniper page: run your rules on the last 24 hours of real launches and see what would have happened" },
   { key: "tour", label: "Welcome tour", hint: "A one-minute guided tour of the platform for new users, step by step on the real screen. Users can replay it from Settings" },
   { key: "social", label: "Community", hint: "Trader profiles, following traders, the live trade feed, the leaderboard and one-tap copying of Kixo traders (demo trades only)" },
   { key: "ai_chat", label: "Ask Kixo AI: language model", hint: "The AI page's chat answers with a free language model (Gemini, Groq, OpenRouter keys in .env), kept to Solana and crypto. Off: built-in answers from Kixo's data only" },
@@ -177,6 +195,11 @@ function subscribe(l: () => void) {
     setInterval(load, REFRESH_MS);
   }
   return () => listeners.delete(l);
+}
+
+/** The switches outside React (event handlers). */
+export function featuresNow(): Features {
+  return state;
 }
 
 export function useFeatures(): Features {

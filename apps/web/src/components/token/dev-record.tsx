@@ -7,9 +7,11 @@ import { History, ShieldAlert, ShieldCheck } from "lucide-react";
 import type { DevReport } from "@/lib/gateway";
 import { usd } from "@/lib/gateway";
 import { WalletLink } from "@/components/tracker/wallet-tracker";
+import { useFeatures } from "@/lib/features";
 
 export function DevRecord({ report: d, creator }: { report: DevReport | null | undefined; creator: string }) {
-  if (!d) return null;
+  const f = useFeatures();
+  if (!d || !f.dev_record) return null;
   const bad = d.rugged > 0;
   const weak = !bad && d.coins >= 3 && d.died_fast >= d.coins * 0.8;
   const good = !bad && !weak && d.graduated > 0;

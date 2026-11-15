@@ -6,6 +6,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { ShieldAlert } from "lucide-react";
 import { aiScoreOf, pct, verdict } from "@/lib/ai-risk";
 import { getSettings } from "@/lib/settings";
+import { featuresNow } from "@/lib/features";
 
 type Ask = { symbol: string; dump: number; resolve: (ok: boolean) => void };
 let ask: Ask | null = null;
@@ -17,7 +18,7 @@ const set = (a: Ask | null) => {
 
 /** true: go ahead. Asks only when the AI calls this coin Danger and the warning is on. */
 export function confirmDanger(mint: string, symbol: string): Promise<boolean> {
-  if (!getSettings().safety.warn_danger) return Promise.resolve(true);
+  if (!featuresNow().danger_warning || !getSettings().safety.warn_danger) return Promise.resolve(true);
   const s = aiScoreOf(mint);
   if (!s || verdict(s).key !== "danger") return Promise.resolve(true);
   ask?.resolve(false);

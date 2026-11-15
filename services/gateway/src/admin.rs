@@ -189,6 +189,12 @@ pub struct FeatureFlags {
     pub alert_delivery: bool,
     /// The welcome tour for new users (web components/tour).
     pub tour: bool,
+    pub dev_record: bool,
+    pub danger_warning: bool,
+    pub loss_limit: bool,
+    pub notes: bool,
+    pub chart_marks: bool,
+    pub sniper_backtest: bool,
 }
 
 impl Default for FeatureFlags {
@@ -240,6 +246,12 @@ impl Default for FeatureFlags {
             social: true,
             alert_delivery: true,
             tour: true,
+            dev_record: true,
+            danger_warning: true,
+            loss_limit: true,
+            notes: true,
+            chart_marks: true,
+            sniper_backtest: true,
         }
     }
 }
@@ -334,6 +346,13 @@ pub struct AdminState {
 const APPLY_PER_HOUR: usize = 3;
 const MAX_APPLICATIONS: usize = 5_000;
 
+static GLOBAL: std::sync::OnceLock<Arc<AdminState>> = std::sync::OnceLock::new();
+
+/// The admin switches, for code with no admin context at hand (None before start-up).
+pub fn global() -> Option<&'static Arc<AdminState>> {
+    GLOBAL.get()
+}
+
 impl AdminState {
     /// Whether real-money trading is switched on in the admin.
     pub fn real_trading(&self) -> bool {
@@ -398,11 +417,23 @@ impl AdminState {
         Some(self.features.lock().expect("features lock").fee_wallet.trim().to_string()).filter(|w| !w.is_empty())
     }
 
+    /// Whether the daily loss limit is enforced (limits.rs).
+    /// Whether the sniper test on the last 24 hours is on.
+    pub fn sniper_backtest(&self) -> bool {
+        self.features.lock().expect("features lock").sniper_backtest
+    }
+
+    pub fn loss_limit(&self) -> bool {
+        self.features.lock().expect("features lock").loss_limit
+    }
+
     pub fn load() -> Arc<Self> {
         let rewards = std::fs::read(REWARDS_FILE).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let applications = std::fs::read(APPLICATIONS_FILE).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let features = std::fs::read(FEATURES_FILE).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Arc::new(Self { rewards: Mutex::new(rewards), features: Mutex::new(features), applications: Mutex::new(applications), recent: Mutex::new(HashMap::new()) })
+        let s = Arc::new(Self { rewards: Mutex::new(rewards), features: Mutex::new(features), applications: Mutex::new(applications), recent: Mutex::new(HashMap::new()) });
+        let _ = GLOBAL.set(s.clone());
+        s
     }
 }
 

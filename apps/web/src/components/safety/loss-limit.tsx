@@ -7,6 +7,7 @@ import { GATEWAY_HTTP } from "@/lib/gateway";
 import { accessToken, useAccount } from "@/lib/account";
 import { useMode } from "@/lib/demo";
 import { useSettings } from "@/lib/settings";
+import { useFeatures } from "@/lib/features";
 
 export type Limits = { limit_usd: number; demo_lost_usd: number; real_lost_usd: number; demo_blocked: boolean; real_blocked: boolean; resets_at: number };
 
@@ -39,7 +40,8 @@ export function LossLimitBar() {
   const { settings } = useSettings();
   const mode = useMode();
   const l = useLimits();
-  const on = auth.status === "signed-in" && settings.safety.daily_loss_limit_usd > 0;
+  const f = useFeatures();
+  const on = f.loss_limit && auth.status === "signed-in" && settings.safety.daily_loss_limit_usd > 0;
 
   useEffect(() => {
     if (!on) return;

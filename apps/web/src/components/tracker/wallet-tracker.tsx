@@ -1,4 +1,5 @@
 "use client";
+import { NoteButton } from "@/components/notes/note-button";
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -298,6 +299,7 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
           </p>
         </div>
         <div className="flex gap-2">
+          <NoteButton kind="wallet" target={address} label={headerLabels[0] ?? ""} />
           <button
             type="button"
             onClick={() => {
