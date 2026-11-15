@@ -17,6 +17,7 @@ export function CommunityBoard() {
   const signedIn = auth.status === "signed-in";
   const [me, setMe] = useState<Me | null>(null);
   const [setupErr, setSetupErr] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState<"traders" | "feed" | "leaders" | null>(null);
 
   const loadMe = useCallback(() => {
@@ -55,6 +56,16 @@ export function CommunityBoard() {
           <p className="mt-1 text-xs text-muted">Pick a handle. Others can then follow you and see your demo trades. No email or wallet is ever shown</p>
           <ProfileForm onSaved={loadMe} />
         </section>
+      ) : me?.profile && editing ? (
+        <section className="rounded-xl border border-border bg-surface px-5 py-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-text">Edit your profile</h2>
+            <button type="button" onClick={() => setEditing(false)} className="text-xs text-text-2 hover:text-text">
+              Cancel
+            </button>
+          </div>
+          <ProfileForm initial={me.profile} onSaved={() => (setEditing(false), loadMe())} />
+        </section>
       ) : me?.profile ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface px-5 py-4">
           <TraderAvatar handle={me.profile.handle} size={40} />
@@ -64,8 +75,11 @@ export function CommunityBoard() {
               @{me.profile.handle} · <FollowCounts handle={me.profile.handle} followers={me.followers} following={me.following} />{!me.profile.public && " · private"}
             </p>
           </div>
+          <button type="button" onClick={() => setEditing(true)} className="flex h-9 items-center rounded-lg border border-border px-3 text-sm text-text transition-colors hover:bg-surface-2">
+            Edit profile
+          </button>
           <Link href={`/u/${me.profile.handle}`} className="flex h-9 items-center rounded-lg border border-border px-3 text-sm text-text transition-colors hover:bg-surface-2">
-            Your profile
+            Your page
           </Link>
         </div>
       ) : null}

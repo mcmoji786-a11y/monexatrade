@@ -75,11 +75,84 @@ fn public_view(p: &Value) -> Value {
     json!({ "handle": p["handle"], "display_name": p["display_name"], "bio": p["bio"], "public": p["public"], "created_at": p["created_at"] })
 }
 
-/// `GET /social/me`: the caller's profile (null before they make one) and follow counts.
+/* ---------------- A profile for every account ---------------- */
+
+/// Handle words: none contains a reserved word (valid_handle), longest pair fits 20.
+const ADJ: &[&str] = &["swift", "lucky", "quiet", "bold", "sharp", "early", "calm", "rapid", "clever", "steady", "brave", "sunny", "lunar", "solar", "golden", "silver", "green", "frosty", "wild", "prime"];
+const NOUN: &[&str] = &["falcon", "otter", "tiger", "whale", "raven", "comet", "fox", "lynx", "panda", "eagle", "shark", "wolf", "hawk", "bison", "koala", "orca", "heron", "cobra", "gecko", "puma"];
+
+fn title(w: &str) -> String {
+    let mut c = w.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
+/// Gives an account its trader profile if it has none: a random handle such as
+/// "swift_falcon_4821", public, which the user can change any time. Returns the profile.
+/// No email, name or wallet is used, so nothing personal becomes public.
+pub async fn ensure_profile(a: &AccountState, user: &str) -> Option<Value> {
+    if let Ok(Some(p)) = profile_by_user(a, user).await {
+        return Some(p);
+    }
+    let rng = ring::rand::SystemRandom::new();
+    for _ in 0..6 {
+        let mut b = [0u8; 4];
+        ring::rand::SecureRandom::fill(&rng, &mut b).ok()?;
+        let (adj, noun) = (ADJ[b[0] as usize % ADJ.len()], NOUN[b[1] as usize % NOUN.len()]);
+        let n = u16::from_le_bytes([b[2], b[3]]) % 9000 + 1000;
+        let handle = format!("{adj}_{noun}_{n}");
+        if !valid_handle(&handle) {
+            continue;
+        }
+        let row = json!({ "user_id": user, "handle": handle, "display_name": format!("{} {}", title(adj), title(noun)), "bio": "", "public": true });
+        // A plain insert: it never replaces a profile made meanwhile (the user's own edit).
+        let saved = a.rest(reqwest::Method::POST, "trader_profiles", Some(row)).await;
+        if let Ok(Some(p)) = profile_by_user(a, user).await {
+            return Some(p);
+        }
+        if saved.is_ok() {
+            return None;
+        }
+        // Taken handle: try another.
+    }
+    None
+}
+
+/// At start: every existing account without a profile gets one.
+pub async fn backfill(a: Arc<AccountState>) {
+    let have: std::collections::HashSet<String> = match a.rest(reqwest::Method::GET, "trader_profiles?select=user_id&limit=100000", None).await {
+        Ok(v) => v.as_array().into_iter().flatten().filter_map(|r| r["user_id"].as_str().map(String::from)).collect(),
+        Err(_) => return,
+    };
+    let mut made = 0;
+    for page in 1..=200 {
+        let Ok(users) = a.list_auth_users(page, 1000).await else { break };
+        if users.is_empty() {
+            break;
+        }
+        for u in &users {
+            if let Some(id) = u["id"].as_str().filter(|id| !have.contains(*id)) {
+                if ensure_profile(&a, id).await.is_some() {
+                    made += 1;
+                }
+            }
+        }
+        if users.len() < 1000 {
+            break;
+        }
+    }
+    if made > 0 {
+        tracing::info!(made, "trader profiles made for existing accounts");
+    }
+}
+
+/// `GET /social/me`: the caller's profile (made on first visit if missing) and follow counts.
 pub async fn me(State(c): State<SocialCtx>, headers: HeaderMap) -> Result<Json<Value>, ApiErr> {
     on(&c)?;
     let u = c.acct.user(&headers).await?;
-    let p = profile_by_user(&c.acct, &u.id).await?;
+    let p = match profile_by_user(&c.acct, &u.id).await? {
+        Some(p) => Some(p),
+        None => ensure_profile(&c.acct, &u.id).await,
+    };
     let followers = count(&c.acct, &format!("follows?leader=eq.{}", u.id)).await;
     // Who the caller follows, by handle, so Follow buttons everywhere show the truth.
     let leaders: Vec<String> = c
@@ -401,5 +474,22 @@ mod tests {
         assert!(!valid_handle("kixo_team"));
         assert!(!valid_handle("realadmin"));
         assert!(!valid_handle("a_very_long_handle_over_twenty"));
+    }
+}
+
+#[cfg(test)]
+mod auto_handle_tests {
+    use super::*;
+
+    #[test]
+    fn every_generated_handle_is_valid() {
+        for a in ADJ {
+            for n in NOUN {
+                for num in [1000, 9999] {
+                    let h = format!("{a}_{n}_{num}");
+                    assert!(valid_handle(&h), "{h}");
+                }
+            }
+        }
     }
 }

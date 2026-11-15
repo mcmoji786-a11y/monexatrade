@@ -354,6 +354,8 @@ pub async fn sync(State(a): State<Arc<AccountState>>, headers: HeaderMap) -> Res
     let p = if existing.is_none() || row.get("wallet").is_some() { a.upsert(fix_now(row)).await? } else { existing.unwrap_or_default() };
     // Every account gets its referral code (also its leaderboard name) from the start.
     let _ = crate::growth::own_code(&a, &u.id).await;
+    // And its Community profile (a random handle the user can change).
+    let _ = crate::social::ensure_profile(&a, &u.id).await;
     Ok(Json(me(&u, &p)))
 }
 

@@ -442,6 +442,7 @@ async fn main() -> Result<()> {
         .route("/alerts/test", axum::routing::post(alerts::test))
         .with_state(alerts_ctx);
 
+    tokio::spawn(social::backfill(acct.clone()));
     let social_routes: Router<Arc<AppState>> = Router::new()
         .route("/social/me", get(social::me).put(social::save_me))
         .route("/social/u/{handle}", get(social::trader))
