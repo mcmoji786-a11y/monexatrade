@@ -22,7 +22,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from features import FEATURES, WINDOW, features, prepare
+from features import WINDOW, WalletBook, features, prepare
 from train_rug import ALL_TRADE_COLS, GzStream, gz_text
 
 DATA = os.environ.get("KIXO_DATA", "E:/KixoData/live")
@@ -100,6 +100,9 @@ class Lab:
         t = t.drop_duplicates(["ts", "mint", "wallet", "side", "sol_lamports"])
         end = float(t.ts.max())
         start_from = end - SPAN
+        # The wallet record as it stood two days before the end of the training data, so
+        # the day being tested never informs its own scores.
+        lag_book = WalletBook.load(os.path.join(os.environ.get("KIXO_AI", "E:/KixoAI/models"), "wallet_book_lag.json"))
         created = pd.to_numeric(c.ts, errors="coerce")
         out = []
         feats = []
@@ -157,12 +160,12 @@ class Lab:
                 "pump": None,
             }
             early_df = g[g.ts <= born + WINDOW]
-            f = features(early_df, creator, str(c.launchpad.get(mint, "")), card) if len(early_df) >= 3 else None
+            f = features(early_df, creator, str(c.launchpad.get(mint, "")), card, lag_book) if len(early_df) >= 3 else None
             if f is not None:
                 feats.append((len(out), f))
             out.append(coin)
         if feats:
-            x = pd.DataFrame([f for _, f in feats])[FEATURES]
+            x = pd.DataFrame([f for _, f in feats])
             preds = self.predictor(x)
             for j, (i, _) in enumerate(feats):
                 out[i]["dump"] = float(preds["dump"][j])

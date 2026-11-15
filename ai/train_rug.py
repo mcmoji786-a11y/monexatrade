@@ -21,7 +21,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(__file__))
-from features import FEATURES, WINDOW, features, prepare  # noqa: E402
+from features import FEATURES, WINDOW, WalletBook, early_buyers, features, model_columns, prepare  # noqa: E402
 
 DATA = os.environ.get("KIXO_DATA", "E:/KixoData/live")
 OUT = os.environ.get("KIXO_AI", "E:/KixoAI/models")
@@ -126,41 +126,84 @@ def trade_result(later, entry):
     return (last / entry) * (1 - COST) / (1 + COST) - 1
 
 
-def main():
-    print("loading trades...", flush=True)
-    t = load("trades")
-    coins = load("coins")
-    cards = load_cards()
-    print(f"  {len(t):,} trades, {len(coins):,} coins, {len(cards):,} cards", flush=True)
-    t = prepare(t.drop_duplicates("key").drop(columns=["key"]))
-    coins = coins.drop_duplicates("mint").set_index("mint")
-    end_of_data = t.ts.max()
+def compact(t):
+    """Wallets as numbers (millions of repeated strings would not fit in memory), coins
+    and sides as categories. Returns the frame and the wallet names, by number."""
+    codes, names = pd.factorize(t["wallet"])
+    t["wallet"] = codes.astype("int32")
+    for c in ("mint", "side"):
+        if c in t.columns:
+            t[c] = t[c].astype("category")
+    return t, names
 
-    rows = []
-    for mint, g in t.groupby("mint", sort=False):
+
+def build_rows(t, coins, cards, end_of_data, keep_paths=False, lag_path=None, names=None):
+    """Every coin with a full first hour, as features and outcomes, in time order.
+
+    The wallet record (WalletBook) is filled strictly in time order: when a coin is
+    judged, only coins whose hour had already ended count. With `lag_path`, the record as
+    it stood two days before the end of the data is saved there (the 24-hour backtest uses
+    it, so it never sees the outcomes of the coins it tests)."""
+    code_of = {n: i for i, n in enumerate(names)} if names is not None else None
+    base = []
+    for mint, g in t.groupby("mint", sort=False, observed=True):
         start = g.ts.iloc[0]
         cut = start + WINDOW
         if cut + HORIZON > end_of_data:
             continue
         early = g[g.ts <= cut]
-        f = features(early, coins.creator.get(mint), str(coins.launchpad.get(mint, "")), cards.get(mint))
+        creator = code_of.get(coins.creator.get(mint), -1) if code_of is not None else coins.creator.get(mint)
+        f = features(early, creator, str(coins.launchpad.get(mint, "")), cards.get(mint))
         if f is None:
             continue
         p0 = early.price.iloc[-1]
         later = g[(g.ts > cut) & (g.ts <= cut + HORIZON)]
         lo = later.price.min() if len(later) else p0
         hi = later.price.max() if len(later) else p0
-        f.update({"mint": mint, "start": start, "dump": int(lo <= DUMP * p0), "pump": int(hi >= PUMP * p0), "ret": trade_result(later, p0)})
-        rows.append(f)
-    df = pd.DataFrame(rows).sort_values("start")
+        f.update({"mint": mint, "start": start, "dump": int(lo <= DUMP * p0), "pump": int(hi >= PUMP * p0), "ret": trade_result(later, p0), "_buyers": early_buyers(early, creator)})
+        if keep_paths:
+            f.update({"entry": float(p0), "t": (later.ts.values - cut).astype(float), "p": later.price.values.astype(float)})
+        base.append(f)
+    base.sort(key=lambda r: r["start"])
+    book = WalletBook()
+    lag_cut = end_of_data - 2 * 86_400
+    lag_saved = False
+    for r in base:
+        book.advance(r["start"])
+        if lag_path and not lag_saved and r["start"] >= lag_cut:
+            book.save(lag_path, names)
+            lag_saved = True
+        r.update(book.features(r["_buyers"]))
+        book.add_later(r["start"] + WINDOW + HORIZON, r.pop("_buyers"), r["pump"], r["dump"])
+    book.advance(float("inf"))
+    if lag_path and not lag_saved:
+        book.save(lag_path, names)
+    return pd.DataFrame(base), book
+
+
+def main():
+    print("loading trades...", flush=True)
+    t = load("trades")
+    coins = load("coins")
+    cards = load_cards()
+    print(f"  {len(t):,} trades, {len(coins):,} coins, {len(cards):,} cards", flush=True)
+    t, names = compact(t.drop_duplicates("key").drop(columns=["key"]))
+    t = prepare(t)
+    coins = coins.drop_duplicates("mint").set_index("mint")
+    end_of_data = t.ts.max()
+
+    os.makedirs(OUT, exist_ok=True)
+    df, book = build_rows(t, coins, cards, end_of_data, lag_path=f"{OUT}/wallet_book_lag.json", names=names)
+    del t
+    kept = book.save(f"{OUT}/wallet_book.json", names)
+    print(f"  wallet record: {kept:,} wallets with 2+ earlier coins", flush=True)
     print(f"  {len(df):,} coins with a full first hour", flush=True)
     if len(df) < 500:
         sys.exit("not enough coins yet")
 
     split = df.start.quantile(0.75)
     tr, te = df[df.start <= split], df[df.start > split].copy()
-    report = {"trained": datetime.now(timezone.utc).isoformat(), "coins": len(df), "train": len(tr), "test": len(te), "window_s": WINDOW, "horizon_s": HORIZON, "targets": {}}
-    os.makedirs(OUT, exist_ok=True)
+    report = {"trained": datetime.now(timezone.utc).isoformat(), "coins": len(df), "train": len(tr), "test": len(te), "window_s": WINDOW, "horizon_s": HORIZON, "features": len(FEATURES), "targets": {}}
     stamp = datetime.now().strftime("%Y%m%d")
     for target in ("dump", "pump"):
         model = lgb.LGBMClassifier(n_estimators=400, learning_rate=0.05, num_leaves=31, min_child_samples=40, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, verbose=-1)

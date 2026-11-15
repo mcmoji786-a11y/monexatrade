@@ -20,7 +20,7 @@ import lightgbm as lgb
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from features import FEATURES, WINDOW, features, prepare  # noqa: E402
+from features import WINDOW, WalletBook, features, model_columns, prepare  # noqa: E402
 
 MODELS = os.environ.get("KIXO_AI", "E:/KixoAI/models")
 PORT = int(os.environ.get("KIXO_AI_PORT", "8090"))
@@ -28,6 +28,7 @@ MAX_BODY = 4 << 20
 
 boosters = {}
 report = {}
+book = WalletBook()
 loaded_at = 0.0
 checked_at = 0.0
 lock = threading.Lock()
@@ -36,7 +37,7 @@ lock = threading.Lock()
 def load_models():
     """Loads the latest models, and again whenever train_rug.py writes new ones, so a
     retrain needs no restart. A half-written file keeps the models already loaded."""
-    global boosters, report, loaded_at
+    global boosters, report, loaded_at, book
     try:
         stamp = max(os.path.getmtime(f"{MODELS}/{t}_latest.txt") for t in ("dump", "pump"))
         if stamp <= loaded_at or time.time() - stamp < 10:
@@ -47,6 +48,7 @@ def load_models():
         except (OSError, ValueError):
             rep = {}
         boosters, report, loaded_at = fresh, rep, stamp
+        book = WalletBook.load(f"{MODELS}/wallet_book.json")
         print(f"models loaded (trained {rep.get('trained', '?')})", flush=True)
     except Exception as e:  # keep serving the old models
         print(f"model reload skipped: {e}", flush=True)
@@ -89,7 +91,7 @@ def strategy_summary():
 
 def _predict_many(x):
     maybe_reload()
-    return {k: b.predict(x) for k, b in boosters.items()}
+    return {k: b.predict(x[model_columns(b)]) for k, b in boosters.items()}
 
 
 from backtest import Lab  # noqa: E402
@@ -106,11 +108,11 @@ def predict(body):
     if t.empty:
         return None
     early = t[t.ts <= t.ts.iloc[0] + WINDOW]
-    f = features(early, body.get("creator"), body.get("launchpad") or "", body.get("card"))
+    f = features(early, body.get("creator"), body.get("launchpad") or "", body.get("card"), book)
     if f is None:
         return None
-    x = pd.DataFrame([f])[FEATURES]
-    out = {k: round(float(b.predict(x)[0]), 4) for k, b in boosters.items()}
+    x = pd.DataFrame([f])
+    out = {k: round(float(b.predict(x[model_columns(b)])[0]), 4) for k, b in boosters.items()}
     out["trades"] = int(len(early))
     return out
 
