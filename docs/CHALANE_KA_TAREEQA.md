@@ -77,3 +77,10 @@ AI ki training isi data par hogi.
 2. PC ka address dekhein: PowerShell mein `ipconfig` → "IPv4 Address" (jaise `192.168.1.5`).
 3. Phone par kholein: `http://<woh address>:3000`. App khud usi PC ke gateway (port 8080) se judti hai.
 4. Na khule to Windows Firewall mein Node.js aur `monexa-gateway.exe` ko "Private network" par allow karein.
+
+## Admin kholna (khufia pata)
+- `scripts\kixo-admin.cmd` chalayein: admin browser mein khulta hai aur admin key clipboard par aa jati hai. Admin page par Ctrl+V karke Sign in.
+- Admin ka pata khufia hai (`apps\web\.env.local` mein `ADMIN_PATH`). `/admin-preview` ya `/admin` par ab "not found" aata hai.
+- Admin sirf isi PC se khulta hai (`.env` mein `ADMIN_ALLOWED_IPS`). Server par apna IP ya VPN daalein.
+- 5 ghalat keys par woh address 30 minute ke liye band ho jata hai, aur yeh log mein likha jata hai.
+- Pata ya key kabhi chat ya kisi ko na bhejein. Shak ho to `.env` mein `ADMIN_TOKEN` aur `.env.local` mein `ADMIN_PATH` badal kar website aur gateway restart karein.

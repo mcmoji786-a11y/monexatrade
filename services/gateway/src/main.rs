@@ -4,6 +4,7 @@
 
 mod account;
 mod admin;
+mod admin_guard;
 mod demo;
 mod presence;
 mod book;
@@ -474,6 +475,8 @@ async fn main() -> Result<()> {
         .merge(news_routes)
         .merge(ai_routes)
         .merge(chat_routes)
+        // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
+        .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
