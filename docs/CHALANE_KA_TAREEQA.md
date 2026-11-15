@@ -93,7 +93,7 @@ AI ki training isi data par hogi.
 
 ## Automatic tests
 - Kixo chal raha ho to `apps\web` folder mein: `pnpm test:e2e`
-- Sirf kuch hisse: `pnpm test:e2e demo alerts` (groups: health, demo, lossLimit, community, alerts, notes, backtest)
+- Sirf kuch hisse: `pnpm test:e2e demo alerts` (groups: health, demo, lossLimit, community, alerts, notes, devApi, xTracker, backtest)
 - Har test ke liye ek temporary account banta hai aur test ke baad delete ho jata hai. Jis hisse ki SQL migration nahi chali, woh "SKIP" dikhata hai.
 
 ## Security test

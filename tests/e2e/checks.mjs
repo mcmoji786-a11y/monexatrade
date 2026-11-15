@@ -100,6 +100,55 @@ export const groups = {
     check("empty note deletes it", r[0] === 200 && !(await A("/notes"))[1].includes("Bought on the dip"));
   },
 
+  async devApi() {
+    const A = await tempUser("api");
+    let r = await A("/developer/keys");
+    if (notSetUp(r[1])) return skip("developer API", "run supabase/migrations/0017_x_tracker_api_keys.sql");
+    check("keys list loads", r[0] === 200, r[1]);
+    r = await A("/developer/keys", "POST", { name: "e2e bot" });
+    const key = json(r[1])?.key;
+    check("a key is made and shown once", r[0] === 200 && /^kixo_[0-9a-f]{40}$/.test(key ?? ""), r[1]);
+    const list = json((await A("/developer/keys"))[1])?.keys ?? [];
+    check("the list shows only the prefix, never the key", list.length === 1 && !JSON.stringify(list).includes(key), JSON.stringify(list));
+    const call = (p, k = key) => fetch(GW + p, { headers: { "x-api-key": k } }).then(async (x) => [x.status, await x.text()]);
+    r = await call(`/v1/ai/risk?mints=${BONK}`);
+    check("/v1/ai/risk answers with the key", r[0] === 200 && r[1].includes(BONK), r[1]);
+    r = await call("/v1/ai/recent?minutes=30");
+    check("/v1/ai/recent answers", r[0] === 200 && Array.isArray(json(r[1])?.coins), r[1].slice(0, 120));
+    r = await call("/v1/kols/coins");
+    check("/v1/kols/coins answers", r[0] === 200, r[1].slice(0, 80));
+    r = await call("/v1/usage");
+    check("usage counts the calls", r[0] === 200 && json(r[1])?.calls_today >= 3, r[1]);
+    r = await call(`/v1/ai/risk?mints=${BONK}`, "kixo_" + "0".repeat(40));
+    check("a made-up key is refused", r[0] === 401, r[0]);
+    r = await fetch(`${GW}/v1/ai/risk?mints=${BONK}`).then((x) => x.status);
+    check("no key is refused", r === 401, r);
+    const B = await tempUser("api2");
+    r = await B(`/developer/keys/${list[0]?.id}`, "DELETE");
+    check("another user cannot revoke the key", r[0] === 404, r[0]);
+    r = await A(`/developer/keys/${list[0]?.id}`, "DELETE");
+    check("the owner revokes it", r[0] === 200, r[1]);
+    r = await call(`/v1/ai/risk?mints=${BONK}`);
+    check("a revoked key stops at once", r[0] === 401, r[0]);
+  },
+
+  async xTracker() {
+    const A = await tempUser("xt");
+    let r = await A("/x-tracker/me");
+    if (notSetUp(r[1])) return skip("X Tracker", "run supabase/migrations/0017_x_tracker_api_keys.sql");
+    check("X Tracker loads", r[0] === 200, r[1]);
+    r = await A("/x-tracker/me", "PUT", { accounts: ["@Solana", "https://x.com/pumpdotfun", "solana"] });
+    check("accounts saved, cleaned and de-duplicated", r[0] === 200 && JSON.stringify(json(r[1])?.accounts) === '["solana","pumpdotfun"]', r[1]);
+    r = await A("/x-tracker/me", "PUT", { accounts: ["bad-handle!"] });
+    check("a bad handle is refused", r[0] === 400, r[1]);
+    r = await A("/x-tracker/me", "PUT", { accounts: Array.from({ length: 11 }, (_, i) => `acc${i}`) });
+    check("more than 10 accounts refused", r[0] === 400, r[1]);
+    r = await A("/x-tracker/me");
+    check("the saved list comes back", r[0] === 200 && json(r[1])?.accounts?.length === 2, r[1]);
+    const st = await fetch(`${GW}/x-tracker/status`).then((x) => x.json());
+    check("status counts the followed accounts", st.accounts >= 2, JSON.stringify(st));
+  },
+
   async backtest() {
     const st = await fetch("http://127.0.0.1:8090/backtest/status").then((r) => r.json()).catch(() => null);
     if (!st) return skip("sniper test", "the AI service is not running");
