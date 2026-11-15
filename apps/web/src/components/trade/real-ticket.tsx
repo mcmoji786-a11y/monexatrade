@@ -1,4 +1,5 @@
 "use client";
+import { confirmDanger } from "@/components/safety/danger-confirm";
 
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Loader2, ShieldCheck } from "lucide-react";
@@ -67,6 +68,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
 
   async function submit() {
     if (!cfg || !wallet) return;
+    if (side === "buy" && !(await confirmDanger(mint, symbol))) return;
     setResult(null);
     setQErr(null);
     setStage("building");

@@ -13,6 +13,8 @@ export type Settings = {
   demo: { buy_presets_usd: number[]; quick_buy_usd: number };
   notifications: { trades: boolean; exits: boolean; sniper: boolean; sound: boolean };
   general: { start_mode: "last" | "demo" | "real" };
+  /** Daily loss limit in USD (0: off), where the day starts (minutes east of UTC), and the Danger question. */
+  safety: { daily_loss_limit_usd: number; day_offset_min: number; warn_danger: boolean };
 };
 
 export const DEFAULTS: Settings = {
@@ -20,6 +22,7 @@ export const DEFAULTS: Settings = {
   demo: { buy_presets_usd: [10, 50, 100, 500], quick_buy_usd: 25 },
   notifications: { trades: true, exits: true, sniper: true, sound: false },
   general: { start_mode: "last" },
+  safety: { daily_loss_limit_usd: 0, day_offset_min: 0, warn_danger: true },
 };
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
@@ -40,6 +43,7 @@ function merge(s: Partial<Settings> | null | undefined): Settings {
     demo: { ...DEFAULTS.demo, ...s?.demo },
     notifications: { ...DEFAULTS.notifications, ...s?.notifications },
     general: { ...DEFAULTS.general, ...s?.general },
+    safety: { ...DEFAULTS.safety, ...s?.safety },
   };
 }
 

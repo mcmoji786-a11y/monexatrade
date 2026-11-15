@@ -1,4 +1,5 @@
 "use client";
+import { confirmDanger } from "@/components/safety/danger-confirm";
 
 import { useState } from "react";
 import { Loader2, Zap } from "lucide-react";
@@ -33,6 +34,7 @@ export function QuickBuy({ mint, symbol, className = "" }: { mint: string; symbo
       pushToast({ tone: "info", title: "Quick Buy", body: why ?? "Not available" });
       return;
     }
+    if (!(await confirmDanger(mint, symbol))) return;
     setBusy(true);
     try {
       const f = await execute(venue, { mint, symbol, side: "buy", ...(venue === "demo" ? { usd: amount } : { sol: amount }), solUsd, source: "quick" });

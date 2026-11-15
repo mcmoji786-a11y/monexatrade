@@ -3,7 +3,7 @@
 import { setStreamer, useStreamer } from "@/lib/streamer";
 
 import { useKixoWallet } from "@/lib/kixo-wallet";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Download, Loader2, LogOut, TriangleAlert } from "lucide-react";
 import { signOut, signOutEverywhere, useAccount } from "@/lib/account";
@@ -12,11 +12,13 @@ import { resetDemo } from "@/lib/demo";
 import { deleteMyAccount, downloadMyData, updateSettings, useSettings, type Settings } from "@/lib/settings";
 import { pushToast } from "@/lib/toast";
 import { AlertChannels } from "@/components/alerts/alert-channels";
+import { refreshLimits, useLimits } from "@/components/safety/loss-limit";
 import { startTour } from "@/components/tour/product-tour";
 
 const SECTIONS = [
   { id: "trading", label: "Trading" },
   { id: "demo", label: "Demo account" },
+  { id: "safety", label: "Safety" },
   { id: "notifications", label: "Notifications" },
   { id: "alerts", label: "Alerts outside Kixo" },
   { id: "account", label: "Account" },
@@ -34,6 +36,8 @@ export function SettingsBoard() {
   const up = (f: (s: Settings) => Settings) => updateSettings(f);
   const trading = (p: Partial<Settings["trading"]>) => up((x) => ({ ...x, trading: { ...x.trading, ...p } }));
   const notes = (p: Partial<Settings["notifications"]>) => up((x) => ({ ...x, notifications: { ...x.notifications, ...p } }));
+  // The day starts at the user's own midnight: the browser's offset goes with the limit.
+  const safety = (p: Partial<Settings["safety"]>) => up((x) => ({ ...x, safety: { ...x.safety, ...p, day_offset_min: -new Date().getTimezoneOffset() } }));
 
   return (
     <section className="flex flex-col gap-6">
@@ -95,6 +99,16 @@ export function SettingsBoard() {
             </Row>
             <Row label="Start over" hint="Back to $10,000. Past trades stay in your history">
               <ResetDemo />
+            </Row>
+          </Card>
+
+          <Card id="safety" title="Safety" sub="Guard rails you set for yourself. They apply to demo and real">
+            <Row label="Daily loss limit" hint="After losing this much in a day, buying stops until your midnight. Selling always works. Demo and real are counted apart">
+              <LossLimitInput value={s.safety.daily_loss_limit_usd} onChange={(v) => safety({ daily_loss_limit_usd: v })} />
+            </Row>
+            <LossToday />
+            <Row label="Ask before buying a Danger coin" hint="When Kixo AI gives a coin a high chance of crashing within the hour">
+              <Switch on={s.safety.warn_danger} onChange={(v) => safety({ warn_danger: v })} label="Ask before buying a Danger coin" />
             </Row>
           </Card>
 
@@ -161,6 +175,65 @@ function SaveBadge({ state, loaded }: { state: string; loaded: boolean }) {
       {state === "saving" || !loaded ? <Loader2 size={14} strokeWidth={1.5} className="animate-spin" /> : state === "error" ? <TriangleAlert size={14} strokeWidth={1.5} /> : <Check size={14} strokeWidth={1.5} className="text-emerald" />}
       {text}
     </span>
+  );
+}
+
+/** USD amount, 0 or empty for off. Saved when the field loses focus or on Enter. */
+function LossLimitInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number(draft.replace(/[$,\s]/g, ""));
+    onChange(Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0);
+    setDraft(null);
+  };
+  return (
+    <div className="flex items-center gap-2">
+      <label className="flex h-8 w-32 items-center rounded-lg border border-border bg-bg px-2.5 focus-within:border-emerald/50">
+        <span className="text-sm text-muted">$</span>
+        <input
+          value={draft ?? (value > 0 ? String(value) : "")}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+          placeholder="Off"
+          inputMode="decimal"
+          aria-label="Daily loss limit in USD"
+          className="min-w-0 flex-1 bg-transparent px-1 font-mono text-sm text-text outline-none placeholder:font-sans placeholder:text-muted"
+        />
+      </label>
+      {value > 0 && (
+        <button type="button" onClick={() => onChange(0)} className="text-xs text-muted hover:text-text">
+          Turn off
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Today's realized loss against the limit, demo and real. */
+function LossToday() {
+  const { settings } = useSettings();
+  const l = useLimits();
+  const on = settings.safety.daily_loss_limit_usd > 0;
+  useEffect(() => {
+    if (on) void refreshLimits();
+  }, [on, settings.safety.daily_loss_limit_usd]);
+  if (!on || !l) return null;
+  const line = (k: string, lost: number, blocked: boolean) => (
+    <span className="flex items-baseline gap-1.5">
+      <span className="text-muted">{k}</span>
+      <span className={`font-mono ${blocked ? "text-negative" : "text-text"}`}>${lost.toFixed(2)}</span>
+      <span className="text-muted">of ${l.limit_usd}</span>
+      {blocked && <span className="text-negative">paused</span>}
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap gap-x-6 gap-y-1 px-5 py-3 text-xs">
+      <span className="text-text-2">Lost today</span>
+      {line("Demo", l.demo_lost_usd, l.demo_blocked)}
+      {line("Real", l.real_lost_usd, l.real_blocked)}
+    </div>
   );
 }
 

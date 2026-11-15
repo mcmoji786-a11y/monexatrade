@@ -24,6 +24,7 @@ import { useTokenBook, type BookState } from "./use-token-book";
 import { launchSignals, rowSignals, safetyScore, type Safety } from "@/lib/safety";
 import { SafetyBadge } from "@/components/token/safety-badge";
 import { AiRiskChip } from "@/components/token/ai-risk-chip";
+import { DevRecord } from "@/components/token/dev-record";
 import { money, signed } from "./trade-panel";
 import { DockableTrade } from "./floating-trade";
 import { OrdersCard } from "./orders-card";
@@ -78,6 +79,7 @@ export function TokenView() {
   return (
     <div className="terminal flex flex-col pb-16 lg:pb-0">
       <Header row={row} launch={launch} market={market} now={now} book={book} solUsd={feed.solUsd} safety={safety} />
+      {launch && <DevRecord report={launch.dev_report} creator={launch.creator} />}
 
       <div className="flex flex-col lg:flex-row">
         <div className="flex min-w-0 flex-1 flex-col">

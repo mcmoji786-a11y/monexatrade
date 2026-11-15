@@ -548,6 +548,11 @@ async fn quote_inner(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Jso
     if (!c.t.allowlist.is_empty() || !admin_list.is_empty()) && !c.t.allowlist.contains(&q.wallet) && !admin_list.contains(&q.wallet) {
         return Err(err(StatusCode::FORBIDDEN, "allowlist", "Real trading is open to selected wallets for now", "Use the demo account meanwhile"));
     }
+    if q.side == "buy" {
+        if let Err(m) = crate::limits::check_buy(&c.acct, &c.app, &user.id, false).await {
+            return Err(err(StatusCode::FORBIDDEN, "loss_limit", &m, "Selling still works"));
+        }
+    }
     {
         let mut t = c.t.throttle.lock().expect("throttle lock");
         if t.get(&user.id).is_some_and(|at| at.elapsed() < Duration::from_millis(400)) {

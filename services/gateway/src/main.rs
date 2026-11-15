@@ -13,6 +13,7 @@ mod dex;
 mod growth;
 mod settings;
 mod alerts;
+mod limits;
 mod social;
 mod support;
 mod jupiter;
@@ -454,6 +455,10 @@ async fn main() -> Result<()> {
         .route("/social/trades/{handle}", get(social::trades))
         .with_state(social::SocialCtx { acct: acct.clone(), admin: admin_state.clone() });
 
+    let limits_routes: Router<Arc<AppState>> = Router::new()
+        .route("/account/limits", get(limits::get))
+        .with_state(limits::LimitsCtx { acct: acct.clone(), app: state.clone() });
+
     let account_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/sync", axum::routing::post(account::sync))
         .route("/account/me", get(account::me_handler))
@@ -502,6 +507,7 @@ async fn main() -> Result<()> {
         .merge(chat_routes)
         .merge(social_routes)
         .merge(alerts_routes)
+        .merge(limits_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)

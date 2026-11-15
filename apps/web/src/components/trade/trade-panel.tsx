@@ -1,4 +1,5 @@
 "use client";
+import { confirmDanger } from "@/components/safety/danger-confirm";
 
 import { openShareCard, type ShareTrade } from "@/lib/share";
 import { pctOf, usePlatform } from "@/lib/platform";
@@ -71,6 +72,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
   }, [demo, valid, side, value, mint, held]);
 
   async function submit() {
+    if (side === "buy" && !(await confirmDanger(mint, symbol))) return;
     setBusy(true);
     // When the position was opened, for the share card's "Held" figure.
     const openedAt = held?.opened_at ?? null;

@@ -370,6 +370,9 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
             if usd < MIN_ORDER_USD {
                 return Err((StatusCode::BAD_REQUEST, "minimum order is $1".into()));
             }
+            if !o.preview {
+                crate::limits::check_buy(&c.acct, &c.app, &u.id, true).await.map_err(|m| (StatusCode::FORBIDDEN, m))?;
+            }
             if usd > cash + 1e-9 {
                 return Err((StatusCode::BAD_REQUEST, format!("not enough demo balance (${cash:.2} available)")));
             }

@@ -85,6 +85,24 @@ impl Default for General {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Safety {
+    /// Buying stops for the rest of the day after losing this many USD (0: off). Demo and
+    /// real are counted apart; selling always works (limits.rs).
+    pub daily_loss_limit_usd: f64,
+    /// Where the user's day starts: minutes east of UTC, from the browser.
+    pub day_offset_min: i32,
+    /// Ask once more before buying a coin Kixo AI calls Danger.
+    pub warn_danger: bool,
+}
+
+impl Default for Safety {
+    fn default() -> Self {
+        Self { daily_loss_limit_usd: 0.0, day_offset_min: 0, warn_danger: true }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Settings {
@@ -92,6 +110,7 @@ pub struct Settings {
     pub demo: Demo,
     pub notifications: Notifications,
     pub general: General,
+    pub safety: Safety,
 }
 
 fn presets(v: &[f64], min: f64, max: f64, most: usize, fallback: &[f64]) -> Vec<f64> {
@@ -119,6 +138,9 @@ impl Settings {
         t.quick_buy_sol = if t.quick_buy_sol.is_finite() { t.quick_buy_sol.clamp(0.001, crate::trade::MAX_LAMPORTS as f64 / 1e9) } else { d.trading.quick_buy_sol };
         self.demo.quick_buy_usd = if self.demo.quick_buy_usd.is_finite() { self.demo.quick_buy_usd.clamp(1.0, 10_000.0) } else { d.demo.quick_buy_usd };
         self.demo.buy_presets_usd = presets(&self.demo.buy_presets_usd, 1.0, 10_000.0, 4, &d.demo.buy_presets_usd);
+        let lim = self.safety.daily_loss_limit_usd;
+        self.safety.daily_loss_limit_usd = if lim.is_finite() { (lim.clamp(0.0, 1_000_000.0) * 100.0).round() / 100.0 } else { 0.0 };
+        self.safety.day_offset_min = self.safety.day_offset_min.clamp(-720, 840);
         if !matches!(self.general.start_mode.as_str(), "last" | "demo" | "real") {
             self.general.start_mode = d.general.start_mode;
         }
@@ -127,6 +149,15 @@ impl Settings {
 }
 
 type ApiErr = (StatusCode, String);
+
+/// A user's saved settings, defaults filled in (defaults if none or unreadable).
+pub async fn load(a: &AccountState, user: &str) -> Settings {
+    a.rest(reqwest::Method::GET, &format!("user_settings?user_id=eq.{user}&select=settings"), None)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().and_then(|r| r.first()).and_then(|r| serde_json::from_value::<Settings>(r["settings"].clone()).ok()))
+        .unwrap_or_default()
+}
 
 /// `GET /account/settings`: the user's settings, defaults filled in.
 pub async fn get(State(a): State<Arc<AccountState>>, headers: HeaderMap) -> Result<Json<Settings>, ApiErr> {
@@ -209,8 +240,11 @@ mod tests {
             demo: Demo { buy_presets_usd: vec![], quick_buy_usd: f64::NAN },
             notifications: Notifications::default(),
             general: General { start_mode: "moon".into() },
+            safety: Safety { daily_loss_limit_usd: -50.0, day_offset_min: 5_000, warn_danger: false },
         }
         .clamp();
+        assert_eq!(wild.safety.daily_loss_limit_usd, 0.0, "a negative limit is off");
+        assert_eq!(wild.safety.day_offset_min, 840);
         assert_eq!(wild.trading.slippage_bps, 5_000);
         assert_eq!(wild.trading.speed, "turbo");
         assert!(!wild.trading.mev, "a valid choice is kept");

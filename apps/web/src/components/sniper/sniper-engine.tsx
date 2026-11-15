@@ -116,6 +116,9 @@ function announce(events: SniperEvent[], s: { notifyToast: boolean; notifySound:
   if (s.notifySound) chime(events.some((e) => e.kind === "buy"));
 }
 
+/** When the daily loss limit was last announced, so it is said once per half hour. */
+let limitToldAt = 0;
+
 /** Demo: every buy and sell is a demo order, and its real fill replaces the estimate. */
 async function toDemo(e: SniperEvent, solUsd: number | null, toast: boolean) {
   const p = e.position;
@@ -148,7 +151,15 @@ async function toDemo(e: SniperEvent, solUsd: number | null, toast: boolean) {
   } catch (err) {
     if (e.kind === "buy") dropPosition(p.id);
     else recordFill(p.id, { error: orderError(err) });
-    pushToast({ tone: "bad", title: `Sniper demo ${e.kind} not filled: ${p.symbol || "coin"}`, body: orderError(err) });
+    const text = orderError(err);
+    if (/Daily loss limit/.test(text)) {
+      if (Date.now() - limitToldAt > 30 * 60_000) {
+        limitToldAt = Date.now();
+        pushToast({ tone: "bad", title: "Sniper paused for today", body: text });
+      }
+      return;
+    }
+    pushToast({ tone: "bad", title: `Sniper demo ${e.kind} not filled: ${p.symbol || "coin"}`, body: text });
   }
 }
 
