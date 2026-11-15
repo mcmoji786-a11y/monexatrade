@@ -122,7 +122,23 @@ export function WalletPanel({ compact = false }: { compact?: boolean }) {
 export function KixoWalletCard() {
   useWalletSync();
   const w = useKixoWallet();
+  const [unlocking, setUnlocking] = useState(false);
   if (w.status === "signed-out") return null;
+  // Locked: a short line, not the whole form. Balances below need no password; it is
+  // asked only to deposit, withdraw or trade.
+  if (w.status === "locked" && !w.recovery && !unlocking) {
+    return (
+      <section className="flex max-w-xl flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-3">
+        <p className="flex items-center gap-2 text-sm text-text-2">
+          <Lock size={14} strokeWidth={1.5} className="text-muted" />
+          Kixo wallet locked. Unlock it to deposit, withdraw or trade
+        </p>
+        <button type="button" onClick={() => setUnlocking(true)} className="h-8 rounded-lg border border-border px-3 text-xs text-text hover:bg-surface-2">
+          Unlock
+        </button>
+      </section>
+    );
+  }
   return (
     <section className="max-w-xl rounded-xl border border-border bg-surface p-5">
       <WalletPanel />
