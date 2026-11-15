@@ -101,3 +101,9 @@ AI ki training isi data par hogi.
 - Sirf kuch hisse: `node tests/security/run.mjs B H` (A routes, B admin, C doosre user ka data, D kharab input, E kharab address, F injection aur SSRF, G CORS, H Supabase, I website, J git history)
 - Nateeja `tests/security/last-report.json` mein likha jata hai. Yeh file git mein nahi jati.
 - Admin ki ghalat-key koshishen 5 se kam rakhi gayi hain aur aakhir mein sahi key se count saaf ho jata hai, is liye admin lock nahi hota.
+
+## Data aur AI: khud chalne wala nizam
+- **Live data**: gateway har naya coin aur har trade `E:\KixoData\live` mein likhta hai (taqreeban 6 lakh trades rozana).
+- **Purana data**: `.env` mein `HISTORY_BACKFILL=1` aur `HISTORY_TPS=6`. Yeh sirf muft data-nodes (Alchemy, QuickNode, public) se padhta hai, Helius kabhi nahi. Quota khatam ho to 15 minute ruk kar dobara koshish karta hai. Data `E:\KixoData\history` mein jata hai.
+- **Raat ko training**: ek baar `scripts\kixo-ai-nightly-install.cmd` par double-click karein. Har raat 4 baje AI dobara train hogi aur Strategy Lab chalegi, lekin sirf tab jab 4 GB RAM khaali ho. Log: `E:\KixoData\logs\ai-nightly.log`.
+- **Strategy Library**: Admin → Strategies. YouTube ka transcript, GitHub ka link ya X thread paste karein, ya "Search GitHub" dabayein. AI rule banata hai, hamare asli data par test karta hai, aur har din dobara test karta hai. Sirf publish ki hui strategies users ko Sniper page par dikhti hain, hamesha un ke nateejon ke saath.

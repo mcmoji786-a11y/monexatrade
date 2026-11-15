@@ -53,6 +53,7 @@ export type Features = {
   kol_tracker: boolean;
   x_tracker: boolean;
   dev_api: boolean;
+  strategy_library: boolean;
   alert_delivery: boolean;
   weekly_recap: boolean;
   achievements: boolean;
@@ -113,6 +114,7 @@ export const ALL_ON: Features = {
   kol_tracker: true,
   x_tracker: true,
   dev_api: true,
+  strategy_library: true,
   alert_delivery: true,
   weekly_recap: true,
   achievements: true,
@@ -154,6 +156,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "notes", label: "Notes", hint: "Users' own private notes on coins and wallets, saved to their account (migration 0016)" },
   { key: "chart_marks", label: "Chart marks", hint: "Trade page chart: small marks where the creator and smart wallets bought or sold" },
   { key: "x_tracker", label: "X Tracker", hint: "Users pick X accounts; a post with a Solana contract address shows on the page and alerts them. Reading X needs X_BEARER_TOKEN on a paid X API plan (at most 40 accounts read)" },
+  { key: "strategy_library", label: "Strategy Library", hint: "Strategies from YouTube, GitHub and X turned into sniper rules (Admin, Strategies), tested on real launches daily; users see published ones on the Sniper page" },
   { key: "dev_api", label: "Kixo AI API", hint: "Developer API keys (Settings) and /v1 endpoints: AI scores, recent scores, KOL coins. 60 calls a minute, 10,000 a day per key" },
   { key: "kol_tracker", label: "KOL Tracker", hint: "Well-known traders' wallets (Admin, KOLs), their live trades, and a KOL badge on coins they bought" },
   { key: "db_cleanup", label: "Database clean-up", hint: "Every 6 hours, demo trades made by the sniper, copy trading and grids older than 60 days are deleted (DEMO_AUTO_KEEP_DAYS), so the free database does not fill up. Manual trades, balances and real trades stay" },

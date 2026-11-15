@@ -160,6 +160,11 @@ pub struct AiCtx {
     pub admin: Arc<crate::admin::AdminState>,
 }
 
+/// The AI service's address (strategies.rs uses it for backtests).
+pub fn service_url() -> String {
+    url()
+}
+
 fn url() -> String {
     std::env::var("AI_URL").ok().filter(|u| !u.trim().is_empty()).unwrap_or_else(|| "http://127.0.0.1:8090".into())
 }

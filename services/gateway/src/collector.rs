@@ -274,13 +274,15 @@ async fn history(state: Arc<crate::AppState>, dir: PathBuf) {
     let tps: f64 = std::env::var("HISTORY_TPS").ok().and_then(|v| v.trim().parse().ok()).filter(|v: &f64| *v > 0.0 && *v <= 50.0).unwrap_or(4.0);
     let cursor_file = dir.join("history").join("cursor.txt");
     let _ = fs::create_dir_all(dir.join("history"));
-    let mut before: Option<String> = fs::read_to_string(&cursor_file).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    // History reads go to the data-collection nodes (FALLBACK_RPC_URLS: Alchemy, QuickNode,
-    // ...), taking turns, so the live app keeps Helius. The public node and then the
-    // app's own router are the last resort.
+    let mut before: Option<String> = fs::read_to_string(&cursor_file).ok().map(|s| s.trim_matches(|c: char| c.is_whitespace() || c == '\0').to_string()).filter(|s| valid_cursor(s));
+    if before.is_none() && cursor_file.exists() {
+        tracing::warn!("history backfill: the saved cursor was damaged, starting from the newest transactions");
+    }
+    // History reads go only to the data-collection nodes (FALLBACK_RPC_URLS: Alchemy,
+    // QuickNode, ...) and the public node, taking turns. Never Helius: its credits are the
+    // live app's. When every node is out of quota the backfill rests and tries later.
     let mut urls: Vec<String> = monexa_common::fallback_rpc_urls().into_iter().filter(|u| u != monexa_common::PUBLIC_RPC).collect();
     urls.push(monexa_common::PUBLIC_RPC.to_string());
-    urls.push(state.config.helius_rpc_url());
     let nodes = urls.len();
     let mut turn = 0usize;
     tracing::info!(tps, nodes, resume = before.is_some(), "history backfill on");
@@ -289,9 +291,14 @@ async fn history(state: Arc<crate::AppState>, dir: PathBuf) {
     loop {
         let url = urls[turn % nodes].clone();
         let Some(page) = crate::rpc::signatures_page(&state.http, &url, pumpfun::PROGRAM_ID, before.as_deref(), 200).await else {
-            // This node failed or is out of quota: the next one.
+            // This node failed or is out of quota: the next one. A full round of failures
+            // means every node is out for now: rest 15 minutes.
             turn += 1;
-            tokio::time::sleep(Duration::from_secs(if turn % nodes == 0 { 30 } else { 2 })).await;
+            let full_round = turn % nodes == 0;
+            if full_round {
+                tracing::info!("history backfill: every node refused, resting 15 minutes");
+            }
+            tokio::time::sleep(Duration::from_secs(if full_round { 900 } else { 2 })).await;
             continue;
         };
         let Some(last) = page.last().map(|p| p.0.clone()) else {
@@ -345,8 +352,19 @@ async fn history(state: Arc<crate::AppState>, dir: PathBuf) {
             }
         }
         before = Some(last.clone());
-        let _ = fs::write(&cursor_file, &last);
+        // Written to a side file and renamed over, so a power cut never leaves a half
+        // written cursor (it once left only zero bytes, and every read then failed).
+        let tmp = cursor_file.with_extension("tmp");
+        if fs::write(&tmp, &last).is_ok() {
+            let _ = fs::rename(&tmp, &cursor_file);
+        }
     }
+}
+
+/// A saved cursor is a transaction signature: 64 bytes in base58. Anything else (a file
+/// damaged by a power cut) means starting again from the newest transactions.
+fn valid_cursor(s: &str) -> bool {
+    bs58::decode(s).into_vec().is_ok_and(|b| b.len() == 64)
 }
 
 fn json(kind: &'static str, v: &serde_json::Value) {
@@ -522,5 +540,18 @@ mod tests {
         MultiGzDecoder::new(fs::File::open(&p).expect("read")).read_to_string(&mut s).expect("decode");
         assert_eq!(s, "ts,x\n1,a\n2,b\n");
         let _ = fs::remove_file(&p);
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::valid_cursor;
+
+    #[test]
+    fn damaged_cursors_are_refused() {
+        assert!(!valid_cursor(""));
+        assert!(!valid_cursor("\0\0\0\0"));
+        assert!(!valid_cursor("not-a-signature"));
+        assert!(valid_cursor("5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW"));
     }
 }

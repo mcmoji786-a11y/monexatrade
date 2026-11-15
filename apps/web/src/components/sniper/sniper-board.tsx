@@ -2,6 +2,7 @@
 
 import { useSniperAccount } from "./sniper-engine";
 import { SniperBacktest } from "./sniper-backtest";
+import { StrategyLibrary } from "./strategy-library";
 import Link from "next/link";
 import { Crosshair, Image as ImageIcon, RotateCcw, X } from "lucide-react";
 import { openShareCard } from "@/lib/share";
@@ -119,6 +120,7 @@ export function SniperBoard() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex flex-col gap-6">
           <SniperBacktest s={s} solUsd={solUsd} />
+          <StrategyLibrary />
           <Positions title="Open snipes" list={open} price={price} now={now} solUsd={solUsd} onClose={(p) => sn.close(p.id, price(p.mint) ?? p.entryPrice)} empty={s.enabled ? <ScanStatus /> : "Turn the sniper on to start"} />
           <Positions title="History" list={closed} price={price} now={now} solUsd={solUsd} empty="No closed snipes yet" action={closed.length ? <button type="button" onClick={sn.clearHistory} className="text-xs text-muted hover:text-text">Clear</button> : null} />
         </div>

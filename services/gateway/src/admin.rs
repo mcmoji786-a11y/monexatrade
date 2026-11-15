@@ -203,6 +203,8 @@ pub struct FeatureFlags {
     pub x_tracker: bool,
     /// The Kixo AI developer API with keys (devapi.rs).
     pub dev_api: bool,
+    /// Strategy Library: outside strategies turned into rules and tested daily (strategies.rs).
+    pub strategy_library: bool,
 }
 
 impl Default for FeatureFlags {
@@ -264,6 +266,7 @@ impl Default for FeatureFlags {
             kol_tracker: true,
             x_tracker: true,
             dev_api: true,
+            strategy_library: true,
         }
     }
 }
@@ -442,6 +445,10 @@ impl AdminState {
 
     pub fn x_tracker(&self) -> bool {
         self.features.lock().expect("features lock").x_tracker
+    }
+
+    pub fn strategy_library(&self) -> bool {
+        self.features.lock().expect("features lock").strategy_library
     }
 
     pub fn dev_api(&self) -> bool {

@@ -12,6 +12,7 @@ mod devs;
 mod dex;
 mod growth;
 mod settings;
+mod strategies;
 mod alerts;
 mod cleanup;
 mod cashback;
@@ -468,6 +469,17 @@ async fn main() -> Result<()> {
         .route("/v1/usage", get(devapi::v1_usage))
         .with_state(dev_ctx);
 
+    let strat_ctx = strategies::StratCtx { http: state.http.clone(), admin: admin_state.clone() };
+    tokio::spawn(strategies::run(strat_ctx.clone()));
+    let strat_routes: Router<Arc<AppState>> = Router::new()
+        .route("/strategies", get(strategies::list_public))
+        .route("/admin/strategies", get(strategies::admin_list))
+        .route("/admin/strategies/extract", axum::routing::post(strategies::admin_extract))
+        .route("/admin/strategies/github", axum::routing::post(strategies::admin_github))
+        .route("/admin/strategies/{id}", axum::routing::put(strategies::admin_edit).delete(strategies::admin_delete))
+        .route("/admin/strategies/{id}/test", axum::routing::post(strategies::admin_test))
+        .with_state(strat_ctx);
+
     let kol_ctx = kols::KolCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(kols::run(state.clone()));
     let kol_routes: Router<Arc<AppState>> = Router::new()
@@ -550,6 +562,7 @@ async fn main() -> Result<()> {
         .merge(cashback_routes)
         .merge(x_routes)
         .merge(dev_routes)
+        .merge(strat_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)

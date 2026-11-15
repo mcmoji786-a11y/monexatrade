@@ -69,6 +69,31 @@ fn providers() -> Vec<Provider> {
     .collect()
 }
 
+/// One answer from the first free provider that gives one (for background jobs such as
+/// turning a strategy write-up into rules); None when all are busy or none is set up.
+pub async fn complete(http: &reqwest::Client, system: &str, user: &str, max_tokens: u32) -> Option<String> {
+    for p in providers() {
+        let mut req = json!({
+            "model": p.model,
+            "messages": [{ "role": "system", "content": system }, { "role": "user", "content": user }],
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+        });
+        if let Some(e) = p.effort {
+            req["reasoning_effort"] = json!(e);
+        }
+        let Ok(r) = http.post(p.url).bearer_auth(&p.key).timeout(Duration::from_secs(60)).json(&req).send().await else { continue };
+        if !r.status().is_success() {
+            tracing::warn!(provider = p.name, status = r.status().as_u16(), "LLM job: provider refused");
+            continue;
+        }
+        if let Some(text) = r.json::<Value>().await.ok().and_then(|v| v["choices"][0]["message"]["content"].as_str().map(|t| t.trim().to_string())).filter(|t| !t.is_empty()) {
+            return Some(text);
+        }
+    }
+    None
+}
+
 #[derive(Default)]
 struct Limits {
     visitors: HashMap<IpAddr, VecDeque<Instant>>,
