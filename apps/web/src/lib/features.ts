@@ -42,6 +42,7 @@ export type Features = {
   ai_risk: boolean;
   ai_chat: boolean;
   social: boolean;
+  perps: boolean;
   weekly_recap: boolean;
   achievements: boolean;
   milestone_alerts: boolean;
@@ -90,6 +91,7 @@ export const ALL_ON: Features = {
   ai_risk: true,
   ai_chat: true,
   social: true,
+  perps: true,
   weekly_recap: true,
   achievements: true,
   milestone_alerts: true,
@@ -123,6 +125,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "milestone_alerts", label: "2x, 5x, 10x alerts", hint: "An alert with a share card when an open demo position reaches 2x, 5x, 10x and more" },
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
+  { key: "perps", label: "Perps (demo)", hint: "Long or short with leverage on Hyperliquid's live prices, from the demo balance: fees, funding and liquidation like the real thing" },
   { key: "social", label: "Community", hint: "Trader profiles, following traders, the live trade feed, the leaderboard and one-tap copying of Kixo traders (demo trades only)" },
   { key: "ai_chat", label: "Ask Kixo AI: language model", hint: "The AI page's chat answers with a free language model (Gemini, Groq, OpenRouter keys in .env), kept to Solana and crypto. Off: built-in answers from Kixo's data only" },
   { key: "ai_risk", label: "Kixo AI risk", hint: "Sol Radar and the trade page: the trained model's chance a new coin dumps 70%+ or doubles within an hour, judged from its first 2 minutes. Needs the AI service (ai/serve.py)" },
@@ -183,6 +186,7 @@ export const PAGE_FLAG: Record<string, keyof Features> = {
   radar: "radar",
   ai: "ai_risk",
   community: "social",
+  perps: "perps",
   u: "social",
   token: "trade_page",
   sniper: "sniper",
