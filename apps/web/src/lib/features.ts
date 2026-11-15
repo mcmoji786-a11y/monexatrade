@@ -42,6 +42,7 @@ export type Features = {
   ai_risk: boolean;
   ai_chat: boolean;
   social: boolean;
+  tour: boolean;
   alert_delivery: boolean;
   weekly_recap: boolean;
   achievements: boolean;
@@ -91,6 +92,7 @@ export const ALL_ON: Features = {
   ai_risk: true,
   ai_chat: true,
   social: true,
+  tour: true,
   alert_delivery: true,
   weekly_recap: true,
   achievements: true,
@@ -126,6 +128,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
   { key: "alert_delivery", label: "Alerts by Email, Telegram, Discord", hint: "Price alerts, Wallet Monitor trades and dev sells on starred coins reach users when Kixo is closed. Telegram needs TELEGRAM_BOT_TOKEN, email needs RESEND_API_KEY (Admin, Keys)" },
+  { key: "tour", label: "Welcome tour", hint: "A one-minute guided tour of the platform for new users, step by step on the real screen. Users can replay it from Settings" },
   { key: "social", label: "Community", hint: "Trader profiles, following traders, the live trade feed, the leaderboard and one-tap copying of Kixo traders (demo trades only)" },
   { key: "ai_chat", label: "Ask Kixo AI: language model", hint: "The AI page's chat answers with a free language model (Gemini, Groq, OpenRouter keys in .env), kept to Solana and crypto. Off: built-in answers from Kixo's data only" },
   { key: "ai_risk", label: "Kixo AI risk", hint: "Sol Radar and the trade page: the trained model's chance a new coin dumps 70%+ or doubles within an hour, judged from its first 2 minutes. Needs the AI service (ai/serve.py)" },

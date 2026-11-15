@@ -12,6 +12,7 @@ import { resetDemo } from "@/lib/demo";
 import { deleteMyAccount, downloadMyData, updateSettings, useSettings, type Settings } from "@/lib/settings";
 import { pushToast } from "@/lib/toast";
 import { AlertChannels } from "@/components/alerts/alert-channels";
+import { startTour } from "@/components/tour/product-tour";
 
 const SECTIONS = [
   { id: "trading", label: "Trading" },
@@ -112,6 +113,11 @@ export function SettingsBoard() {
             </Row>
             <Row label="Streamer mode" hint="Blurs your balances, P&L and wallet address so you can record or stream Kixo. Shift+S anywhere">
               <StreamerSwitch />
+            </Row>
+            <Row label="Welcome tour" hint="A one-minute walk through Kixo, step by step">
+              <button type="button" onClick={startTour} className="h-8 rounded-lg border border-border px-3 text-xs text-text-2 hover:bg-surface-2 hover:text-text">
+                Start tour
+              </button>
             </Row>
             <Row label="Desktop notifications" hint="Used by price alerts, Wallet Monitor and the sniper when this tab is in the background">
               <DesktopPermission />

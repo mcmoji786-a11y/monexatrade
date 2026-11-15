@@ -172,7 +172,44 @@ body {
   animation: live-ring 2s var(--mx-ease) infinite;
 }
 
+/* Welcome tour (components/tour): the step icon settles in, the spotlight glides to
+   the next part of the screen, and its edge rings once on arrival. */
+@keyframes tour-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+.tour-pop {
+  animation: tour-pop 320ms var(--mx-ease) 60ms both;
+}
+.tour-glide {
+  transition:
+    top 320ms var(--mx-ease),
+    left 320ms var(--mx-ease),
+    width 320ms var(--mx-ease),
+    height 320ms var(--mx-ease);
+}
+@keyframes tour-ring {
+  from {
+    box-shadow: 0 0 0 0 rgb(76 195 138 / 0.5);
+  }
+  to {
+    box-shadow: 0 0 0 10px rgb(76 195 138 / 0);
+  }
+}
+.tour-ring {
+  animation: tour-ring 900ms var(--mx-ease) 300ms 2;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .tour-pop,
+  .tour-ring {
+    animation: none;
+  }
+  .tour-glide {
+    transition: none;
+  }
   .reveal {
     opacity: 1;
     transform: none;

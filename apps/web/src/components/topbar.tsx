@@ -42,7 +42,7 @@ export function Topbar() {
           <Logo />
         </div>
         <GlobalSearch key={pathname} />
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+        <div data-tour="account" className="ml-auto flex items-center gap-2 sm:gap-3">
           <ConnectionNotice />
           <NewsButton />
           <AccountMenu />
@@ -101,6 +101,7 @@ function GlobalSearch() {
   return (
     <form
       role="search"
+      data-tour="search"
       className="hidden min-w-0 flex-1 sm:block lg:max-w-2xl"
       onSubmit={(e) => {
         e.preventDefault();

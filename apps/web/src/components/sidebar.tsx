@@ -61,6 +61,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                 <li key={item.slug}>
                   <Link
                     href={href}
+                    data-tour={onNavigate ? undefined : `nav-${item.slug}`}
                     onClick={(e) => {
                       if (panel) {
                         e.preventDefault();

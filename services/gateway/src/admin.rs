@@ -187,6 +187,8 @@ pub struct FeatureFlags {
     pub social: bool,
     /// Alerts by Email, Telegram and Discord when Kixo is closed (alerts.rs).
     pub alert_delivery: bool,
+    /// The welcome tour for new users (web components/tour).
+    pub tour: bool,
 }
 
 impl Default for FeatureFlags {
@@ -237,6 +239,7 @@ impl Default for FeatureFlags {
             ai_chat: true,
             social: true,
             alert_delivery: true,
+            tour: true,
         }
     }
 }
