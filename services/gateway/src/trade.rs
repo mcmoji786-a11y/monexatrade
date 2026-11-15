@@ -527,7 +527,7 @@ pub struct QuoteIn {
 pub async fn quote(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Json<QuoteIn>) -> Result<Json<Value>, ApiErr> {
     // The fee is the user's own (a promo code may lower it), for every fee in this build.
     let user = c.acct.user(&headers).await.map_err(auth_err)?;
-    let bps = crate::marketing::trade_fee_bps_for(&user.id);
+    let bps = crate::marketing::trade_fee_for(&user).0;
     USER_FEE_BPS.scope(bps, quote_inner(State(c), headers, Json(q))).await
 }
 

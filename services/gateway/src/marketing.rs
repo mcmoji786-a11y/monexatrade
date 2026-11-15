@@ -148,6 +148,19 @@ pub fn trade_fee_bps_for(user: &str) -> u64 {
     discounted(crate::platform::trade_fee_bps(), user, "trade")
 }
 
+/// The trade fee a signed-in user pays: the lower of the promo price and the welcome fee
+/// (new accounts, their first `welcome_days`), and when the welcome fee ends (or 0).
+pub fn trade_fee_for(user: &crate::account::User) -> (u64, i64) {
+    let promo = trade_fee_bps_for(&user.id);
+    let cfg = crate::platform::get();
+    let until = user.created_at.map(|c| c + cfg.welcome_days as i64 * 86_400).unwrap_or(0);
+    if cfg.welcome_days > 0 && until > now() && cfg.welcome_fee_bps < promo {
+        (cfg.welcome_fee_bps, until)
+    } else {
+        (promo, 0)
+    }
+}
+
 /// The deposit fee this user pays, after any promo code.
 pub fn deposit_fee_bps_for(user: &str) -> u64 {
     discounted(crate::platform::deposit_fee_bps(), user, "transfer")
@@ -277,11 +290,15 @@ pub struct RedeemIn {
     code: String,
 }
 
-fn promo_view(user: &str) -> Value {
+fn promo_view(u: &crate::account::User) -> Value {
+    let user = u.id.as_str();
     let r = store().redemptions.lock().expect("redemptions lock").get(user).cloned().filter(|r| r.until == 0 || r.until > now());
+    let (fee, welcome_until) = trade_fee_for(u);
     json!({
         "promo": r,
-        "trade_fee_bps": trade_fee_bps_for(user),
+        "trade_fee_bps": fee,
+        "base_trade_fee_bps": crate::platform::trade_fee_bps(),
+        "welcome_until": if welcome_until > 0 { Some(welcome_until) } else { None },
         "deposit_fee_bps": deposit_fee_bps_for(user),
         "withdraw_fee_bps": withdraw_fee_bps_for(user),
     })
@@ -290,7 +307,7 @@ fn promo_view(user: &str) -> Value {
 /// `GET /promo`: the signed-in user's promo code and the fees they pay now.
 pub async fn promo_me(State(c): State<MarketingCtx>, headers: HeaderMap) -> Result<Json<Value>, ApiErr> {
     let user = c.acct.user(&headers).await.map_err(|e| err(e.0, &e.1))?;
-    Ok(Json(promo_view(&user.id)))
+    Ok(Json(promo_view(&user)))
 }
 
 static REDEEM_TRIES: Mutex<Option<HashMap<String, Vec<Instant>>>> = Mutex::new(None);
@@ -319,7 +336,7 @@ pub async fn redeem(State(c): State<MarketingCtx>, ConnectInfo(addr): ConnectInf
             return Err(err(StatusCode::GONE, "That code has been used up"));
         }
         if store().redemptions.lock().expect("redemptions lock").get(&user.id).is_some_and(|r| r.code == code && (r.until == 0 || r.until > t)) {
-            return Ok(Json(promo_view(&user.id)));
+            return Ok(Json(promo_view(&user)));
         }
         p.uses += 1;
         (p.clone(), m.clone())
@@ -332,7 +349,7 @@ pub async fn redeem(State(c): State<MarketingCtx>, ConnectInfo(addr): ConnectInf
     };
     let _ = save(REDEMPTIONS_FILE, &reds);
     crate::platform::audit(Some(addr), "promo_redeemed", json!({ "user": user.id, "code": promo.code }));
-    Ok(Json(promo_view(&user.id)))
+    Ok(Json(promo_view(&user)))
 }
 
 /* ---------------- Admin ---------------- */

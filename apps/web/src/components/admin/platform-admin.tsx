@@ -149,6 +149,8 @@ type Config = {
   turbo_tip_lamports: number;
   lower_risk_min_safety: number;
   lower_risk_hold_secs: number;
+  welcome_fee_bps: number;
+  welcome_days: number;
 };
 type KeyInfo = { name: string; label: string; source: "admin" | "env" | null; hint: string | null };
 type AdminPlatform = { config: Config; keys: KeyInfo[]; owner_email: string | null; owner_session: boolean };
@@ -226,6 +228,8 @@ export function PlatformSettings() {
             <Field label="Trade fee" hint="On every buy and sell. 0% to 3%" unit="%" step={0.05} value={draft.trade_fee_bps / 100} onChange={(v) => set({ trade_fee_bps: Math.round(v * 100) })} />
             <Field label="Deposit fee" hint="Free by default. 0% to 3%" unit="%" step={0.05} value={draft.deposit_fee_bps / 100} onChange={(v) => set({ deposit_fee_bps: Math.round(v * 100) })} />
             <Field label="Withdrawal fee" hint="On SOL leaving a Kixo wallet. 0% to 3%" unit="%" step={0.05} value={draft.withdraw_fee_bps / 100} onChange={(v) => set({ withdraw_fee_bps: Math.round(v * 100) })} />
+            <Field label="Welcome fee" hint="Trade fee for new accounts. At most the trade fee" unit="%" step={0.05} value={(draft.welcome_fee_bps ?? 25) / 100} onChange={(v) => set({ welcome_fee_bps: Math.round(v * 100) })} />
+            <Field label="Welcome period" hint="Days from sign-up. 0 turns it off" unit="days" step={1} value={draft.welcome_days ?? 30} onChange={(v) => set({ welcome_days: Math.max(0, Math.round(v)) })} />
           </div>
         </section>
         <section className="rounded-xl border border-border bg-surface p-5">

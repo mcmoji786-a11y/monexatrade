@@ -19,6 +19,7 @@ import { GATEWAY_HTTP, usd } from "@/lib/gateway";
 import { refLink, useReferral } from "@/lib/growth";
 import { useAccount, openLogin } from "@/lib/account";
 import { pushToast } from "@/lib/toast";
+import { MyCashback, WelcomeFee } from "./my-cashback";
 import {
   CASHBACK,
   CREATOR,
@@ -106,6 +107,8 @@ export function RewardsBoard() {
           <Balance label="Claimable" />
         </dl>
       </div>
+
+      <WelcomeFee />
 
       {/* Section switch */}
       <div
@@ -326,6 +329,7 @@ function Cashback({ cfg }: { cfg: RewardsConfig }) {
       >
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
           <div className="flex flex-col gap-6">
+            <MyCashback />
             <Card title="Cashback calculator">
               <p className="text-xs text-text-2">
                 How much of your own trading fees would come back in a month

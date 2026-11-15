@@ -63,6 +63,9 @@ pub struct PlatformConfig {
     /// Sol Radar's Lower risk tab: minimum safety score, and how long a coin stays listed.
     pub lower_risk_min_safety: u32,
     pub lower_risk_hold_secs: u32,
+    /// New accounts pay this trade fee (bps) for their first `welcome_days` (0: no welcome fee).
+    pub welcome_fee_bps: u64,
+    pub welcome_days: u32,
 }
 
 impl Default for PlatformConfig {
@@ -79,6 +82,8 @@ impl Default for PlatformConfig {
             turbo_tip_lamports: 1_000_000,
             lower_risk_min_safety: 80,
             lower_risk_hold_secs: 180,
+            welcome_fee_bps: 25,
+            welcome_days: 30,
         }
     }
 }
@@ -102,6 +107,8 @@ impl PlatformConfig {
         range((1_000..=10_000_000).contains(&self.turbo_tip_lamports), "Turbo tip: 0.000001 to 0.01 SOL")?;
         range((50..=100).contains(&self.lower_risk_min_safety), "Lower risk score: 50 to 100")?;
         range(self.lower_risk_hold_secs <= 1_800, "Lower risk hold: up to 30 minutes")?;
+        range(self.welcome_fee_bps <= self.trade_fee_bps, "welcome fee: at most the normal trade fee")?;
+        range(self.welcome_days <= 365, "welcome period: up to 365 days")?;
         Ok(())
     }
 
@@ -116,6 +123,8 @@ impl PlatformConfig {
             "max_deposit_sol": self.max_deposit_sol,
             "lower_risk_min_safety": self.lower_risk_min_safety,
             "lower_risk_hold_secs": self.lower_risk_hold_secs,
+            "welcome_fee_bps": self.welcome_fee_bps,
+            "welcome_days": self.welcome_days,
         })
     }
 }

@@ -90,7 +90,7 @@ export function useCampaignCapture() {
 
 /* ---------------- Promo codes ---------------- */
 
-export type PromoState = { promo: { code: string; applies: string; discount_pct: number; until: number } | null; trade_fee_bps: number; deposit_fee_bps: number; withdraw_fee_bps: number };
+export type PromoState = { promo: { code: string; applies: string; discount_pct: number; until: number } | null; trade_fee_bps: number; base_trade_fee_bps?: number; welcome_until?: number | null; deposit_fee_bps: number; withdraw_fee_bps: number };
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
   const token = accessToken();

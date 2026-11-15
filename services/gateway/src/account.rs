@@ -54,6 +54,8 @@ pub struct User {
     pub provider: String,
     /// The Solana address of a Sign-in-with-Solana login, already proven by Supabase.
     pub solana: Option<String>,
+    /// When the account was made (unix seconds), for the welcome fee.
+    pub created_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -279,7 +281,8 @@ fn parse_user(v: &Value) -> Option<User> {
                 .find(|a| is_solana_address(a))
                 .map(String::from)
         });
-    Some(User { id, email: v["email"].as_str().map(String::from), provider, solana })
+    let created_at = v["created_at"].as_str().and_then(crate::growth::parse_iso);
+    Some(User { id, email: v["email"].as_str().map(String::from), provider, solana, created_at })
 }
 
 fn is_uuid(s: &str) -> bool {

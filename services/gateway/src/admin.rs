@@ -438,6 +438,11 @@ impl AdminState {
         self.features.lock().expect("features lock").kol_tracker
     }
 
+    /// The rewards numbers as set in the admin (cashback.rs).
+    pub fn rewards_snapshot(&self) -> RewardsConfig {
+        self.rewards.lock().expect("rewards lock").clone()
+    }
+
     pub fn loss_limit(&self) -> bool {
         self.features.lock().expect("features lock").loss_limit
     }

@@ -14,6 +14,7 @@ mod growth;
 mod settings;
 mod alerts;
 mod cleanup;
+mod cashback;
 mod kols;
 mod limits;
 mod notes;
@@ -472,6 +473,9 @@ async fn main() -> Result<()> {
     let limits_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/limits", get(limits::get))
         .with_state(limits::LimitsCtx { acct: acct.clone(), app: state.clone() });
+    let cashback_routes: Router<Arc<AppState>> = Router::new()
+        .route("/account/cashback", get(cashback::get))
+        .with_state(cashback::CashbackCtx { acct: acct.clone(), app: state.clone(), admin: admin_state.clone() });
 
     let account_routes: Router<Arc<AppState>> = Router::new()
         .route("/account/sync", axum::routing::post(account::sync))
@@ -524,6 +528,7 @@ async fn main() -> Result<()> {
         .merge(alerts_routes)
         .merge(limits_routes)
         .merge(kol_routes)
+        .merge(cashback_routes)
         // Every /admin/ route: allowed addresses only, lockout after wrong keys (admin_guard.rs).
         .layer(axum::middleware::from_fn(admin_guard::guard_admin))
         .layer(cors)
