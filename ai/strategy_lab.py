@@ -36,9 +36,9 @@ GRID = {
     "max_dump": [0.03, 0.05, 0.10, 0.20, 0.30],
     "min_pump": [0.0, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50],
     # Sell half at this gain (None: no early half), the rest rides the other exits.
-    "half_at": [None, 0.3, 0.5, 1.0],
-    "tp": [0.3, 0.5, 1.0, 2.0],
-    "sl": [0.2, 0.3, 0.4, 0.6],
+    "half_at": [None, 0.15, 0.3, 0.5, 1.0],
+    "tp": [0.15, 0.3, 0.5, 1.0, 2.0],
+    "sl": [0.1, 0.2, 0.3, 0.4, 0.6],
     "trail": [0.0, 0.2, 0.3],
     "hold_min": [10, 30, 60],
 }
@@ -106,8 +106,8 @@ def main():
     live = df[df.src == "live"]
     split = live.start.quantile(0.75)
     unseen = live[live.start > split].copy()
-    del df
     print(f"  {len(df):,} coins, {len(unseen):,} unseen by the models", flush=True)
+    del df
 
     for target in ("dump", "pump"):
         b = lgb.Booster(model_file=f"{OUT}/{target}_latest.txt")
