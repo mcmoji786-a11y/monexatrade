@@ -15,6 +15,7 @@ if not exist "%PY%" (
 )
 
 echo Retraining Kixo AI... (log: %LOGS%\ai-train.log)
+if not defined KIXO_EXTRA_DAYS set KIXO_EXTRA_DAYS=10
 "%PY%" "%ROOT%\ai\train_rug.py" > "%LOGS%\ai-train.log" 2>&1
 if errorlevel 1 (
   echo Training failed. The old models stay in use. See %LOGS%\ai-train.log

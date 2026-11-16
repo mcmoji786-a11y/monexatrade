@@ -127,6 +127,8 @@ def trade_result(later, entry):
 
 
 EXTRA = os.environ.get("KIXO_EXTRA", "E:/KixoData/external_days")
+# How many of the newest imported days to use (0 = all). Limits memory on a 16 GB PC.
+EXTRA_DAYS = int(os.environ.get("KIXO_EXTRA_DAYS", "0"))
 
 
 def day_start(name):
@@ -141,6 +143,9 @@ def day_folders():
             name = os.path.basename(d)
             if os.path.isdir(d) and len(name) == 10 and glob.glob(f"{d}/trades-*.csv.gz"):
                 out.append((name, d, src))
+    if EXTRA_DAYS > 0:
+        ext = sorted(o for o in out if o[2] == "external")[-EXTRA_DAYS:]
+        out = ext + [o for o in out if o[2] == "live"]
     return sorted(out)
 
 

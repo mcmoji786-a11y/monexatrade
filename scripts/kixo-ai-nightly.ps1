@@ -31,6 +31,8 @@ if ((FreeGB) -lt 4) {
     exit 2
 }
 
+# Newest imported days to train with (0 = all). All 45 days do not fit in 16 GB of memory.
+$env:KIXO_EXTRA_DAYS = "10"
 Write-Log "training started"
 & $Py "$Root\ai\train_rug.py" *> "$Logs\ai-train.log"
 if ($LASTEXITCODE -ne 0) { Write-Log "training failed (old models stay): see ai-train.log"; exit 1 }
