@@ -177,6 +177,8 @@ pub struct FeatureFlags {
     pub achievements: bool,
     /// Portfolio: weekly recap card.
     pub weekly_recap: bool,
+    /// Portfolio: profit and loss of each day on a month calendar.
+    pub pnl_calendar: bool,
     /// Auto-trade wallet: server-held key, 24/7 trading, withdrawals only to the main wallet.
     pub auto_wallet: bool,
     /// Kixo AI risk: the trained model's dump and 2x chances on new coins (ai_risk.rs).
@@ -250,6 +252,7 @@ impl Default for FeatureFlags {
             milestone_alerts: true,
             achievements: true,
             weekly_recap: true,
+            pnl_calendar: true,
             auto_wallet: true,
             ai_risk: true,
             ai_chat: true,

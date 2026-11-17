@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRightLeft,
+  ChevronLeft,
+  ChevronRight,
   CalendarCheck,
   CalendarDays,
   ChevronsUp,
@@ -20,7 +22,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { ACHIEVEMENTS, progress, recap, type AchievementId, type TradeLike } from "@/lib/achievements";
+import { ACHIEVEMENTS, monthCalendar, monthStart, progress, recap, type AchievementId, type TradeLike } from "@/lib/achievements";
 import { openShare } from "@/lib/share";
 import { useFeatures } from "@/lib/features";
 import { signed } from "@/components/trade/trade-panel";
@@ -164,5 +166,88 @@ function Streak({ icon: Icon, label, now, best }: { icon: LucideIcon; label: str
       <span className="font-mono text-text">{now}</span>
       <span className="text-muted">· best {best}</span>
     </span>
+  );
+}
+
+const DAY_MS = 86_400_000;
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** "+$1.2K", "−$35", "+$0.42": short enough for a calendar cell. */
+function compact(v: number) {
+  const a = Math.abs(v);
+  const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}M` : a >= 1e4 ? `${Math.round(a / 1e3)}K` : a >= 1e3 ? `${(a / 1e3).toFixed(1)}K` : a >= 10 ? Math.round(a).toString() : a.toFixed(2);
+  return `${v >= 0 ? "+" : "−"}$${s}`;
+}
+
+/** Profit taken on each day of a month (UTC days, like the weekly recap). */
+export function PnlCalendar({ trades }: { trades: TradeLike[] }) {
+  const [offset, setOffset] = useState(0);
+  const [now] = useState(() => Date.now());
+  const m = useMemo(() => monthCalendar(trades, monthStart(now, offset)), [trades, offset, now]);
+  const today = Math.floor(now / DAY_MS);
+  // Monday-first grid: blank cells before the 1st.
+  const lead = (new Date(m.from).getUTCDay() + 6) % 7;
+  const label = new Date(m.from).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const oldest = useMemo(() => trades.reduce((a, t) => Math.min(a, new Date(t.ts).getTime()), now), [trades, now]);
+  const canBack = offset > -24 && monthStart(now, offset - 1) >= monthStart(oldest);
+
+  return (
+    <section className="rounded-xl border border-border bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <h2 className="text-sm font-medium text-text">Profit calendar</h2>
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label="Previous month" disabled={!canBack} onClick={() => setOffset((o) => o - 1)} className="flex size-8 items-center justify-center rounded-lg text-text-2 transition-colors hover:bg-surface-2 hover:text-text disabled:opacity-30">
+            <ChevronLeft size={16} strokeWidth={1.5} />
+          </button>
+          <span className="w-32 text-center font-mono text-xs text-text">{label}</span>
+          <button type="button" aria-label="Next month" disabled={offset >= 0} onClick={() => setOffset((o) => o + 1)} className="flex size-8 items-center justify-center rounded-lg text-text-2 transition-colors hover:bg-surface-2 hover:text-text disabled:opacity-30">
+            <ChevronRight size={16} strokeWidth={1.5} />
+          </button>
+        </div>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-px border-b border-border bg-border md:grid-cols-4">
+        <Fig k="Profit taken" v={m.greenDays + m.redDays ? signed(m.realizedUsd) : "—"} cls={tone(m.realizedUsd)} />
+        <Fig k="Green days" v={String(m.greenDays)} cls={m.greenDays ? "text-positive" : "text-text"} />
+        <Fig k="Red days" v={String(m.redDays)} cls={m.redDays ? "text-negative" : "text-text"} />
+        <Fig k="Best day" v={m.best ? signed(m.best.realizedUsd) : "—"} sub={m.best ? day(m.best.day * DAY_MS) : ""} cls={m.best ? "text-positive" : "text-text"} />
+      </dl>
+
+      <div className="p-3">
+        <div className="grid grid-cols-7 gap-1">
+          {WEEKDAYS.map((w) => (
+            <span key={w} className="pb-1 text-center text-xs text-muted">
+              {w}
+            </span>
+          ))}
+          {Array.from({ length: lead }, (_, i) => (
+            <span key={`b${i}`} aria-hidden />
+          ))}
+          {Array.from({ length: m.length }, (_, i) => {
+            const k = m.firstDay + i;
+            const c = m.days.get(k);
+            const v = c && c.sells ? c.realizedUsd : null;
+            const bg = v == null ? "bg-bg" : v >= 0.01 ? "bg-positive/10" : v <= -0.01 ? "bg-negative/10" : "bg-surface-2";
+            return (
+              <div
+                key={k}
+                title={c ? `${day(k * DAY_MS)}: ${c.trades} ${c.trades === 1 ? "trade" : "trades"}${v != null ? `, ${signed(v)} taken` : ""}` : undefined}
+                className={`flex h-14 flex-col justify-between rounded-md border p-1.5 ${k === today ? "border-text-2/40" : "border-border"} ${bg} ${k > today ? "opacity-40" : ""}`}
+              >
+                <span className="font-mono text-xs text-muted">{i + 1}</span>
+                {v != null ? (
+                  <span className={`truncate text-right font-mono text-xs tabular-nums ${tone(v)}`}>{compact(v)}</span>
+                ) : c ? (
+                  <span className="truncate text-right font-mono text-xs text-muted">{c.trades}</span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-xs text-muted">
+          Profit or loss taken on sells each day, after fees, in UTC days. A grey number means trades but no sells that day{trades.length >= 1000 ? ". Counts your latest 1,000 trades" : ""}
+        </p>
+      </div>
+    </section>
   );
 }

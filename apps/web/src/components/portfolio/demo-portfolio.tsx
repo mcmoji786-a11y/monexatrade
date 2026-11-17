@@ -7,7 +7,7 @@ import { orderError, resetDemo, useDemo, type DemoTrade } from "@/lib/demo";
 import { pushToast } from "@/lib/toast";
 import { useFeatures } from "@/lib/features";
 import { ShareCard, type ShareTrade } from "./share-card";
-import { Achievements, WeekRecap } from "./progress-panels";
+import { Achievements, PnlCalendar, WeekRecap } from "./progress-panels";
 import { compact, money, signed, tinyPrice } from "@/components/trade/trade-panel";
 
 /** The demo account as a portfolio: equity, positions at live prices and every trade. */
@@ -100,6 +100,7 @@ export function DemoPortfolio() {
       </section>
 
       {features.weekly_recap && <WeekRecap trades={trades ?? []} />}
+      {features.pnl_calendar && <PnlCalendar trades={trades ?? []} />}
       {features.achievements && <Achievements trades={trades ?? []} />}
 
       <section className="rounded-xl border border-border bg-surface">

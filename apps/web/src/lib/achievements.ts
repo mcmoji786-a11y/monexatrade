@@ -190,3 +190,61 @@ export function milestoneOf(costUsd: number, valueUsd: number | null): number {
   const x = valueUsd / costUsd;
   return MILESTONES.filter((m) => x >= m).pop() ?? 0;
 }
+
+/* ---------------- Profit calendar ---------------- */
+
+export type CalendarDay = { day: number; realizedUsd: number; sells: number; trades: number };
+export type CalendarMonth = {
+  /** UTC ms of the 1st of the month. */
+  from: number;
+  /** UTC day number (ms / DAY) of the 1st, and how many days the month has. */
+  firstDay: number;
+  length: number;
+  /** Only the days with trades. */
+  days: Map<number, CalendarDay>;
+  realizedUsd: number;
+  greenDays: number;
+  redDays: number;
+  best: CalendarDay | null;
+  worst: CalendarDay | null;
+};
+
+/** Start of a UTC month, `offset` months from the month of `nowMs` (0 = this month). */
+export function monthStart(nowMs: number, offset = 0) {
+  const d = new Date(nowMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1);
+}
+
+/** Profit taken on each UTC day of one month: the sum of realised profit of that day's sells. */
+export function monthCalendar(trades: TradeLike[], from: number): CalendarMonth {
+  const d = new Date(from);
+  const to = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  const days = new Map<number, CalendarDay>();
+  for (const t of trades) {
+    const ms = new Date(t.ts).getTime();
+    if (!(ms >= from && ms < to)) continue;
+    const k = Math.floor(ms / DAY);
+    const c = days.get(k) ?? { day: k, realizedUsd: 0, sells: 0, trades: 0 };
+    c.trades += 1;
+    if (t.side === "sell" && t.realized_usd != null) {
+      c.sells += 1;
+      c.realizedUsd += Number(t.realized_usd);
+    }
+    days.set(k, c);
+  }
+  const closed = [...days.values()].filter((c) => c.sells > 0);
+  // Within a cent is break-even: neither a green nor a red day.
+  const green = closed.filter((c) => c.realizedUsd >= 0.01);
+  const red = closed.filter((c) => c.realizedUsd <= -0.01);
+  return {
+    from,
+    firstDay: Math.floor(from / DAY),
+    length: Math.round((to - from) / DAY),
+    days,
+    realizedUsd: closed.reduce((a, c) => a + c.realizedUsd, 0),
+    greenDays: green.length,
+    redDays: red.length,
+    best: green.reduce<CalendarDay | null>((b, c) => (!b || c.realizedUsd > b.realizedUsd ? c : b), null),
+    worst: red.reduce<CalendarDay | null>((b, c) => (!b || c.realizedUsd < b.realizedUsd ? c : b), null),
+  };
+}

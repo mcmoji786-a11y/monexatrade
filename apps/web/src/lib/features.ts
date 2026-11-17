@@ -56,6 +56,7 @@ export type Features = {
   strategy_library: boolean;
   alert_delivery: boolean;
   weekly_recap: boolean;
+  pnl_calendar: boolean;
   achievements: boolean;
   milestone_alerts: boolean;
   coin_share: boolean;
@@ -117,6 +118,7 @@ export const ALL_ON: Features = {
   strategy_library: true,
   alert_delivery: true,
   weekly_recap: true,
+  pnl_calendar: true,
   achievements: true,
   milestone_alerts: true,
   coin_share: true,
@@ -149,6 +151,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "milestone_alerts", label: "2x, 5x, 10x alerts", hint: "An alert with a share card when an open demo position reaches 2x, 5x, 10x and more" },
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
+  { key: "pnl_calendar", label: "Profit calendar", hint: "Portfolio page: profit or loss taken on each day of the month, with winning and losing days" },
   { key: "alert_delivery", label: "Alerts by Email, Telegram, Discord", hint: "Price alerts, Wallet Monitor trades and dev sells on starred coins reach users when Kixo is closed. Telegram needs TELEGRAM_BOT_TOKEN, email needs RESEND_API_KEY (Admin, Keys)" },
   { key: "dev_record", label: "Creator record", hint: "Trade page: the creator's earlier coins in plain words (launched, rugged, died fast, graduated)" },
   { key: "danger_warning", label: "Danger question", hint: "One more question before a manual buy of a coin Kixo AI calls Danger. Users can turn it off for themselves" },
