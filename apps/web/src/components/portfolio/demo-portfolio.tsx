@@ -227,7 +227,7 @@ export function DemoPortfolio() {
   );
 }
 
-const SOURCE: Record<string, string> = { manual: "You", quick: "Quick Buy", sniper: "Sniper", tp: "Take profit", sl: "Stop loss", limit_buy: "Limit buy", limit_sell: "Limit sell", trail: "Trailing stop", grid: "Grid", copy: "Copy trading" };
+const SOURCE: Record<string, string> = { manual: "You", quick: "Quick Buy", sniper: "Sniper", tp: "Take profit", sl: "Stop loss", limit_buy: "Limit buy", limit_sell: "Limit sell", trail: "Trailing stop", grid: "Grid", copy: "Copy trading", rug_exit: "Rug exit" };
 
 /** When the position each sell closed from was opened: its first buy since it was last empty. */
 function openedAt(trades: DemoTrade[]) {

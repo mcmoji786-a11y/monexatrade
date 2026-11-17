@@ -95,11 +95,17 @@ pub struct Safety {
     pub day_offset_min: i32,
     /// Ask once more before buying a coin Kixo AI calls Danger.
     pub warn_danger: bool,
+    /// Rug exit (rug_exit.rs): sell a demo position by itself on a rug sign. Off by default.
+    pub rug_exit: bool,
+    /// ...when the coin's creator sells.
+    pub rug_exit_dev: bool,
+    /// ...when Kixo AI calls the coin Danger.
+    pub rug_exit_ai: bool,
 }
 
 impl Default for Safety {
     fn default() -> Self {
-        Self { daily_loss_limit_usd: 0.0, day_offset_min: 0, warn_danger: true }
+        Self { daily_loss_limit_usd: 0.0, day_offset_min: 0, warn_danger: true, rug_exit: false, rug_exit_dev: true, rug_exit_ai: true }
     }
 }
 
@@ -240,7 +246,7 @@ mod tests {
             demo: Demo { buy_presets_usd: vec![], quick_buy_usd: f64::NAN },
             notifications: Notifications::default(),
             general: General { start_mode: "moon".into() },
-            safety: Safety { daily_loss_limit_usd: -50.0, day_offset_min: 5_000, warn_danger: false },
+            safety: Safety { daily_loss_limit_usd: -50.0, day_offset_min: 5_000, warn_danger: false, ..Safety::default() },
         }
         .clamp();
         assert_eq!(wild.safety.daily_loss_limit_usd, 0.0, "a negative limit is off");

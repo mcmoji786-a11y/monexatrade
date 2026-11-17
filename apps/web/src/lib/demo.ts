@@ -52,7 +52,7 @@ export type DemoTrade = {
   price_usd: number;
   fee_usd: number;
   impact_pct: number;
-  source: "manual" | "sniper" | "tp" | "sl" | "limit_buy" | "limit_sell" | "trail" | "quick" | "grid" | "copy";
+  source: "manual" | "sniper" | "tp" | "sl" | "limit_buy" | "limit_sell" | "trail" | "quick" | "grid" | "copy" | "rug_exit";
   realized_usd: number | null;
   round: number;
   ts: string;
@@ -127,6 +127,7 @@ export function refreshDemo() {
       // The user may have signed out or switched while this was loading.
       if (currentUserId() !== uid) return;
       announceFills(state.rules, rules);
+      announceRugExits(state.trades, trades);
       set({ account, trades, rules, error: null });
     } catch (e) {
       if (currentUserId() !== uid) return;
@@ -152,6 +153,18 @@ function announceFills(before: DemoRule[], after: DemoRule[]) {
       body: r.note ?? undefined,
       href: `/token/${r.mint}`,
     });
+  }
+}
+
+/** A toast for each position that Rug exit (gateway rug_exit.rs) sold since the last refresh. */
+function announceRugExits(before: DemoTrade[] | null, after: DemoTrade[]) {
+  if (!before) return;
+  const seen = new Set(before.map((t) => t.id));
+  for (const t of after) {
+    if (t.source !== "rug_exit" || seen.has(t.id)) continue;
+    const r = t.realized_usd == null ? null : Number(t.realized_usd);
+    const pnl = r == null ? "" : `, P&L ${r >= 0 ? "+" : "−"}$${Math.abs(r).toFixed(2)}`;
+    pushToast({ kind: "exit", tone: "bad", title: `Rug exit sold ${t.symbol || "your coin"} · demo`, body: `Sold for $${Number(t.usd).toFixed(2)}${pnl}`, href: `/token/${t.mint}` });
   }
 }
 

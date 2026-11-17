@@ -6,6 +6,7 @@ mod account;
 mod admin;
 mod admin_guard;
 mod demo;
+mod rug_exit;
 mod presence;
 mod book;
 mod devs;
@@ -442,6 +443,7 @@ async fn main() -> Result<()> {
 
     let alerts_ctx = alerts::AlertsCtx { acct: acct.clone(), admin: admin_state.clone(), state: state.clone(), http: state.http.clone() };
     alerts::spawn(alerts_ctx.clone());
+    rug_exit::spawn(rug_exit::RugCtx { demo: demo::DemoCtx { app: state.clone(), acct: acct.clone() }, admin: admin_state.clone() });
     let alerts_ctx_for_x = alerts_ctx.clone();
     let alerts_routes: Router<Arc<AppState>> = Router::new()
         .route("/alerts/status", get(alerts::status))

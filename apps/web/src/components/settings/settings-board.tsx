@@ -116,6 +116,23 @@ export function SettingsBoard() {
             {feat.danger_warning && <Row label="Ask before buying a Danger coin" hint="When Kixo AI gives a coin a high chance of crashing within the hour">
               <Switch on={s.safety.warn_danger} onChange={(v) => safety({ warn_danger: v })} label="Ask before buying a Danger coin" />
             </Row>}
+            {feat.rug_exit && (
+              <>
+                <Row label="Rug exit" hint="Sells your whole demo position by itself on a rug sign, even when Kixo is closed. Demo only for now">
+                  <Switch on={s.safety.rug_exit} onChange={(v) => safety({ rug_exit: v })} label="Rug exit" />
+                </Row>
+                {s.safety.rug_exit && (
+                  <>
+                    <Row label="When the dev sells" hint="The coin's creator sells 0.05 SOL or more">
+                      <Switch on={s.safety.rug_exit_dev} onChange={(v) => safety({ rug_exit_dev: v })} label="Rug exit when the dev sells" />
+                    </Row>
+                    <Row label="When Kixo AI says Danger" hint="The AI gives the coin a 40% or higher chance of crashing within the hour">
+                      <Switch on={s.safety.rug_exit_ai} onChange={(v) => safety({ rug_exit_ai: v })} label="Rug exit when Kixo AI says Danger" />
+                    </Row>
+                  </>
+                )}
+              </>
+            )}
           </Card>
 
           <Card id="notifications" title="Notifications" sub="Pop-ups at the bottom right while Kixo is open">

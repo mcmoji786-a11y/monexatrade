@@ -14,7 +14,7 @@ export type Settings = {
   notifications: { trades: boolean; exits: boolean; sniper: boolean; sound: boolean };
   general: { start_mode: "last" | "demo" | "real" };
   /** Daily loss limit in USD (0: off), where the day starts (minutes east of UTC), and the Danger question. */
-  safety: { daily_loss_limit_usd: number; day_offset_min: number; warn_danger: boolean };
+  safety: { daily_loss_limit_usd: number; day_offset_min: number; warn_danger: boolean; rug_exit: boolean; rug_exit_dev: boolean; rug_exit_ai: boolean };
 };
 
 export const DEFAULTS: Settings = {
@@ -22,7 +22,7 @@ export const DEFAULTS: Settings = {
   demo: { buy_presets_usd: [10, 50, 100, 500], quick_buy_usd: 25 },
   notifications: { trades: true, exits: true, sniper: true, sound: false },
   general: { start_mode: "last" },
-  safety: { daily_loss_limit_usd: 0, day_offset_min: 0, warn_danger: true },
+  safety: { daily_loss_limit_usd: 0, day_offset_min: 0, warn_danger: true, rug_exit: false, rug_exit_dev: true, rug_exit_ai: true },
 };
 
 export type SaveState = "idle" | "saving" | "saved" | "error";

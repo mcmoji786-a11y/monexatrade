@@ -116,7 +116,7 @@ export function progress(trades: TradeLike[], nowMs = Date.now()): Progress {
       if (pnl > 0) earn("first_profit", t.ts);
       if (pct != null && pct >= 100) earn("double", t.ts);
       if (pct != null && pct >= 900) earn("tenx", t.ts);
-      if (t.source === "sl" || t.source === "trail") earn("protected", t.ts);
+      if (t.source === "sl" || t.source === "trail" || t.source === "rug_exit") earn("protected", t.ts);
       if (t.source === "tp" || t.source === "limit_sell") earn("took_profit", t.ts);
       winRun = pnl > 0 ? winRun + 1 : 0;
       bestWin = Math.max(bestWin, winRun);

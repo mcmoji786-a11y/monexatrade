@@ -179,6 +179,8 @@ pub struct FeatureFlags {
     pub weekly_recap: bool,
     /// Portfolio: profit and loss of each day on a month calendar.
     pub pnl_calendar: bool,
+    /// Rug exit: demo positions sold by themselves when the dev sells or the AI says Danger.
+    pub rug_exit: bool,
     /// Auto-trade wallet: server-held key, 24/7 trading, withdrawals only to the main wallet.
     pub auto_wallet: bool,
     /// Kixo AI risk: the trained model's dump and 2x chances on new coins (ai_risk.rs).
@@ -253,6 +255,7 @@ impl Default for FeatureFlags {
             achievements: true,
             weekly_recap: true,
             pnl_calendar: true,
+            rug_exit: true,
             auto_wallet: true,
             ai_risk: true,
             ai_chat: true,
@@ -414,6 +417,10 @@ impl AdminState {
     }
 
     /// Whether the AI risk scores are switched on.
+    pub fn rug_exit(&self) -> bool {
+        self.features.lock().expect("features lock").rug_exit
+    }
+
     pub fn ai_risk(&self) -> bool {
         self.features.lock().expect("features lock").ai_risk
     }

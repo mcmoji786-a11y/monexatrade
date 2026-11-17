@@ -820,6 +820,36 @@ async fn fire(c: &DemoCtx, id: i64, user: &str, mint: &str, kind: &str, fraction
     }
 }
 
+/// Sells a user's whole demo position at the live market, from the server (rug_exit.rs).
+/// `None` when there is nothing to sell. The trade is recorded with `source`; a database
+/// without that source yet (migration 0018) records it as a stop loss instead.
+pub async fn sell_all(c: &DemoCtx, user: &str, mint: &str, source: &str) -> Result<Option<(Fill, String, f64)>, (StatusCode, String)> {
+    let lock = user_lock(user);
+    let _guard = lock.lock().await;
+    let (_, _, _, rows) = account_rows(c, user).await?;
+    let held = rows.iter().find(|p| p["mint"].as_str() == Some(mint)).map(|p| num(&p["tokens"])).unwrap_or(0.0);
+    if held <= 0.0 {
+        return Ok(None);
+    }
+    let q = quote(&c.app, mint).await?.held(held);
+    let Some(fill) = q.sell(held) else { return Ok(None) };
+    let body = |src: &str| {
+        json!({
+            "p_user": user, "p_mint": mint, "p_symbol": q.symbol, "p_side": fill.side, "p_tokens": fill.tokens,
+            "p_usd": fill.usd, "p_sol": fill.sol, "p_price_usd": fill.price_usd, "p_fee_usd": fill.fee_usd,
+            "p_impact": fill.impact_pct, "p_source": src, "p_start": START_USD
+        })
+    };
+    let res = match c.acct.rest(reqwest::Method::POST, "rpc/demo_fill", Some(body(source))).await {
+        Ok(r) => r,
+        // The source check refuses an unknown source as a plain "database error".
+        Err(e) if e.1 == "database error" && source != "sl" => c.acct.rest(reqwest::Method::POST, "rpc/demo_fill", Some(body("sl"))).await?,
+        Err(e) => return Err(e),
+    };
+    cancel_open(c, user, Some(mint), "position closed").await;
+    Ok(Some((fill, q.symbol.clone(), num(&res["realized_usd"]))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
