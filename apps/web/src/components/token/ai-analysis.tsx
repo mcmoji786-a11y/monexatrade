@@ -6,7 +6,7 @@
 import { useFeatures } from "@/lib/features";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, Loader2, Sparkle, X } from "lucide-react";
+import { ArrowUp, Check, Loader2, Sparkle, X } from "lucide-react";
 import { analyze, type AnalysisInput, type AnalysisResult } from "@/lib/ai";
 import { askModel, looksSecret, plain, SECRET_REPLY } from "@/lib/ai-chat";
 import { pct, useAiRisk, verdict, type AiRisk } from "@/lib/ai-risk";
@@ -49,7 +49,13 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Live facts: ${facts}.`,
     s ? `Kixo safety score ${s.score}/100.${flags ? ` Flags: ${flags}.` : " No red flags."}` : "",
     v && risk ? `Kixo AI word: ${v.label} (crash chance ${pct(risk.dump)}, double chance ${pct(risk.pump)}, from its first 2 minutes).` : "",
-    `Use only these facts and do not repeat the address. Answer in plain text, in this shape: one sentence overall read; then "Good:" with up to 3 short points; "Risks:" with up to 3 short points; "Watch:" with 2 short points.`,
+    `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a sharp trader friend: casual, plain English, short.`,
+    `Answer in plain text, one item per line, every line starting with its label:`,
+    `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
+    `Good: one strength per line, up to 3 lines, each with the real number.`,
+    `Bad: one risk per line, up to 3 lines, each with the real number (dev selling, bundlers or snipers holding, top 10 share, dev's past rugs).`,
+    `Prediction: one line on the next hour, from Kixo AI's crash and double chances in plain words. If there is no AI score, say the AI has not scored it.`,
+    `Call: one line starting with "Stay away", "Tiny size only, tight stop" or "Cleaner than most, still risky", then the reason. Never tell anyone to buy.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -166,19 +172,7 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
               Kixo AI is reading this coin&apos;s live data
             </p>
           ) : read ? (
-            <div className="flex flex-col gap-2 text-sm leading-6 text-text-2">
-              {read.map((l, i) => {
-                const m = l.match(/^(Good|Risks|Watch):\s*(.*)$/i);
-                if (!m) return <p key={i} className={i === 0 ? "text-text" : ""}>{l}</p>;
-                const tone = /good/i.test(m[1]) ? "text-positive" : /risk/i.test(m[1]) ? "text-negative" : "text-warning";
-                return (
-                  <p key={i}>
-                    <span className={`mr-1.5 ${tone}`}>{m[1]}:</span>
-                    {m[2]}
-                  </p>
-                );
-              })}
-            </div>
+            <Read lines={read} />
           ) : rules?.status === "ok" ? (
             <div className="flex flex-col gap-4 text-sm">
               <p className="leading-6 text-text">{rules.summary}</p>
@@ -233,6 +227,78 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
           </Link>
         </div>
       </div>
+    </div>
+  );
+}
+
+type Part = "take" | "good" | "bad" | "prediction" | "call";
+const LABEL: [RegExp, Part][] = [
+  [/^quick take$/i, "take"],
+  [/^(good|strengths?)$/i, "good"],
+  [/^(bad|risks?)$/i, "bad"],
+  [/^(prediction|next hour|watch)$/i, "prediction"],
+  [/^(call|recommendation)$/i, "call"],
+];
+
+/** The model's read, line by line ("Good: …"), sorted into its parts. Lines without a
+ *  known label belong to the part above them (the quick take at the start). */
+export function parseRead(lines: string[]) {
+  const out: Record<Part, string[]> = { take: [], good: [], bad: [], prediction: [], call: [] };
+  let part: Part = "take";
+  for (const raw of lines) {
+    const l = raw.replace(/^[-•*]\s*/, "");
+    const m = l.match(/^([A-Za-z ]{2,20}):\s*(.*)$/);
+    const hit = m ? LABEL.find(([re]) => re.test(m[1].trim())) : undefined;
+    if (hit && m) {
+      part = hit[1];
+      if (m[2].trim()) out[part].push(m[2].trim());
+    } else if (l.trim()) {
+      out[part].push(l.trim());
+    }
+  }
+  return out;
+}
+
+function Read({ lines }: { lines: string[] }) {
+  const r = parseRead(lines);
+  const call = r.call.join(" ");
+  const callTone = /^stay away/i.test(call) ? "border-negative/30 text-negative" : /^tiny size/i.test(call) ? "border-warning/30 text-warning" : /^cleaner/i.test(call) ? "border-positive/30 text-positive" : "border-border text-text";
+  return (
+    <div className="flex flex-col gap-4 text-sm leading-6">
+      {r.take.length > 0 && <p className="text-text">{r.take.join(" ")}</p>}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Points title="Good" icon={Check} tone="text-positive" items={r.good} />
+        <Points title="Bad" icon={X} tone="text-negative" items={r.bad} />
+      </div>
+      {r.prediction.length > 0 && (
+        <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
+          <p className="text-xs text-muted">Next hour</p>
+          <p className="text-text-2">{r.prediction.join(" ")}</p>
+        </div>
+      )}
+      {call && (
+        <div className={`rounded-lg border px-3 py-2 ${callTone}`}>
+          <p className="text-xs text-muted">Kixo AI&apos;s call</p>
+          <p>{call}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Points({ title, icon: Icon, tone, items }: { title: string; icon: typeof Check; tone: string; items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <h3 className={`text-xs ${tone}`}>{title}</h3>
+      <ul className="mt-1.5 flex flex-col gap-1.5 text-text-2">
+        {items.map((x) => (
+          <li key={x} className="flex gap-2">
+            <Icon size={14} strokeWidth={1.5} className={`mt-1 shrink-0 ${tone}`} />
+            <span>{x}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

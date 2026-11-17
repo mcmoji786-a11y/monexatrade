@@ -31,10 +31,16 @@ if ((FreeGB) -lt 4) {
     exit 2
 }
 
-# Newest imported days to train with (0 = all). All 45 days do not fit in 16 GB of memory.
-$env:KIXO_EXTRA_DAYS = "10"
-Write-Log "training started"
+# Imported days to train with (0 = all of them). All data first; if that runs out of
+# memory (a 16 GB PC), the newest 10 days, so the night still gives a fresh model.
+$env:KIXO_EXTRA_DAYS = "0"
+Write-Log "training started (all imported data)"
 & $Py "$Root\ai\train_rug.py" *> "$Logs\ai-train.log"
+if ($LASTEXITCODE -ne 0) {
+    Write-Log "training on all data failed (memory?): trying the newest 10 imported days"
+    $env:KIXO_EXTRA_DAYS = "10"
+    & $Py "$Root\ai\train_rug.py" *> "$Logs\ai-train.log"
+}
 if ($LASTEXITCODE -ne 0) { Write-Log "training failed (old models stay): see ai-train.log"; exit 1 }
 $summary = (Get-Content "$Logs\ai-train.log" | Select-String -Pattern "coins with a full first hour|DUMP:|PUMP:" | ForEach-Object { $_.Line.Trim() }) -join " | "
 Write-Log "trained: $summary"

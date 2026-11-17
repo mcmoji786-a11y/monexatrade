@@ -167,18 +167,120 @@ fn verdict(dump: f64, pump: f64) -> &'static str {
     }
 }
 
-/// Live facts for the prompt: the coin the message names (address or $SYMBOL) and the
-/// AI's current Good odds and Danger coins.
-fn live_data(ctx: &ChatCtx, msg: &str) -> Value {
-    let board = ctx.app.board.lock().expect("board lock");
+/// The coin a text names: an address, or a $SYMBOL Kixo has seen.
+fn coin_in(board: &crate::Board, text: &str) -> Option<String> {
+    if let Some(m) = text.split(|c: char| !c.is_ascii_alphanumeric()).find(|w| (32..=44).contains(&w.len()) && is_base58(w)) {
+        return Some(m.to_string());
+    }
+    let sym = text.split_whitespace().find_map(|w| w.strip_prefix('$')).map(|s| s.trim_matches(|c: char| !c.is_ascii_alphanumeric()).to_lowercase()).filter(|s| !s.is_empty())?;
+    board.tokens.values().filter(|t| t.token.symbol.to_lowercase() == sym).max_by_key(|t| t.token.timestamp).map(|t| t.token.mint.clone())
+}
+
+fn round2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+fn short_addr(a: &str) -> String {
+    if a.len() > 10 {
+        format!("{}…{}", &a[..4], &a[a.len() - 4..])
+    } else {
+        a.to_string()
+    }
+}
+
+/// Holders, the dev's position, bundlers and snipers of a coin, from Kixo's own book of
+/// its trades (only coins Kixo watched from launch). Balances come from trades, so
+/// transfers are not seen.
+fn holders_of(ctx: &ChatCtx, mint: &str) -> Option<Value> {
+    let books = ctx.app.books.lock().expect("books lock");
+    let w = books.wallets(mint, None)?;
+    let labels = books.labels(mint).unwrap_or_default();
+    let all = books.positions_of(mint);
+    drop(books);
+    let group = |sel: &dyn Fn(&crate::book::Position) -> bool| {
+        let g: Vec<_> = all.iter().filter(|p| sel(p)).collect();
+        let holding: Vec<_> = g.iter().filter(|p| p.balance > 0.0).collect();
+        json!({
+            "wallets": g.len(),
+            "still_holding": holding.len(),
+            "hold_pct_of_supply": round2(holding.iter().map(|p| p.pct).sum::<f64>()),
+            "bought_sol": round2(g.iter().map(|p| p.bought_sol).sum::<f64>()),
+            "sold_sol": round2(g.iter().map(|p| p.sold_sol).sum::<f64>()),
+        })
+    };
+    let top: Vec<_> = w.holders.iter().take(10).collect();
+    Some(json!({
+        "holders": w.holder_count,
+        "top10_hold_pct": round2(top.iter().map(|p| p.pct).sum::<f64>()),
+        "top_holders": top.iter().map(|p| json!({ "wallet": short_addr(&p.wallet), "hold_pct": round2(p.pct), "labels": labels.get(&p.wallet).cloned().unwrap_or_default() })).collect::<Vec<_>>(),
+        "dev_position": w.dev.as_ref().map(|d| json!({
+            "hold_pct": round2(d.pct), "still_holding": d.balance > 0.0, "bought_sol": round2(d.bought_sol),
+            "sold_sol": round2(d.sold_sol), "sells": d.sells, "realized_profit_sol": round2(d.realized_sol),
+        })),
+        "bundlers": group(&|p| p.bundler),
+        "snipers": group(&|p| p.sniper),
+        "whales": group(&|p| p.big_buyer),
+        "note": "From trades Kixo saw since launch; tokens moved by transfer are not counted.",
+    }))
+}
+
+/// The dev wallet's SOL and other coins right now (Helius), cached a minute.
+async fn dev_wallet(ctx: &ChatCtx, address: &str) -> Value {
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, Value)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((at, v)) = cache.lock().expect("dev wallet cache").get(address) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return v.clone();
+        }
+    }
+    let rpc = ctx.app.config.helius_rpc_url();
+    let Ok(Some((sol, das_usd, mut tokens))) = tokio::time::timeout(Duration::from_secs(6), crate::portfolio::holdings(&ctx.http, &rpc, address)).await else {
+        return json!({ "address": address, "error": "wallet could not be read right now" });
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(5), crate::portfolio::enrich(&ctx.http, &mut tokens)).await;
+    tokens.sort_by(|a, b| b.value_usd.unwrap_or(0.0).total_cmp(&a.value_usd.unwrap_or(0.0)));
+    let sol_usd = ctx.app.board.lock().expect("board lock").sol_usd.or(das_usd);
+    let tokens_usd: f64 = tokens.iter().filter_map(|t| t.value_usd).sum();
+    let v = json!({
+        "address": address,
+        "sol_balance": round2(sol),
+        "sol_value_usd": sol_usd.map(|p| round2(sol * p)),
+        "other_coins_held": tokens.len(),
+        "other_coins_value_usd": round2(tokens_usd),
+        "biggest_coins": tokens.iter().take(5).map(|t| json!({ "symbol": t.symbol, "value_usd": t.value_usd.map(round2) })).collect::<Vec<_>>(),
+    });
+    let mut c = cache.lock().expect("dev wallet cache");
+    if c.len() > 500 {
+        c.clear();
+    }
+    c.insert(address.to_string(), (Instant::now(), v.clone()));
+    v
+}
+
+/// Live facts for the prompt: the coin the message (or an earlier message) names, with
+/// its holders and the dev wallet, and the AI's current Good odds and Danger coins.
+async fn live_data(ctx: &ChatCtx, msg: &str, history: &[Turn]) -> Value {
+    let (mut data, dev) = {
+        let board = ctx.app.board.lock().expect("board lock");
+        let mint = coin_in(&board, msg).or_else(|| history.iter().rev().filter(|t| t.role != "assistant").find_map(|t| coin_in(&board, &t.content)));
+        let dev = mint.as_deref().and_then(|m| board.tokens.get(m)).map(|t| t.token.creator.clone()).filter(|c| !c.is_empty());
+        (board_data(&board, mint), dev)
+    };
+    if let Some(m) = data["coin_asked_about"]["mint"].as_str().map(String::from) {
+        if let Some(h) = holders_of(ctx, &m) {
+            data["coin_asked_about"]["wallets"] = h;
+        }
+    }
+    if let Some(d) = dev {
+        data["coin_asked_about"]["dev_wallet_now"] = dev_wallet(ctx, &d).await;
+    }
+    data
+}
+
+fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
     let now = crate::now_unix();
     let mut coin = None;
-    let mint = msg.split(|c: char| !c.is_ascii_alphanumeric()).find(|w| (32..=44).contains(&w.len()) && is_base58(w)).map(String::from);
-    let by_symbol = || {
-        let sym = msg.split_whitespace().find_map(|w| w.strip_prefix('$')).map(|s| s.trim_matches(|c: char| !c.is_ascii_alphanumeric()).to_lowercase())?;
-        board.tokens.values().filter(|t| t.token.symbol.to_lowercase() == sym).max_by_key(|t| t.token.timestamp).map(|t| t.token.mint.clone())
-    };
-    if let Some(m) = mint.or_else(by_symbol) {
+    if let Some(m) = mint {
         let ai = crate::ai_risk::score_of(&m);
         coin = Some(match board.tokens.get(&m) {
             Some(t) => {
@@ -238,10 +340,11 @@ Solana facts (current, prefer these over older knowledge):
 Rules:
 - If you are not sure of a fact, say so plainly instead of guessing.
 - Use the LIVE DATA below for any coin facts. Never invent prices, holders or numbers. If the data does not have it, say so and suggest opening the coin on Kixo.
+- Coin details in LIVE DATA: 'wallets' has holders, the top 10 holders with labels, the dev's position in this coin (how much it holds, bought, sold), and bundlers, snipers and whales (how many wallets, how many still hold, what share of supply they hold). 'dev_wallet_now' is the creator's whole wallet right now: SOL balance, its dollar value, and the other coins it holds. 'dev_history' is the dev's earlier coins. When asked about the dev, bundlers, snipers or holders, answer with these exact numbers.
 - Chances are given as 0 to 1; say them as percentages.
 - Never promise profit or tell someone to put money in. Explain risk plainly; most new memecoins go to zero. Suggest the demo account, small sizes and a stop loss.
 - Never ask for a seed phrase or private key, and warn that anyone asking for one is a scammer.
-- Reply in the user's language AND script. If they write Urdu or Hindi words in Latin letters (Roman Urdu, like \"kya hai\", \"kaise bachun\"), reply in Roman Urdu with Latin letters only: never Devanagari or Arabic script. Use Urdu script or Devanagari only if the user wrote in it. Keep it short: under 120 words unless asked for more. Plain text only: no markdown, no ** or # signs, no tables.";
+- Reply in casual, friendly English, like a sharp trader friend: short sentences, plain words, a little trader slang is fine (rug, bag, dump, ape), no hype and no emojis. Reply in English even if the user writes Roman Urdu. Keep it short: under 120 words unless asked for more. Plain text only: no markdown, no ** or # signs, no tables.";
 
 #[derive(Deserialize)]
 pub struct Turn {
@@ -287,7 +390,7 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
         return Json(json!({ "fallback": true, "reason": why }));
     }
 
-    let data = live_data(&ctx, &msg);
+    let data = live_data(&ctx, &msg, &body.history).await;
     let mut messages = vec![json!({ "role": "system", "content": format!("{SYSTEM}\n\nLIVE DATA (Kixo, now):\n{data}") })];
     for t in body.history.iter().rev().take(MAX_HISTORY).rev() {
         let role = if t.role == "assistant" { "assistant" } else { "user" };
