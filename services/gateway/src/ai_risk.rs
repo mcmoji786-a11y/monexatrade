@@ -61,6 +61,67 @@ const TRACK_SECS: i64 = 48 * 3600;
 
 /// The track record on disk, so a restart does not wipe it (one JSON line per outcome).
 const OUTCOMES_FILE: &str = "data/ai_outcomes.jsonl";
+/// The AI's recent scores on disk (every 30 s), so a restart keeps each coin's word, the
+/// latest calls and the hour still being tracked for the record.
+const SCORES_FILE: &str = "data/ai_scores.json";
+/// Scores kept on disk: the record needs an hour after each score; the pages show less.
+const KEEP_SCORES_SECS: i64 = 2 * 3600;
+
+/// One score as saved on disk.
+#[derive(Serialize, Deserialize)]
+struct SavedScore {
+    mint: String,
+    dump: f64,
+    pump: f64,
+    trades: u32,
+    at: i64,
+    p0: f64,
+    lo: f64,
+    hi: f64,
+    resolved: bool,
+    #[serde(default)]
+    symbol: String,
+}
+
+/// Writes the last two hours of scores (atomically: a temp file, then a rename).
+fn save_scores_to(path: &str) -> usize {
+    let cut = now() - KEEP_SCORES_SECS;
+    let mut list: Vec<SavedScore> = {
+        let s = store().lock().expect("ai store lock");
+        s.scores
+            .iter()
+            .filter(|(_, r)| r.at >= cut)
+            .map(|(m, r)| SavedScore { mint: m.clone(), dump: r.dump, pump: r.pump, trades: r.trades, at: r.at, p0: r.p0, lo: r.lo, hi: r.hi, resolved: r.resolved, symbol: r.symbol.clone() })
+            .collect()
+    };
+    list.sort_by_key(|x| x.at);
+    let Ok(body) = serde_json::to_vec(&list) else { return 0 };
+    let tmp = format!("{path}.tmp");
+    let ok = std::fs::create_dir_all("data").and_then(|_| std::fs::write(&tmp, body)).and_then(|_| std::fs::rename(&tmp, path)).is_ok();
+    if ok {
+        list.len()
+    } else {
+        0
+    }
+}
+
+/// At start: the saved scores from the last two hours back into memory, oldest first.
+fn load_scores_from(path: &str) -> usize {
+    let Ok(text) = std::fs::read_to_string(path) else { return 0 };
+    let Ok(list) = serde_json::from_str::<Vec<SavedScore>>(&text) else { return 0 };
+    let cut = now() - KEEP_SCORES_SECS;
+    let mut s = store().lock().expect("ai store lock");
+    let mut n = 0;
+    for x in list.into_iter().filter(|x| x.at >= cut && x.p0 > 0.0) {
+        if s.scores.contains_key(&x.mint) {
+            continue;
+        }
+        s.order.push_back(x.mint.clone());
+        s.scores.insert(x.mint, Risk { dump: x.dump, pump: x.pump, trades: x.trades, at: x.at, p0: x.p0, lo: x.lo, hi: x.hi, resolved: x.resolved, symbol: x.symbol });
+        n += 1;
+    }
+    n
+}
 
 /// What happened to a scored coin within the hour after its score.
 #[derive(Clone, Serialize, Deserialize)]
@@ -175,6 +236,10 @@ pub async fn run(ctx: AiCtx) {
     let mut last_warn: Option<Instant> = None;
     let mut round = 0u64;
     load_outcomes();
+    let restored = load_scores_from(SCORES_FILE);
+    if restored > 0 {
+        tracing::info!(restored, "ai: scores restored from disk");
+    }
     loop {
         tokio::time::sleep(Duration::from_secs(3)).await;
         round += 1;
@@ -182,6 +247,9 @@ pub async fn run(ctx: AiCtx) {
         let t = now();
         if round % 10 == 1 {
             resolve(t);
+        }
+        if round % 10 == 6 {
+            save_scores_to(SCORES_FILE);
         }
         if round % 100 == 1 {
             if let Ok(r) = http.get(format!("{}/health", url())).send().await {
@@ -471,6 +539,31 @@ pub async fn get_risk(State(ctx): State<AiCtx>, Query(q): Query<RiskQuery>) -> J
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scores_survive_a_restart() {
+        let path = std::env::temp_dir().join(format!("kixo_ai_scores_{}.json", std::process::id())).to_string_lossy().to_string();
+        let (fresh, old) = ("RestoreTestFresh11111111111111111111", "RestoreTestOld111111111111111111111");
+        let t = now();
+        {
+            let mut s = store().lock().unwrap();
+            for (m, at) in [(fresh, t - 60), (old, t - KEEP_SCORES_SECS - 60)] {
+                s.scores.insert(m.into(), Risk { dump: 0.81, pump: 0.06, trades: 40, at, p0: 1e-7, lo: 5e-8, hi: 1.2e-7, resolved: false, symbol: "ZAP".into() });
+            }
+        }
+        assert!(save_scores_to(&path) >= 1);
+        {
+            let mut s = store().lock().unwrap();
+            s.scores.remove(fresh);
+            s.scores.remove(old);
+        }
+        assert!(load_scores_from(&path) >= 1);
+        let r = score_of(fresh).expect("the fresh score is back");
+        assert_eq!((r.dump, r.pump, r.trades, r.at), (0.81, 0.06, 40, t - 60));
+        assert_eq!((r.p0, r.lo, r.hi, r.symbol.as_str()), (1e-7, 5e-8, 1.2e-7, "ZAP"), "the hour being tracked continues");
+        assert!(score_of(old).is_none(), "scores older than two hours are not kept");
+        let _ = std::fs::remove_file(&path);
+    }
 
     fn tok(mint: &str) -> NewToken {
         NewToken {
