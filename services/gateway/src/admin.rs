@@ -183,6 +183,8 @@ pub struct FeatureFlags {
     pub rug_exit: bool,
     /// Kixo AI auto trade (Copy Kixo AI). Off: "coming soon" while the AI is still being trained.
     pub ai_autotrade: bool,
+    /// Deposit with a card: SOL bought through Changelly lands in the user's own Kixo wallet.
+    pub card_deposits: bool,
     /// Auto-trade wallet: server-held key, 24/7 trading, withdrawals only to the main wallet.
     pub auto_wallet: bool,
     /// Kixo AI risk: the trained model's dump and 2x chances on new coins (ai_risk.rs).
@@ -259,6 +261,7 @@ impl Default for FeatureFlags {
             pnl_calendar: true,
             rug_exit: true,
             ai_autotrade: false,
+            card_deposits: true,
             auto_wallet: true,
             ai_risk: true,
             ai_chat: true,

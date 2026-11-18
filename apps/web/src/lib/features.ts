@@ -59,6 +59,7 @@ export type Features = {
   pnl_calendar: boolean;
   rug_exit: boolean;
   ai_autotrade: boolean;
+  card_deposits: boolean;
   achievements: boolean;
   milestone_alerts: boolean;
   coin_share: boolean;
@@ -123,6 +124,7 @@ export const ALL_ON: Features = {
   pnl_calendar: true,
   rug_exit: true,
   ai_autotrade: false,
+  card_deposits: true,
   achievements: true,
   milestone_alerts: true,
   coin_share: true,
@@ -155,6 +157,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "milestone_alerts", label: "2x, 5x, 10x alerts", hint: "An alert with a share card when an open demo position reaches 2x, 5x, 10x and more" },
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
+  { key: "card_deposits", label: "Deposit with a card", hint: "Users buy SOL with a card through Changelly, straight into their own Kixo wallet. Needs CHANGELLY_MERCHANT_ID (Admin, API keys)" },
   { key: "ai_autotrade", label: "Kixo AI auto trade", hint: "Copy Kixo AI: the AI buys and sells on its own. Off shows Coming soon (the AI is still being trained) on the AI page, and hides its sniper preset" },
   { key: "rug_exit", label: "Rug exit", hint: "Users can have a demo position sold by itself when the coin's dev sells or Kixo AI calls it Danger (Settings, Safety). Runs on the gateway around the clock. Needs migration 0018 to show as Rug exit in history" },
   { key: "pnl_calendar", label: "Profit calendar", hint: "Portfolio page: profit or loss taken on each day of the month, with winning and losing days" },

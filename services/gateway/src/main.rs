@@ -323,6 +323,7 @@ async fn main() -> Result<()> {
     let admin_routes: Router<Arc<AppState>> = Router::new()
         .route("/rewards/config", get(admin::get_rewards))
         .route("/features", get(admin::get_features))
+        .route("/deposit/card", get(platform::card_config))
         .route("/admin/features", axum::routing::put(admin::put_features))
         .route("/creator/apply", axum::routing::post(admin::apply_creator))
         .route("/admin/check", get(admin::check_admin))

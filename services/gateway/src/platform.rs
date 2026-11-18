@@ -31,7 +31,7 @@ const AUDIT_FILE: &str = "data/audit.jsonl";
 const OWNER_SESSION: Duration = Duration::from_secs(15 * 60);
 
 /// API keys the admin may set, with what each one is for.
-pub const SECRET_NAMES: [(&str, &str); 7] = [
+pub const SECRET_NAMES: [(&str, &str); 8] = [
     ("HELIUS_API_KEY", "Helius: main Solana data and the fast Sender path"),
     ("JUPITER_API_KEY", "Jupiter: swap routes for coins outside the launchpads"),
     ("X_BEARER_TOKEN", "X (Twitter): posts in the news feed"),
@@ -39,7 +39,15 @@ pub const SECRET_NAMES: [(&str, &str); 7] = [
     ("REDDIT_CLIENT_SECRET", "Reddit: client secret"),
     ("TELEGRAM_BOT_TOKEN", "Telegram bot: alerts to users"),
     ("RESEND_API_KEY", "Resend: alert emails to users"),
+    ("CHANGELLY_MERCHANT_ID", "Changelly affiliate id: users buy SOL with a card into their own Kixo wallet"),
 ];
+
+/// `GET /deposit/card`: the card purchase partner for the deposit screen. The merchant id
+/// is an affiliate id the widget shows in its URL anyway, so it is not secret.
+pub async fn card_config() -> axum::Json<serde_json::Value> {
+    let id = monexa_common::secret("CHANGELLY_MERCHANT_ID");
+    axum::Json(serde_json::json!({ "provider": "changelly", "ready": id.is_some(), "merchant_id": id }))
+}
 
 /// Every number the admin can change. Ranges are checked on save.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

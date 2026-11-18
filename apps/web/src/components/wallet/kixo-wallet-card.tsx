@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Check, ClipboardPaste, Copy, Download, Fingerprint, KeyRound, Loader2, Lock, ShieldCheck, Ticket, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, ClipboardPaste, Copy, CreditCard, Download, Fingerprint, KeyRound, Loader2, Lock, ShieldCheck, Ticket, Wallet, X } from "lucide-react";
+import { GATEWAY_HTTP } from "@/lib/gateway";
+import { useFeatures } from "@/lib/features";
 import { getPromo, redeemPromo, type PromoState } from "@/lib/marketing";
 import { useAccount } from "@/lib/account";
 import {
@@ -511,13 +513,124 @@ function AmountField({ id, value, onChange, right }: { id: string; value: string
   );
 }
 
+/** Deposit: by card (Changelly, into this wallet) or from Phantom or any address. */
 function Deposit({ address, open }: { address: string; open: boolean }) {
+  const cardOn = useFeatures().card_deposits;
+  const [how, setHow] = useState<"card" | "wallet">("card");
+  if (!open) return <p className="text-sm text-text-2">Deposits are paused for a short while. Withdrawals stay open</p>;
+  if (!cardOn) return <DepositFromWallet address={address} />;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-bg p-1" role="tablist" aria-label="How to deposit">
+        {(
+          [
+            ["card", "Card", CreditCard],
+            ["wallet", "Phantom or address", Wallet],
+          ] as const
+        ).map(([k, label, Icon]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={how === k}
+            onClick={() => setHow(k)}
+            className={`flex h-9 items-center justify-center gap-2 rounded-md text-sm transition-colors ${how === k ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}
+          >
+            <Icon size={16} strokeWidth={1.5} />
+            {label}
+          </button>
+        ))}
+      </div>
+      {how === "card" ? <DepositByCard address={address} /> : <DepositFromWallet address={address} />}
+    </div>
+  );
+}
+
+const CARD_QUICK = [50, 100, 250];
+
+/** Buy SOL with a card through Changelly. The card form is Changelly's (and its payment
+ *  partners'), shown in a window here; the SOL goes straight to this wallet's address.
+ *  Kixo never sees the card or holds the money. */
+function DepositByCard({ address }: { address: string }) {
+  const [cfg, setCfg] = useState<{ ready: boolean; merchant_id: string | null } | null>(null);
+  const [usd, setUsd] = useState("100");
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch(`${GATEWAY_HTTP}/deposit/card`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => setCfg(v ?? { ready: false, merchant_id: null }))
+      .catch(() => setCfg({ ready: false, merchant_id: null }));
+  }, []);
+  // While the window is open, check the balance now and then: the SOL can take a few minutes.
+  useEffect(() => {
+    if (!open) return;
+    const t = setInterval(() => void refreshBalance(), 20_000);
+    return () => clearInterval(t);
+  }, [open]);
+
+  const value = Number(usd);
+  const valid = Number.isFinite(value) && value >= 30 && value <= 10_000;
+  if (!cfg) return <Loader2 size={16} strokeWidth={1.5} className="mx-auto animate-spin text-muted" />;
+  if (!cfg.ready) {
+    return <p className="rounded-lg border border-border bg-bg px-3 py-3 text-sm text-text-2">Card payments are being set up and open soon. For now, deposit from Phantom or another wallet</p>;
+  }
+  const src =
+    "https://widget.changelly.com?" +
+    new URLSearchParams({ from: "usd", to: "sol", fromDefault: "usd", toDefault: "sol", amount: String(value), address, merchant_id: cfg.merchant_id ?? "", payment_id: "", v: "3", type: "no-rev-share", color: "34d399", headerId: "1", logo: "hide", buyButtonTextId: "1" }).toString();
+
+  return (
+    <div className="flex flex-col gap-3">
+      <label htmlFor="kw-card" className="text-xs text-text-2">Amount</label>
+      <div className="flex h-12 items-center gap-2 rounded-lg border border-border bg-bg px-3 focus-within:border-emerald/50">
+        <span className="text-sm text-muted">$</span>
+        <input id="kw-card" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="100" className="min-w-0 flex-1 bg-transparent font-mono text-lg tabular-nums text-text outline-none placeholder:text-muted" />
+        <span className="text-xs text-muted">USD</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {CARD_QUICK.map((q) => (
+          <button key={q} type="button" onClick={() => setUsd(String(q))} className={`h-8 rounded-md border font-mono text-xs tabular-nums transition-colors ${Number(usd) === q ? "border-emerald/50 bg-emerald/5 text-text" : "border-border text-text-2 hover:bg-surface-2 hover:text-text"}`}>
+            ${q}
+          </button>
+        ))}
+      </div>
+      <button type="button" disabled={!valid} onClick={() => setOpen(true)} className={`${primary} h-11 w-full`}>
+        <CreditCard size={16} strokeWidth={1.5} />
+        {valid ? `Pay $${value} with card` : "Enter $30 to $10,000"}
+      </button>
+      <p className="text-center text-xs leading-5 text-muted">Paid through Changelly and its card partners. They may ask to verify your ID. The SOL goes straight to this wallet, usually in 5 to 30 minutes</p>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Pay with card" onClick={(e) => e.stopPropagation()} className="flex h-[min(680px,90vh)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <span className="text-sm text-text">Buy SOL with card</span>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setOpen(false);
+                  void refreshBalance();
+                }}
+                className="rounded-md p-1.5 text-muted hover:bg-surface-3 hover:text-text"
+              >
+                <X size={16} strokeWidth={1.5} />
+              </button>
+            </div>
+            <iframe title="Changelly card payment" src={src} allow="camera; clipboard-write; payment" className="min-h-0 w-full flex-1 bg-white" />
+            <p className="border-t border-border px-4 py-2 font-mono text-xs text-muted">To {shortAddress(address)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DepositFromWallet({ address }: { address: string }) {
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddress, setShowAddress] = useState(false);
   const [copied, setCopied] = useState(false);
-  if (!open) return <p className="text-sm text-text-2">Deposits are paused for a short while. Withdrawals stay open</p>;
   const value = Number(amount);
   const valid = Number.isFinite(value) && value >= 0.001 && value <= 100;
   return (
