@@ -8,8 +8,9 @@ import { ButtonLink } from "@/components/ui/button";
 
 // From "/" so they also work on the Learn pages.
 const LINKS = [
+  { href: "/#product", label: "Product" },
+  { href: "/#ai", label: "Kixo AI" },
   { href: "/#features", label: "Features" },
-  { href: "/#how", label: "How it works" },
   { href: "/#security", label: "Security" },
   { href: "/#fees", label: "Fees" },
   { href: "/learn", label: "Learn" },

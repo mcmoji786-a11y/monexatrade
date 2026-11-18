@@ -15,10 +15,12 @@ import {
   Features,
   Fees,
   FinalCta,
-  HowItWorks,
   Security,
   SiteFooter,
 } from "@/components/landing/sections";
+import { ProductTour } from "@/components/landing/product-tour";
+import { RugStory } from "@/components/landing/rug-story";
+import { AiRecord } from "@/components/landing/ai-record";
 
 export async function generateMetadata(): Promise<Metadata> {
   const s = await seo();
@@ -60,30 +62,32 @@ export default function LandingPage() {
       <MarketingPopup />
       <SiteNav />
       <main>
-        <section className="mx-auto grid max-w-300 gap-12 px-4 pb-24 pt-16 md:px-8 md:pt-24 lg:grid-cols-[1fr_1.05fr] lg:items-center">
+        <section className="mx-auto grid min-h-[calc(100svh-4rem)] max-w-300 items-center gap-12 px-4 py-16 md:px-8 lg:grid-cols-[1fr_1.05fr]">
           <div>
             <p className="flex items-center gap-2 font-mono text-xs text-text-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
+              <span className="size-1.5 rounded-full bg-emerald" />
               Solana memecoin trading terminal
             </p>
             <h1 className="mt-6 text-4xl font-medium leading-[1.06] tracking-[-0.02em] text-text md:text-6xl md:tracking-[-0.03em]">
-              See every new Solana token the second it launches
+              Catch the launch. Skip the rug
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-text-2">
-              Kixo reads launches straight from the chain, prices them itself and flags the risks it can verify.
+              Kixo sees every new Solana coin the second it launches, reads its first 2 minutes with its own AI and tells you Danger or Good odds before you buy.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-3">
-              <TradeNowButton className={buttonClass("primary", "lg")}>Trade now</TradeNowButton>
-              <ButtonLink href="#features" size="lg" variant="ghost">
-                See features
+              <TradeNowButton className={buttonClass("primary", "lg")}>Start with $10,000 demo</TradeNowButton>
+              <ButtonLink href="#product" size="lg" variant="ghost">
+                See it work
               </ButtonLink>
             </div>
           </div>
           <LivePreview />
         </section>
 
+        <ProductTour />
+        <RugStory />
+        <AiRecord />
         <Features />
-        <HowItWorks />
         <ChainData />
         <Security />
         <Fees />

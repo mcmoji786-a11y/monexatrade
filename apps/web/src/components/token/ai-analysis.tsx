@@ -49,7 +49,7 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Live facts: ${facts}.`,
     s ? `Kixo safety score ${s.score}/100.${flags ? ` Flags: ${flags}.` : " No red flags."}` : "",
     v && risk ? `Kixo AI word: ${v.label} (crash chance ${pct(risk.dump)}, double chance ${pct(risk.pump)}, from its first 2 minutes).` : "",
-    `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a sharp trader friend: casual, plain English, short.`,
+    `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a sharp trader friend: casual, plain English, short. Write chances as whole percentages only (like 17%), never as decimals.`,
     `Answer in plain text, one item per line, every line starting with its label:`,
     `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
     `Good: one strength per line, up to 3 lines, each with the real number.`,
