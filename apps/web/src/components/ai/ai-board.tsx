@@ -4,6 +4,7 @@
    let the AI trade, or ask it. Every number is real (gateway ai_risk.rs /ai/overview). */
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useFeatures } from "@/lib/features";
 import { Bot, Check, MessageCircle, ScanSearch, Sparkles, X } from "lucide-react";
 import { GATEWAY_HTTP, usd } from "@/lib/gateway";
 import { pct, riskTitle, verdict, VERDICTS, type AiRisk, type Verdict } from "@/lib/ai-risk";
@@ -44,6 +45,7 @@ const POLL_MS = 10_000;
 const riskOf = (p: { dump: number; pump: number; at: number }): AiRisk => ({ dump: p.dump, pump: p.pump, trades: 0, at: p.at });
 
 export function AiBoard() {
+  const aiAuto = useFeatures().ai_autotrade;
   const [data, setData] = useState<Overview | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(0);
@@ -93,6 +95,7 @@ export function AiBoard() {
           >
             <Icon size={16} strokeWidth={1.5} />
             {label}
+            {key === "auto" && !aiAuto && <span className="font-mono text-xs text-cyan">Soon</span>}
           </button>
         ))}
       </div>

@@ -181,6 +181,8 @@ pub struct FeatureFlags {
     pub pnl_calendar: bool,
     /// Rug exit: demo positions sold by themselves when the dev sells or the AI says Danger.
     pub rug_exit: bool,
+    /// Kixo AI auto trade (Copy Kixo AI). Off: "coming soon" while the AI is still being trained.
+    pub ai_autotrade: bool,
     /// Auto-trade wallet: server-held key, 24/7 trading, withdrawals only to the main wallet.
     pub auto_wallet: bool,
     /// Kixo AI risk: the trained model's dump and 2x chances on new coins (ai_risk.rs).
@@ -256,6 +258,7 @@ impl Default for FeatureFlags {
             weekly_recap: true,
             pnl_calendar: true,
             rug_exit: true,
+            ai_autotrade: false,
             auto_wallet: true,
             ai_risk: true,
             ai_chat: true,

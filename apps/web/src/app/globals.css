@@ -159,6 +159,22 @@ body {
   animation: grow-x 700ms var(--mx-ease) both;
 }
 
+/* Landing: the AI's latest calls drift by slowly; hover holds them still. */
+@keyframes ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.ticker {
+  animation: ticker 70s linear infinite;
+}
+.ticker:hover {
+  animation-play-state: paused;
+}
+.ticker-mask {
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+}
+
 /* Live status dot: a soft ring that widens and fades, once every two seconds. */
 @keyframes live-ring {
   from {
@@ -222,7 +238,8 @@ body {
   .drawer-in,
   .row-in,
   .live-ring,
-  .radar-sweep {
+  .radar-sweep,
+  .ticker {
     animation: none;
   }
 }

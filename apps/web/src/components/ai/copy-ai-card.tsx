@@ -8,6 +8,7 @@ import Link from "next/link";
 import { activePreset, AI_PRESET, pnl, useSniper } from "@/lib/sniper";
 import { useSniperAccount } from "@/components/sniper/sniper-engine";
 import { tokenHref } from "@/lib/open-token";
+import { useFeatures } from "@/lib/features";
 
 const AMOUNTS = [10, 25, 50, 100];
 
@@ -36,7 +37,69 @@ function LatestCheck() {
   );
 }
 
+/** Auto trade, or "coming soon" while the AI is still in training (admin switch ai_autotrade). */
 export function CopyAiCard() {
+  return useFeatures().ai_autotrade ? <CopyAiLive /> : <AutoTradeSoon />;
+}
+
+/** Shown until Kixo AI auto trade launches: what is happening, and what works today. */
+function AutoTradeSoon() {
+  const [coins, setCoins] = useState<number | null>(null);
+  const { settings } = useSniper();
+  const waiting = settings.enabled && activePreset(settings) === AI_PRESET.key;
+  useEffect(() => {
+    fetch(`${GATEWAY_HTTP}/ai/overview`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => setCoins(v?.model?.coins ?? null))
+      .catch(() => setCoins(null));
+  }, []);
+  const today = [
+    { href: "/radar", title: "Kixo AI's word on every new coin", body: "Danger, Careful, Calm or Good odds on Sol Radar, after each coin's first 2 minutes" },
+    { href: "/ai", title: "Ask Kixo AI about any coin", body: "The dev wallet, bundlers, snipers and holders, answered from live data" },
+    { href: "/settings#safety", title: "Turn on Rug exit", body: "Sells your demo position by itself when the dev sells or the AI says Danger" },
+  ];
+  return (
+    <section className="rounded-xl border border-border bg-surface">
+      <div className="border-b border-border px-5 py-5">
+        <p className="font-mono text-xs text-cyan">Coming soon</p>
+        <h2 className="mt-2 text-lg font-medium text-text">Kixo AI auto trade is in training</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-text-2">
+          We are training Kixo AI on every new Solana launch, every night. It is already good at spotting coins that are about to crash. Before it trades for you, it has to prove it makes money after fees on coins it has never seen. It launches soon.
+        </p>
+        {waiting && <p className="mt-3 text-sm text-warning">Your Copy Kixo AI sniper is paused until the launch. Nothing is bought meanwhile</p>}
+      </div>
+      <dl className="grid grid-cols-1 gap-px bg-border sm:grid-cols-3">
+        <Stat k="Launches trained on" v={coins ? coins.toLocaleString("en-US") : "—"} />
+        <Stat k="Training" v="Every night" />
+        <Stat k="Auto trade" v="Launching soon" accent />
+      </dl>
+      <div className="border-t border-border px-5 py-5">
+        <p className="text-xs text-muted">Use Kixo AI today</p>
+        <ul className="mt-3 grid gap-3 sm:grid-cols-3">
+          {today.map((t) => (
+            <li key={t.href}>
+              <Link href={t.href} className="block h-full rounded-lg border border-border bg-bg px-4 py-3 transition-colors hover:border-text-2/30">
+                <span className="block text-sm text-text">{t.title}</span>
+                <span className="mt-1 block text-xs leading-5 text-text-2">{t.body}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function Stat({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
+  return (
+    <div className="bg-surface px-5 py-4">
+      <dt className="text-xs text-muted">{k}</dt>
+      <dd className={`mt-1 font-mono text-lg tabular-nums ${accent ? "text-cyan" : "text-text"}`}>{v}</dd>
+    </div>
+  );
+}
+
+function CopyAiLive() {
   const { settings, positions, update } = useSniper();
   const { account, why } = useSniperAccount();
   const onAi = activePreset(settings) === AI_PRESET.key;

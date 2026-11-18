@@ -198,9 +198,8 @@ export async function answer(input: string, given: ChatInput): Promise<ChatReply
   if (has(q, /copy kixo|copy the ai|copy ai|ai copy|auto ?trade|auto ?buy|khud trade|agent/)) {
     return {
       text: [
-        "Copy Kixo AI buys, on your demo account, the strongest Good odds coins (under 20% crash risk, 20%+ double chance), then sells fast: at a 20% loss, 20% below its best price, at 3x, or after 10 minutes",
-        "Turn it on in the Copy Kixo AI box on this page. It runs while Kixo is open; 24/7 trading on the server comes with the auto-trade wallet",
-        "Honest note: these fast exits did much better than holding for an hour on coins the AI never saw, but it is not proven yet. Use it on demo first",
+        "Kixo AI auto trade (Copy Kixo AI) is coming soon. We are training the AI on every new Solana launch, every night, and it launches once it proves it makes money after fees on coins it has never seen",
+        "Today you can already use Kixo AI's word on every new coin (Danger, Careful, Calm, Good odds), ask it about any coin, and turn on Rug exit in Settings, Safety",
       ],
       suggestions: ["Is the AI accurate?", "Best coins right now"],
     };

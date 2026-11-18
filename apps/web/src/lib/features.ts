@@ -58,6 +58,7 @@ export type Features = {
   weekly_recap: boolean;
   pnl_calendar: boolean;
   rug_exit: boolean;
+  ai_autotrade: boolean;
   achievements: boolean;
   milestone_alerts: boolean;
   coin_share: boolean;
@@ -121,6 +122,7 @@ export const ALL_ON: Features = {
   weekly_recap: true,
   pnl_calendar: true,
   rug_exit: true,
+  ai_autotrade: false,
   achievements: true,
   milestone_alerts: true,
   coin_share: true,
@@ -153,6 +155,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "milestone_alerts", label: "2x, 5x, 10x alerts", hint: "An alert with a share card when an open demo position reaches 2x, 5x, 10x and more" },
   { key: "achievements", label: "Achievements and streaks", hint: "Badges and day and win streaks on the Portfolio page, with an alert when one is earned" },
   { key: "weekly_recap", label: "Weekly recap card", hint: "This week and last week on the Portfolio page, shareable as a card" },
+  { key: "ai_autotrade", label: "Kixo AI auto trade", hint: "Copy Kixo AI: the AI buys and sells on its own. Off shows Coming soon (the AI is still being trained) on the AI page, and hides its sniper preset" },
   { key: "rug_exit", label: "Rug exit", hint: "Users can have a demo position sold by itself when the coin's dev sells or Kixo AI calls it Danger (Settings, Safety). Runs on the gateway around the clock. Needs migration 0018 to show as Rug exit in history" },
   { key: "pnl_calendar", label: "Profit calendar", hint: "Portfolio page: profit or loss taken on each day of the month, with winning and losing days" },
   { key: "alert_delivery", label: "Alerts by Email, Telegram, Discord", hint: "Price alerts, Wallet Monitor trades and dev sells on starred coins reach users when Kixo is closed. Telegram needs TELEGRAM_BOT_TOKEN, email needs RESEND_API_KEY (Admin, Keys)" },

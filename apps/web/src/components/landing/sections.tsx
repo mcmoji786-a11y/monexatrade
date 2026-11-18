@@ -279,13 +279,13 @@ export function Faq() {
 export function FinalCta() {
   return (
     <section className="border-t border-border bg-surface">
-      <div className="mx-auto flex max-w-300 flex-col items-start gap-6 px-4 py-20 md:flex-row md:items-center md:justify-between md:px-8">
+      <div className="mx-auto flex max-w-300 flex-col items-start gap-8 px-4 py-28 md:flex-row md:items-center md:justify-between md:px-8">
         <div>
-          <h2 className="text-3xl font-medium text-text">Catch the next launch. Skip the next rug</h2>
+          <h2 className="max-w-2xl text-4xl font-medium leading-tight text-text md:text-5xl">Catch the next launch. Skip the next rug</h2>
           <p className="mt-2 text-text-2">Free to use. Sign up with Google or email and start with $10,000 of demo money</p>
         </div>
         <ButtonLink href="/discover" size="lg">
-          Trade now
+          Start with $10,000 demo
         </ButtonLink>
       </div>
     </section>

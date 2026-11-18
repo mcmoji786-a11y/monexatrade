@@ -21,6 +21,8 @@ import {
 import { ProductTour } from "@/components/landing/product-tour";
 import { RugStory } from "@/components/landing/rug-story";
 import { AiRecord } from "@/components/landing/ai-record";
+import { AiTicker, JustCalled } from "@/components/landing/ai-pulse";
+import { AutoTradeSoon, NumbersBand } from "@/components/landing/landing-extras";
 
 export async function generateMetadata(): Promise<Metadata> {
   const s = await seo();
@@ -62,14 +64,15 @@ export default function LandingPage() {
       <MarketingPopup />
       <SiteNav />
       <main>
-        <section className="mx-auto grid min-h-[calc(100svh-4rem)] max-w-300 items-center gap-12 px-4 py-16 md:px-8 lg:grid-cols-[1fr_1.05fr]">
+        <section className="mx-auto grid min-h-[calc(100svh-4rem)] max-w-300 items-center gap-12 px-4 py-16 md:px-8 lg:grid-cols-[1.1fr_1fr]">
           <div>
             <p className="flex items-center gap-2 font-mono text-xs text-text-2">
               <span className="size-1.5 rounded-full bg-emerald" />
               Solana memecoin trading terminal
             </p>
-            <h1 className="mt-6 text-4xl font-medium leading-[1.06] tracking-[-0.02em] text-text md:text-6xl md:tracking-[-0.03em]">
-              Catch the launch. Skip the rug
+            <h1 className="mt-6 text-5xl font-medium leading-[1.04] tracking-[-0.02em] text-text md:text-6xl md:tracking-[-0.03em]">
+              <span className="block lg:whitespace-nowrap">Catch the launch.</span>
+              <span className="block text-text-2">Skip the rug</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-text-2">
               Kixo sees every new Solana coin the second it launches, reads its first 2 minutes with its own AI and tells you Danger or Good odds before you buy.
@@ -81,12 +84,20 @@ export default function LandingPage() {
               </ButtonLink>
             </div>
           </div>
-          <LivePreview />
+          <div className="relative">
+            <LivePreview />
+            <div className="absolute -bottom-10 -left-12 hidden xl:block">
+              <JustCalled />
+            </div>
+          </div>
         </section>
 
+        <AiTicker />
+        <NumbersBand />
         <ProductTour />
         <RugStory />
         <AiRecord />
+        <AutoTradeSoon />
         <Features />
         <ChainData />
         <Security />

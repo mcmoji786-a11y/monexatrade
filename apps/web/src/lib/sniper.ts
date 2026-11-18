@@ -4,6 +4,7 @@ import { aiPrefetch, aiScoreOf } from "./ai-risk";
 import { useSyncExternalStore } from "react";
 import type { FeedToken } from "./gateway";
 import { currentUserId } from "./account";
+import { featuresNow } from "./features";
 import type { ShareTrade } from "./share";
 
 /* Sniper. It watches every new launch in the live feed, buys the ones that match the
@@ -418,7 +419,9 @@ export function sniperStep(tokens: FeedToken[], copied: (t: FeedToken) => boolea
 
   // A dollar amount needs the live SOL price to know how much SOL to spend.
   const size = s.buyUnit === "USD" ? (solUsd ? s.buyUsd / solUsd : 0) : s.buySol;
-  if (s.enabled && size > 0) {
+  // Copy Kixo AI waits for its launch (admin switch ai_autotrade): no new buys meanwhile.
+  const aiWaiting = !featuresNow().ai_autotrade && activePreset(s) === AI_PRESET.key;
+  if (s.enabled && size > 0 && !aiWaiting) {
     const open = positions.filter((x) => !x.exitTs).length;
     const lastHour = positions.filter((x) => now - x.entryTs < 3600).length;
     const held = new Set(positions.map((x) => x.mint));

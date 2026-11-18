@@ -15,6 +15,8 @@ import { useRadarFeed } from "@/components/radar/use-radar-feed";
  *  most, alerts and the latest buys and sells. Full rules live on the Sniper page. */
 function SniperMenuInner() {
   const { settings: s, positions, update } = useSniper();
+  // Copy Kixo AI shows only once it launches (admin switch ai_autotrade).
+  const aiOn = useFeatures().ai_autotrade;
   const { tokens, solUsd } = useRadarFeed();
   const [open, setOpen] = useState(false);
   const mode = useMode();
@@ -68,7 +70,7 @@ function SniperMenuInner() {
 
           {/* Presets */}
           <div className="mt-3 grid grid-cols-3 gap-1.5">
-            {PRESETS.map((pr) => (
+            {PRESETS.filter((pr) => pr.key !== "kixo-ai" || aiOn).map((pr) => (
               <button
                 key={pr.key}
                 type="button"

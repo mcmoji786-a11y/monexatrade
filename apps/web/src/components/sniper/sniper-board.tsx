@@ -258,10 +258,12 @@ function ExitTag({ reason }: { reason?: string }) {
 
 function Settings({ s, update, reset, solUsd }: { s: SniperSettings; update: (p: Partial<SniperSettings>) => void; reset: () => void; solUsd: number | null }) {
   const opt = (v: number | null) => v ?? 0;
+  // Copy Kixo AI shows only once it launches (admin switch ai_autotrade).
+  const aiOn = useFeatures().ai_autotrade;
   return (
     <aside className="flex flex-col gap-5 rounded-2xl border border-border bg-surface p-4">
       <div className="grid grid-cols-3 gap-1.5">
-        {PRESETS.map((pr) => (
+        {PRESETS.filter((pr) => pr.key !== "kixo-ai" || aiOn).map((pr) => (
           <button
             key={pr.key}
             type="button"
