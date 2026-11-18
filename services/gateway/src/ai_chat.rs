@@ -266,7 +266,10 @@ async fn live_data(ctx: &ChatCtx, msg: &str, history: &[Turn]) -> Value {
         let dev = mint.as_deref().and_then(|m| board.tokens.get(m)).map(|t| t.token.creator.clone()).filter(|c| !c.is_empty());
         (board_data(&board, mint), dev)
     };
-    if let Some(m) = data["coin_asked_about"]["mint"].as_str().map(String::from) {
+    // Holders from Kixo's own book only for coins it watched from launch: for older coins
+    // the book holds just the trades since the gateway started, which would mislead.
+    let watched = data["coin_asked_about"].get("on_kixo_radar") != Some(&json!(false));
+    if let (true, Some(m)) = (watched, data["coin_asked_about"]["mint"].as_str().map(String::from)) {
         if let Some(h) = holders_of(ctx, &m) {
             data["coin_asked_about"]["wallets"] = h;
         }

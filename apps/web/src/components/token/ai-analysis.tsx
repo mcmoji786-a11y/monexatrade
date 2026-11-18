@@ -38,6 +38,74 @@ function AiButtonInner({ input, compact = false, safety }: { input: () => Analys
   );
 }
 
+type Tone = "bad" | "warn" | "good" | "muted";
+const TONE: Record<Tone, string> = {
+  bad: "border-negative/30 text-negative",
+  warn: "border-warning/30 text-warning",
+  good: "border-positive/30 text-positive",
+  muted: "border-border text-text",
+};
+
+/** Kixo's own outlook and call for a coin, worked out in code so they are always clear and
+ *  never contradict the data: the AI model's chances for a new launch, otherwise the
+ *  safety score from Kixo's checks. */
+export function outlook(risk: AiRisk | null, safety: Safety | null | undefined) {
+  if (risk) {
+    const v = verdict(risk);
+    const call: [Tone, string] =
+      v.key === "danger"
+        ? ["bad", "Stay away. Most coins the AI calls Danger crash within the hour"]
+        : v.key === "careful"
+          ? ["warn", "Tiny size only, tight stop. Real crash risk"]
+          : v.key === "good"
+            ? ["good", "Cleaner than most, still risky. Small size and a stop loss"]
+            : ["muted", "Nothing special either way. Skip it, or go tiny"];
+    return {
+      tone: (v.key === "danger" ? "bad" : v.key === "careful" ? "warn" : v.key === "good" ? "good" : "muted") as Tone,
+      word: v.label,
+      headline: `${pct(risk.dump)} chance it crashes 70%+ in the next hour, ${pct(risk.pump)} chance it doubles`,
+      source: "Kixo AI, from this coin's first 2 minutes of trades",
+      call,
+    };
+  }
+  if (safety) {
+    const worst = safety.factors.filter((f) => f.points < 0).sort((a, b) => a.points - b.points).slice(0, 2).map((f) => (f.detail ? `${f.label} (${f.detail})` : f.label));
+    const level = safety.score >= 75 ? "Lower risk" : safety.score >= 50 ? "Medium risk" : "High risk";
+    const tone: Tone = safety.score >= 75 ? "good" : safety.score >= 50 ? "warn" : "bad";
+    const call: [Tone, string] =
+      safety.score >= 75 ? ["good", "Cleaner than most, still risky. Small size and a stop loss"] : safety.score >= 50 ? ["warn", "Tiny size only, tight stop"] : ["bad", "Stay away. Too many red flags"];
+    return {
+      tone,
+      word: level,
+      headline: worst.length ? `Safety score ${safety.score}/100. Biggest risks: ${worst.join("; ")}` : `Safety score ${safety.score}/100, no red flags in Kixo's checks`,
+      source: "Kixo's safety checks. Kixo AI scores coins in their first 2 minutes; this one is older",
+      call,
+    };
+  }
+  return null;
+}
+
+function Outlook({ risk, safety }: { risk: AiRisk | null; safety: Safety | null | undefined }) {
+  const o = outlook(risk, safety);
+  if (!o) return null;
+  return (
+    <div className="mb-5 flex flex-col gap-3">
+      <div className="rounded-lg border border-border bg-bg/60 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={`inline-flex h-7 items-center rounded-full border px-3 text-sm font-medium ${TONE[o.tone]}`}>{o.word}</span>
+          <span className="text-xs text-muted">Next hour</span>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-text">{o.headline}</p>
+        <p className="mt-1 text-xs text-muted">{o.source}</p>
+      </div>
+      <div className={`rounded-lg border px-4 py-3 ${TONE[o.call[0]]}`}>
+        <p className="text-xs text-muted">Kixo&apos;s call</p>
+        <p className="mt-1 text-sm">{o.call[1]}</p>
+      </div>
+    </div>
+  );
+}
+
 /** The question sent to the model: the coin's live facts only, and the shape of the answer. */
 function prompt(input: AnalysisInput, risk: AiRisk | null) {
   const facts = input.facts.map((f) => `${f.label}: ${f.value}`).join("; ");
@@ -54,8 +122,8 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
     `Good: one strength per line, up to 3 lines, each with the real number.`,
     `Bad: one risk per line, up to 3 lines, each with the real number (dev selling, bundlers or snipers holding, top 10 share, dev's past rugs).`,
-    `Prediction: one line on the next hour, from Kixo AI's crash and double chances in plain words. If there is no AI score, say the AI has not scored it.`,
-    `Call: one line starting with "Stay away", "Tiny size only, tight stop" or "Cleaner than most, still risky", then the reason. Never tell anyone to buy.`,
+    `Rules for you, never repeat them: top 10 holders under 20% is healthy (Good), over 30% is a risk (Bad). Liquidity under $10K is thin (Bad), over $50K is decent (Good). Bundles or snipers still holding over 10% is a risk. A fact goes in Good or in Bad, never both, and never contradict yourself. The live facts above come first: if LIVE DATA disagrees or is missing, trust the live facts. Never list missing or unknown data as a strength or a risk; just leave it out.`,
+    `Do not write a prediction or a call: Kixo adds those itself.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -118,7 +186,6 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
     setBusy(false);
   };
 
-  const v = risk ? verdict(risk) : null;
 
   return (
     <div
@@ -152,18 +219,8 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {/* The AI's word for new launches */}
-          {v && risk ? (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-bg/60 px-4 py-3">
-              <span className={`inline-flex h-8 items-center rounded-full border px-3 text-sm font-medium ${v.className}`}>{v.label}</span>
-              <span className="text-sm text-text-2">
-                {v.sentence}
-                <span className="ml-1 text-xs text-muted">
-                  (crash {pct(risk.dump)}, double {pct(risk.pump)})
-                </span>
-              </span>
-            </div>
-          ) : null}
+          {/* Kixo's outlook and call, from the AI model or the safety checks */}
+          <Outlook risk={risk} safety={input.safety} />
 
           {/* The written read */}
           {read === "loading" ? (
@@ -252,17 +309,24 @@ export function parseRead(lines: string[]) {
     if (hit && m) {
       part = hit[1];
       if (m[2].trim()) out[part].push(m[2].trim());
+    } else if (m) {
+      // A label we did not ask for (the model echoing instructions): left out.
+      continue;
     } else if (l.trim()) {
       out[part].push(l.trim());
     }
   }
+  // Missing data is neither a strength nor a risk.
+  const unknown = /unknown|can'?t verify|no (info|data)|not available/i;
+  out.good = out.good.filter((x) => !unknown.test(x));
+  out.bad = out.bad.filter((x) => !unknown.test(x));
   return out;
 }
 
+/** The model's written read: the quick take, the good and the bad. The outlook and the call
+ *  come from Kixo itself (Outlook), so anything the model adds there is left out. */
 function Read({ lines }: { lines: string[] }) {
   const r = parseRead(lines);
-  const call = r.call.join(" ");
-  const callTone = /^stay away/i.test(call) ? "border-negative/30 text-negative" : /^tiny size/i.test(call) ? "border-warning/30 text-warning" : /^cleaner/i.test(call) ? "border-positive/30 text-positive" : "border-border text-text";
   return (
     <div className="flex flex-col gap-4 text-sm leading-6">
       {r.take.length > 0 && <p className="text-text">{r.take.join(" ")}</p>}
@@ -270,18 +334,6 @@ function Read({ lines }: { lines: string[] }) {
         <Points title="Good" icon={Check} tone="text-positive" items={r.good} />
         <Points title="Bad" icon={X} tone="text-negative" items={r.bad} />
       </div>
-      {r.prediction.length > 0 && (
-        <div className="rounded-lg border border-border bg-bg/60 px-3 py-2">
-          <p className="text-xs text-muted">Next hour</p>
-          <p className="text-text-2">{r.prediction.join(" ")}</p>
-        </div>
-      )}
-      {call && (
-        <div className={`rounded-lg border px-3 py-2 ${callTone}`}>
-          <p className="text-xs text-muted">Kixo AI&apos;s call</p>
-          <p>{call}</p>
-        </div>
-      )}
     </div>
   );
 }
