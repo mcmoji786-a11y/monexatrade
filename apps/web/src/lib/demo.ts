@@ -111,7 +111,15 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 }
 
 let inflight: Promise<void> | null = null;
-export function refreshDemo() {
+let lastFull = 0;
+/** What changes when anything fills: cash and every position's size. */
+const fingerprint = (a: DemoAccount | null) => (a ? `${a.cash_usd}|${a.positions.map((p) => `${p.mint}:${p.tokens}`).join(",")}` : "");
+
+/** Loads the demo account. `full`: also the trade history and orders. The 3-second poll
+ *  passes false: it reads the balance every time, and the history and orders only when the
+ *  balance or a position changed (an order, the sniper or Rug exit filled) or every 15 s,
+ *  so a busy page does not reload 1,000 trades every 3 seconds. */
+export function refreshDemo(full = true) {
   if (inflight) return inflight;
   const uid = currentUserId();
   if (!uid) return Promise.resolve();
@@ -119,11 +127,13 @@ export function refreshDemo() {
   if (state.owner !== uid) set({ owner: uid, account: null, trades: null, rules: [], error: null });
   inflight = (async () => {
     try {
-      const [account, trades, rules] = await Promise.all([
-        call<DemoAccount>("/demo/account"),
-        call<DemoTrade[]>("/demo/trades?limit=1000"),
-        call<DemoRule[]>("/demo/orders").catch(() => state.rules),
-      ]);
+      const account = await call<DemoAccount>("/demo/account");
+      const changed = fingerprint(account) !== fingerprint(state.account);
+      const need = full || changed || state.trades == null || Date.now() - lastFull > 15_000;
+      const [trades, rules] = need
+        ? await Promise.all([call<DemoTrade[]>("/demo/trades?limit=1000"), call<DemoRule[]>("/demo/orders").catch(() => state.rules)])
+        : [state.trades ?? [], state.rules];
+      if (need) lastFull = Date.now();
       // The user may have signed out or switched while this was loading.
       if (currentUserId() !== uid) return;
       announceFills(state.rules, rules);
@@ -184,7 +194,7 @@ export function useDemo() {
   useEffect(() => {
     if (mode !== "demo" || !signedIn) return;
     refreshDemo();
-    const t = setInterval(() => document.visibilityState === "visible" && refreshDemo(), 3_000);
+    const t = setInterval(() => document.visibilityState === "visible" && refreshDemo(false), 3_000);
     const back = () => document.visibilityState === "visible" && refreshDemo();
     document.addEventListener("visibilitychange", back);
     return () => {

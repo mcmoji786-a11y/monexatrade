@@ -95,6 +95,9 @@ const PUBLIC = [
   /^\/price$/, /^\/competition\/onchain$/, /^\/ai\/(risk|overview|chat)$/, /^\/social\/(feed|leaders|traders|trades\/|u\/)/, /^\/alerts\/status$/,
   /^\/sniper\/backtest$/, /^\/demo\/leaderboard$/, /^\/trade\/(config|sender)$/, /^\/ops\/client-error$/, /^\/track\//, /^\/support\/(diagnose|live|presence|ws)$/,
   /^\/ws\//, /^\/promo$/, /^\/kols/, /^\/x-tracker\/status$/,
+  // Card deposit partner (an affiliate id, shown in the widget URL anyway) and the published
+  // Strategy Library: no user data.
+  /^\/deposit\/card$/, /^\/strategies$/,
 ];
 const isPublic = (p) => PUBLIC.some((r) => r.test(p));
 const isAdmin = (p) => p.startsWith("/admin/");
