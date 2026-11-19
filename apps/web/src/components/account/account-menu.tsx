@@ -99,14 +99,14 @@ function ModeSwitch() {
   useSettings(applyStartMode);
   if (!enabled) return null;
   return (
-    <div role="group" aria-label="Account mode" className="flex h-9 items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
+    <div role="group" aria-label="Account mode" className="flex h-10 items-center rounded-lg border border-border bg-surface p-0.5 text-xs sm:h-9">
       {(["demo", "real"] as const).map((m) => (
         <button
           key={m}
           type="button"
           aria-pressed={mode === m}
           onClick={() => setMode(m)}
-          className={`h-full rounded-md px-2.5 capitalize transition-colors ${mode === m ? (m === "demo" ? "bg-warning/15 text-warning" : "bg-surface-3 text-text") : "text-text-2 hover:text-text"}`}
+          className={`h-full min-w-11 rounded-md px-2.5 capitalize transition-colors sm:min-w-0 ${mode === m ? (m === "demo" ? "bg-warning/15 text-warning" : "bg-surface-3 text-text") : "text-text-2 hover:text-text"}`}
         >
           {m}
         </button>

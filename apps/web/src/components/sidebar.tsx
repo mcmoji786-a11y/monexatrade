@@ -107,7 +107,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/discover" aria-label="Kixo home" className="flex items-center gap-2.5 rounded focus-visible:outline-2 focus-visible:outline-emerald">
+    <Link href="/discover" aria-label="Kixo home" className="flex min-h-10 min-w-10 items-center gap-2.5 rounded focus-visible:outline-2 focus-visible:outline-emerald">
       <KixoMark size={compact ? 28 : 32} />
       {!compact && <span className="text-[22px] font-semibold tracking-tight text-text">Kixo</span>}
     </Link>

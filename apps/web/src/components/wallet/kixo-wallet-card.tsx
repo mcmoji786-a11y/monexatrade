@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Check, ClipboardPaste, Copy, CreditCard, Download, Fingerprint, KeyRound, Loader2, Lock, ShieldCheck, Ticket, Wallet, X } from "lucide-react";
 import { GATEWAY_HTTP } from "@/lib/gateway";
+import { useMode } from "@/lib/demo";
 import { useFeatures } from "@/lib/features";
 import { getPromo, redeemPromo, type PromoState } from "@/lib/marketing";
 import { useAccount } from "@/lib/account";
@@ -152,11 +153,14 @@ export function KixoWalletCard() {
 
 const LATER_KEY = "kixo.wallet.later";
 
-/** Right after signing up, the wallet is set up in one step: the user picks the wallet
- *  password and the wallet is made for their account. */
+/** The wallet is set up in one step (the user picks the wallet password) the first time
+ *  they switch to Real. Demo users are never asked: the demo needs no wallet, and a
+ *  password prompt on the first visit made new users leave. A pending recovery always
+ *  shows. */
 export function WalletSetupGate() {
   useWalletSync();
   const w = useKixoWallet();
+  const mode = useMode();
   const [later, setLater] = useState(() => {
     try {
       return typeof window !== "undefined" && sessionStorage.getItem(LATER_KEY) === "1";
@@ -164,7 +168,7 @@ export function WalletSetupGate() {
       return false;
     }
   });
-  const show = (w.status === "none" && !later) || !!w.recovery;
+  const show = (w.status === "none" && !later && mode === "real") || !!w.recovery;
   if (!show) return null;
   return (
     <div role="dialog" aria-modal="true" aria-label="Set up your Kixo wallet" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
@@ -181,7 +185,7 @@ export function WalletSetupGate() {
             }}
             className="mt-4 text-xs text-text-2 hover:text-text"
           >
-            Later. Demo trading works without it
+            Later. Switch back to Demo to practise without it
           </button>
         )}
       </div>

@@ -13,7 +13,7 @@ export function DemoBanner() {
     <div className="flex items-center justify-center gap-3 border-b border-warning/20 bg-warning/10 px-4 py-1.5 text-xs whitespace-nowrap text-warning">
       <span className="sm:hidden">Demo: virtual money, live prices</span>
       <span className="hidden sm:inline">Demo account: virtual money, live market prices</span>
-      <button type="button" onClick={() => setMode("real")} className="underline underline-offset-2 hover:text-text">
+      <button type="button" onClick={() => setMode("real")} className="-my-1.5 inline-flex h-8 items-center px-1 underline underline-offset-2 hover:text-text">
         Switch to real
       </button>
     </div>
