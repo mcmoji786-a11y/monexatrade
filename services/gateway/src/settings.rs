@@ -93,7 +93,7 @@ pub struct Safety {
     pub daily_loss_limit_usd: f64,
     /// Where the user's day starts: minutes east of UTC, from the browser.
     pub day_offset_min: i32,
-    /// Ask once more before buying a coin Kixo AI calls Danger.
+    /// Warn (never block) when buying a coin Kixo AI calls Danger.
     pub warn_danger: bool,
     /// Rug exit (rug_exit.rs): sell a demo position by itself on a rug sign. Off by default.
     pub rug_exit: bool,

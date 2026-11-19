@@ -13,7 +13,7 @@ export type Settings = {
   demo: { buy_presets_usd: number[]; quick_buy_usd: number };
   notifications: { trades: boolean; exits: boolean; sniper: boolean; sound: boolean };
   general: { start_mode: "last" | "demo" | "real" };
-  /** Daily loss limit in USD (0: off), where the day starts (minutes east of UTC), and the Danger question. */
+  /** Daily loss limit in USD (0: off), where the day starts (minutes east of UTC), and the Danger warning. */
   safety: { daily_loss_limit_usd: number; day_offset_min: number; warn_danger: boolean; rug_exit: boolean; rug_exit_dev: boolean; rug_exit_ai: boolean };
 };
 

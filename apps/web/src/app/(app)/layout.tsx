@@ -5,7 +5,6 @@ import { Topbar } from "@/components/topbar";
 import { PriceAlertWatcher } from "@/components/token/price-alerts";
 import { AlertSync } from "@/components/alerts/alert-sync";
 import { ProductTour } from "@/components/tour/product-tour";
-import { DangerConfirmHost } from "@/components/safety/danger-confirm";
 import { SniperEngine } from "@/components/sniper/sniper-engine";
 import { RealOrderEngine } from "@/components/trade/order-engine";
 import { GridEngine } from "@/components/trade/grid-engine";
@@ -32,7 +31,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PriceAlertWatcher />
       <AlertSync />
       <ProductTour />
-      <DangerConfirmHost />
       <SniperEngine />
       <RealOrderEngine />
       <GridEngine />

@@ -64,7 +64,7 @@ const FEATURES: Feature[] = [
     icon: ShieldCheck,
     title: "Guard rails",
     body: "Rug exit sells a demo position when the dev sells or the AI says Danger, even with Kixo closed.",
-    items: ["Daily loss limit", "One more question before a Danger buy", "Stop loss, trailing stop and limit orders"],
+    items: ["Daily loss limit", "A warning when you buy a Danger coin", "Stop loss, trailing stop and limit orders"],
   },
   {
     icon: Bell,

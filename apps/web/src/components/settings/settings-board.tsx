@@ -113,8 +113,8 @@ export function SettingsBoard() {
               </Row>
             )}
             {feat.loss_limit && <LossToday />}
-            {feat.danger_warning && <Row label="Ask before buying a Danger coin" hint="When Kixo AI gives a coin a high chance of crashing within the hour">
-              <Switch on={s.safety.warn_danger} onChange={(v) => safety({ warn_danger: v })} label="Ask before buying a Danger coin" />
+            {feat.danger_warning && <Row label="Warn me when I buy a Danger coin" hint="A warning next to the buy when Kixo AI gives the coin a high chance of crashing within the hour. It never slows the order">
+              <Switch on={s.safety.warn_danger} onChange={(v) => safety({ warn_danger: v })} label="Warn me when I buy a Danger coin" />
             </Row>}
             {feat.rug_exit && (
               <>

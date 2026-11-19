@@ -163,7 +163,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "pnl_calendar", label: "Profit calendar", hint: "Portfolio page: profit or loss taken on each day of the month, with winning and losing days" },
   { key: "alert_delivery", label: "Alerts by Email, Telegram, Discord", hint: "Price alerts, Wallet Monitor trades and dev sells on starred coins reach users when Kixo is closed. Telegram needs TELEGRAM_BOT_TOKEN, email needs RESEND_API_KEY (Admin, Keys)" },
   { key: "dev_record", label: "Creator record", hint: "Trade page: the creator's earlier coins in plain words (launched, rugged, died fast, graduated)" },
-  { key: "danger_warning", label: "Danger question", hint: "One more question before a manual buy of a coin Kixo AI calls Danger. Users can turn it off for themselves" },
+  { key: "danger_warning", label: "Danger warning", hint: "A warning toast when a user buys a coin Kixo AI calls Danger. The buy goes out at once, never held up. Users can turn it off for themselves" },
   { key: "loss_limit", label: "Daily loss limit", hint: "Users set a daily loss; after it, buying stops until their midnight (selling always works). Off here: no limit is enforced" },
   { key: "notes", label: "Notes", hint: "Users' own private notes on coins and wallets, saved to their account (migration 0016)" },
   { key: "chart_marks", label: "Chart marks", hint: "Trade page chart: small marks where the creator and smart wallets bought or sold" },
