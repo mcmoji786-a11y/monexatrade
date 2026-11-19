@@ -2,26 +2,24 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ButtonLink, buttonClass } from "@/components/ui/button";
 import { LoginPopup, TradeNowButton } from "@/components/account/auth-gate";
-import { LivePreview } from "@/components/landing/live-preview";
 import { SiteNav } from "@/components/landing/site-nav";
 import { MarketingBanner, MarketingPopup } from "@/components/marketing/marketing-ui";
 import { DEFAULT_DESCRIPTION, seo } from "@/lib/seo";
 import { SITE_URL } from "@/lib/site";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
-  ChainData,
   FAQ,
   Faq,
   Features,
-  Fees,
   FinalCta,
-  Security,
+  WhyKixo,
   SiteFooter,
 } from "@/components/landing/sections";
 import { ProductTour } from "@/components/landing/product-tour";
 import { RugStory } from "@/components/landing/rug-story";
 import { AiRecord } from "@/components/landing/ai-record";
 import { AiTicker, JustCalled } from "@/components/landing/ai-pulse";
+import { TrenchesWall } from "@/components/landing/trenches-wall";
 import { AutoTradeSoon, NumbersBand } from "@/components/landing/landing-extras";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -84,9 +82,9 @@ export default function LandingPage() {
               </ButtonLink>
             </div>
           </div>
-          <div className="relative">
-            <LivePreview />
-            <div className="absolute -bottom-10 -left-12 hidden xl:block">
+          <div className="relative h-96 sm:h-[560px] lg:h-[640px]">
+            <TrenchesWall />
+            <div className="absolute bottom-6 -left-6 hidden xl:block">
               <JustCalled />
             </div>
           </div>
@@ -99,9 +97,7 @@ export default function LandingPage() {
         <AiRecord />
         <AutoTradeSoon />
         <Features />
-        <ChainData />
-        <Security />
-        <Fees />
+        <WhyKixo />
         <Faq />
         <FinalCta />
       </main>

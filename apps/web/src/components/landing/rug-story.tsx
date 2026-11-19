@@ -39,7 +39,7 @@ export function RugStory() {
   const danger = VERDICTS.danger;
   return (
     <section id="ai" className="scroll-mt-20">
-      <div className="mx-auto max-w-300 px-4 py-24 md:px-8">
+      <div className="mx-auto max-w-300 px-4 py-20 md:px-8">
         <div className="max-w-2xl">
           <p className="font-mono text-xs text-emerald">Kixo AI</p>
           <h2 className="mt-3 text-3xl font-medium leading-tight text-text md:text-4xl">How a rug gets caught in two minutes</h2>
@@ -51,7 +51,7 @@ export function RugStory() {
             <CoinCard step={step} danger={danger} />
           </div>
 
-          <ol className="flex flex-col gap-4 lg:py-24">
+          <ol className="flex flex-col gap-4 lg:py-10">
             {STEPS.map((s, n) => (
               <li
                 key={s.t}
@@ -59,7 +59,7 @@ export function RugStory() {
                   refs.current[n] = el;
                 }}
                 data-step={n}
-                className={`rounded-xl border p-5 transition-[border-color,opacity] duration-300 lg:min-h-56 ${n === step ? "border-border bg-surface opacity-100" : "border-transparent opacity-50"}`}
+                className={`rounded-xl border p-5 transition-[border-color,opacity] duration-300 lg:min-h-48 ${n === step ? "border-border bg-surface opacity-100" : "border-transparent opacity-50"}`}
               >
                 <p className="font-mono text-xs text-muted">{s.t}</p>
                 <h3 className="mt-2 text-lg font-medium text-text">{s.title}</h3>

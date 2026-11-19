@@ -39,7 +39,7 @@ export function AiRecord() {
 
   return (
     <section className="border-y border-border bg-surface">
-      <div className="mx-auto grid max-w-300 gap-12 px-4 py-24 md:px-8 lg:grid-cols-2 lg:items-center">
+      <div className="mx-auto grid max-w-300 gap-12 px-4 py-20 md:px-8 lg:grid-cols-2 lg:items-center">
         <Reveal>
           <p className="font-mono text-xs text-emerald">The record</p>
           <h2 className="mt-3 text-3xl font-medium leading-tight text-text md:text-4xl">When Kixo AI says Danger, it usually is</h2>

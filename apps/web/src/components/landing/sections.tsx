@@ -77,7 +77,7 @@ const FEATURES: Feature[] = [
 
 export function Features() {
   return (
-    <section className="mx-auto max-w-300 px-4 py-24 md:px-8">
+    <section className="mx-auto max-w-300 px-4 py-20 md:px-8">
       <SectionHead id="features" eyebrow="Features" title="Everything a Solana memecoin trader needs, on one screen" body="All of it works today on the demo account. Real-SOL trading opens after its security review" />
       <div className="mt-12 grid gap-4 md:grid-cols-3">
         {FEATURES.map((f, i) => (
@@ -129,23 +129,59 @@ const DATA_POINTS = [
   { k: "Clean feed", v: "Tokens without trading activity leave the radar on their own" },
 ];
 
-export function ChainData() {
+/** Data, security and fees side by side: three reasons in one compact section. */
+export function WhyKixo() {
   return (
-    <section className="mx-auto grid max-w-300 gap-12 px-4 py-24 md:px-8 lg:grid-cols-2 lg:items-start">
-      <SectionHead
-        id="data"
-        eyebrow="Data"
-        title="Read from the chain, not resold"
-        body="Kixo runs its own decoders for Solana programs. The numbers you see are worked out from on-chain events, and estimates are labelled as estimates."
-      />
-      <dl className="divide-y divide-border rounded-2xl border border-border bg-surface">
-        {DATA_POINTS.map((d) => (
-          <div key={d.k} className="grid gap-1 px-6 py-5 sm:grid-cols-[120px_1fr] sm:gap-6">
-            <dt className="text-sm font-medium text-text">{d.k}</dt>
-            <dd className="text-sm leading-6 text-text-2">{d.v}</dd>
-          </div>
-        ))}
-      </dl>
+    <section className="mx-auto max-w-300 px-4 py-20 md:px-8">
+      <SectionHead id="why" eyebrow="Why Kixo" title="Built for the trenches, not for show" />
+      <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        <Reveal className="h-full">
+          <article id="data" className="flex h-full scroll-mt-24 flex-col rounded-2xl border border-border bg-surface p-6">
+            <h3 className="text-lg font-medium text-text">Read from the chain, not resold</h3>
+            <p className="mt-2 text-sm leading-6 text-text-2">Kixo runs its own decoders for Solana programs. Estimates are labelled as estimates</p>
+            <dl className="mt-6 flex flex-col divide-y divide-border border-t border-border">
+              {DATA_POINTS.map((d) => (
+                <div key={d.k} className="py-3">
+                  <dt className="text-sm text-text">{d.k}</dt>
+                  <dd className="mt-1 text-xs leading-5 text-text-2">{d.v}</dd>
+                </div>
+              ))}
+            </dl>
+          </article>
+        </Reveal>
+        <Reveal delay={60} className="h-full">
+          <article id="security" className="flex h-full scroll-mt-24 flex-col rounded-2xl border border-border bg-surface p-6">
+            <h3 className="text-lg font-medium text-text">Your keys never leave you</h3>
+            <p className="mt-2 text-sm leading-6 text-text-2">Real-SOL trading opens only after an independent security review. Until then, practise on the demo account</p>
+            <ul className="mt-6 flex flex-col gap-5 border-t border-border pt-5">
+              {SECURITY.map(({ icon: Icon, title, body }) => (
+                <li key={title} className="flex gap-3">
+                  <Icon size={18} strokeWidth={1.5} className="mt-0.5 shrink-0 text-text-2" />
+                  <div>
+                    <p className="text-sm text-text">{title}</p>
+                    <p className="mt-1 text-xs leading-5 text-text-2">{body}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </article>
+        </Reveal>
+        <Reveal delay={120} className="h-full">
+          <article id="fees" className="flex h-full scroll-mt-24 flex-col rounded-2xl border border-border bg-surface p-6">
+            <h3 className="text-lg font-medium text-text">One flat fee</h3>
+            <p className="mt-6 font-mono text-7xl tabular-nums text-text">0.5%</p>
+            <p className="mt-2 text-sm text-text-2">a trade, where most terminals charge about 1%</p>
+            <ul className="mt-auto flex flex-col gap-2 border-t border-border pt-5 text-sm text-text-2">
+              {["No subscription, no hidden spread", "Deposits free, withdrawals 0.5%", "Network fees go to Solana, not to Kixo"].map((x) => (
+                <li key={x} className="flex gap-2">
+                  <Check size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-muted" />
+                  {x}
+                </li>
+              ))}
+            </ul>
+          </article>
+        </Reveal>
+      </div>
     </section>
   );
 }
@@ -157,59 +193,6 @@ const SECURITY: { icon: LucideIcon; title: string; body: string }[] = [
   { icon: ShieldCheck, title: "Locked in your browser", body: "Your Kixo wallet is made and locked in your own browser with a password only you know. Kixo stores only the locked copy, which it cannot open." },
   { icon: Receipt, title: "Simulated first", body: "Transactions are simulated before you sign, so obvious failures are caught early." },
 ];
-
-export function Security() {
-  return (
-    <section className="border-y border-border bg-surface">
-      <div className="mx-auto max-w-300 px-4 py-24 md:px-8">
-        <SectionHead
-          id="security"
-          eyebrow="Security"
-          title="Your keys never leave you"
-          body="Kixo never asks for a seed phrase. Real-SOL trading opens only after an independent security review; until then, practise on the demo account"
-        />
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {SECURITY.map(({ icon: Icon, title, body }, i) => (
-            <Reveal key={title} delay={i * 60} className="rounded-2xl border border-border bg-bg p-6">
-              <Icon size={18} strokeWidth={1.5} className="text-text-2" />
-              <h3 className="mt-5 text-base font-medium text-text">{title}</h3>
-              <p className="mt-2 text-sm leading-6 text-text-2">{body}</p>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- fees ---------- */
-
-export function Fees() {
-  return (
-    <section className="mx-auto max-w-300 px-4 py-24 md:px-8">
-      <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-        <SectionHead
-          id="fees"
-          eyebrow="Fees"
-          title="0.5% a trade, where most terminals charge about 1%"
-          body="No subscription and no hidden spread. Deposits are free, withdrawals are 0.5%, and Solana network fees go to the network, not to Kixo"
-        />
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border">
-          {[
-            { k: "Buy", v: "0.5%" },
-            { k: "Sell", v: "0.5%" },
-          ].map((f) => (
-            <div key={f.k} className="bg-surface p-8">
-              <div className="text-sm text-muted">{f.k}</div>
-              <div className="mt-2 font-mono text-5xl text-text">{f.v}</div>
-              <div className="mt-3 text-xs text-muted">of the trade amount</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 /* ---------- FAQ ---------- */
 
@@ -256,7 +239,7 @@ export const FAQ = [
 export function Faq() {
   return (
     <section className="border-t border-border">
-      <div className="mx-auto grid max-w-300 gap-12 px-4 py-24 md:px-8 lg:grid-cols-[1fr_1.4fr]">
+      <div className="mx-auto grid max-w-300 gap-12 px-4 py-20 md:px-8 lg:grid-cols-[1fr_1.4fr]">
         <SectionHead id="faq" eyebrow="FAQ" title="Questions people ask first" />
         <div className="divide-y divide-border border-y border-border">
           {FAQ.map((f) => (

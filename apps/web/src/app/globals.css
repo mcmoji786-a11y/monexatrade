@@ -171,6 +171,18 @@ body {
 .ticker:hover {
   animation-play-state: paused;
 }
+/* Landing hero: the trenches wall drifts up; its top and bottom fade out. */
+@keyframes drift {
+  to {
+    transform: translateY(-50%);
+  }
+}
+.drift {
+  animation: drift 50s linear infinite;
+}
+.wall-mask {
+  mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+}
 .ticker-mask {
   mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
 }
@@ -239,7 +251,8 @@ body {
   .row-in,
   .live-ring,
   .radar-sweep,
-  .ticker {
+  .ticker,
+  .drift {
     animation: none;
   }
 }

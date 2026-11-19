@@ -65,7 +65,7 @@ export function ProductTour() {
 
   return (
     <section id="product" className="scroll-mt-20 border-y border-border bg-surface">
-      <div className="mx-auto max-w-300 px-4 py-24 md:px-8">
+      <div className="mx-auto max-w-300 px-4 py-20 md:px-8">
         <Reveal>
           <div className="max-w-2xl">
             <p className="font-mono text-xs text-emerald">The product</p>
@@ -73,21 +73,21 @@ export function ProductTour() {
           </div>
         </Reveal>
 
-        <div className="mt-12 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:items-start">
-          <ol className="flex flex-col gap-2" aria-label="Product screens">
+        <div className="mt-10 flex flex-col gap-6">
+          <ol className="grid gap-2 md:grid-cols-3" aria-label="Product screens">
             {CLIPS.map((x, n) => (
               <li key={x.key}>
                 <button
                   type="button"
                   onClick={() => pick(n)}
                   aria-pressed={n === i}
-                  className={`w-full rounded-xl border px-4 py-4 text-left transition-colors ${n === i ? "border-border bg-bg" : "border-transparent hover:bg-bg/60"}`}
+                  className={`h-full w-full rounded-xl border px-4 py-4 text-left transition-colors ${n === i ? "border-emerald/40 bg-bg" : "border-border hover:bg-bg/60"}`}
                 >
                   <span className="flex items-baseline gap-3">
                     <span className={`font-mono text-xs ${n === i ? "text-emerald" : "text-muted"}`}>{x.step}</span>
                     <span className={`text-base ${n === i ? "text-text" : "text-text-2"}`}>{x.title}</span>
                   </span>
-                  {n === i && <span className="mt-2 block pl-7 text-sm leading-6 text-text-2">{x.body}</span>}
+                  <span className="mt-2 block pl-7 text-sm leading-6 text-text-2">{x.body}</span>
                 </button>
               </li>
             ))}

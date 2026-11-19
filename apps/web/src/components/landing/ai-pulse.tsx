@@ -40,7 +40,7 @@ const ago = (at: number, now: number) => {
 export function JustCalled() {
   const o = useCalls();
   const now = useNow();
-  const c = [...(o?.riskiest ?? [])].filter((x) => x.dump >= 0.4).sort((a, b) => b.at - a.at)[0];
+  const c = [...(o?.riskiest ?? [])].filter((x) => x.dump >= 0.4 && x.symbol).sort((a, b) => b.at - a.at)[0];
   if (!c || !now) return null;
   const v = verdict(asRisk(c));
   return (
@@ -67,7 +67,7 @@ export function JustCalled() {
 export function AiTicker() {
   const o = useCalls();
   // Only calls that say something: Danger, Careful or Good odds.
-  const calls = [...(o?.riskiest ?? []).slice(0, 12), ...(o?.best ?? []).slice(0, 12)].filter((c) => verdict(asRisk(c)).key !== "calm").sort((a, b) => b.at - a.at);
+  const calls = [...(o?.riskiest ?? []).slice(0, 12), ...(o?.best ?? []).slice(0, 12)].filter((c) => c.symbol && verdict(asRisk(c)).key !== "calm").sort((a, b) => b.at - a.at);
   if (calls.length < 6) return null;
   const row = (key: string) => (
     <ul className="flex shrink-0 items-center gap-8 pr-8" aria-hidden={key === "b"}>
