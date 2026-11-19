@@ -1,9 +1,10 @@
 "use client";
 
 import { WalletLink } from "@/components/tracker/wallet-tracker";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useFeatures } from "@/lib/features";
-import { CoinLabelsContext, LABEL_ORDER, useCoinLabels, useSmartWallets, type CoinLabels, type WalletLabel } from "@/lib/labels";
+import { CoinGroupsContext, CoinLabelsContext, groupIndex, LABEL_ORDER, useCoinGroups, useCoinLabels, useSmartWallets, type CoinGroups, type CoinLabels, type WalletLabel } from "@/lib/labels";
+import { Boxes, Users } from "lucide-react";
 import { CopyAddress } from "@/components/token/token-bits";
 import { amount, positionPnl, sol, usd, type Position, type TradeRow, type Wallets } from "@/lib/gateway";
 import { formatAge } from "@/components/radar/use-radar-feed";
@@ -41,6 +42,8 @@ export function Activity({
   // Who to show in the trades, holders and top traders lists.
   const [who, setWho] = useState<WalletLabel | "all">("all");
   const labels = useCoinLabels(mint);
+  const groups = useCoinGroups(mint);
+  const groupMap = useMemo(() => groupIndex(groups), [groups]);
   const smart = useSmartWallets();
   const labelsOf = (wallet: string, flags: (WalletLabel | false | undefined)[]) => {
     const all = new Set<WalletLabel>(labels[wallet] ?? []);
@@ -91,8 +94,10 @@ export function Activity({
 
   return (
     <CoinLabelsContext.Provider value={labels}>
+    <CoinGroupsContext.Provider value={groupMap}>
     {/* On wide screens it fills the column down to the end of the side panel. */}
     <section data-tour="trade-activity" className="flex min-h-[360px] flex-col lg:flex-1">
+      <GroupsSummary g={groups} />
       <div role="tablist" className="no-scrollbar flex h-11 items-center gap-1 overflow-x-auto border-b border-border px-2">
         {TABS.map((t) => (
           <button
@@ -153,7 +158,44 @@ export function Activity({
         </div>
       )}
     </section>
+    </CoinGroupsContext.Provider>
     </CoinLabelsContext.Provider>
+  );
+}
+
+/** One line over the lists: the coin's bundles and clusters and what they still hold. */
+function GroupsSummary({ g }: { g: CoinGroups }) {
+  const sum = (xs: { hold_pct: number }[]) => Math.round(xs.reduce((a, x) => a + x.hold_pct, 0) * 10) / 10;
+  const devCluster = g.clusters.find((c) => c.dev);
+  if (!g.bundles.length && !g.clusters.length && !g.scanning) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-border px-4 py-2 text-xs">
+      <span className="flex items-center gap-1.5 text-text-2">
+        <Boxes size={14} strokeWidth={1.5} className={g.bundles.length ? "text-negative" : "text-muted"} />
+        {g.bundles.length ? (
+          <>
+            {g.bundles.length} {g.bundles.length === 1 ? "bundle" : "bundles"}, {g.bundles.reduce((a, b) => a + b.size, 0)} wallets
+            <span className={`font-mono ${sum(g.bundles) >= 10 ? "text-negative" : "text-text"}`}>{sum(g.bundles)}% held</span>
+          </>
+        ) : (
+          "No bundles"
+        )}
+      </span>
+      <span className="flex items-center gap-1.5 text-text-2">
+        <Users size={14} strokeWidth={1.5} className={devCluster ? "text-negative" : g.clusters.length ? "text-warning" : "text-muted"} />
+        {g.clusters.length ? (
+          <>
+            {g.clusters.length} {g.clusters.length === 1 ? "cluster" : "clusters"} funded by one wallet{devCluster ? ", one with the dev" : ""}
+            <span className={`font-mono ${sum(g.clusters) >= 10 ? "text-negative" : "text-text"}`}>{sum(g.clusters)}% held</span>
+          </>
+        ) : g.scanning ? (
+          "Checking who funded the early wallets"
+        ) : (
+          "No clusters"
+        )}
+      </span>
+      {g.scanning && g.of ? <span className="font-mono text-muted">{g.checked ?? 0}/{g.of} checked</span> : null}
+    </div>
   );
 }
 

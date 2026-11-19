@@ -273,6 +273,8 @@ async fn live_data(ctx: &ChatCtx, msg: &str, history: &[Turn]) -> Value {
         if let Some(h) = holders_of(ctx, &m) {
             data["coin_asked_about"]["wallets"] = h;
         }
+        // Bundles (same block) and clusters (wallets funded by one wallet), with shares held.
+        data["coin_asked_about"]["groups"] = crate::funders::groups(&ctx.app, &m);
     }
     if let Some(d) = dev {
         data["coin_asked_about"]["dev_wallet_now"] = dev_wallet(ctx, &d).await;
@@ -343,7 +345,7 @@ Solana facts (current, prefer these over older knowledge):
 Rules:
 - If you are not sure of a fact, say so plainly instead of guessing.
 - Use the LIVE DATA below for any coin facts. Never invent prices, holders or numbers. If the data does not have it, say so and suggest opening the coin on Kixo.
-- Coin details in LIVE DATA: 'wallets' has holders, the top 10 holders with labels, the dev's position in this coin (how much it holds, bought, sold), and bundlers, snipers and whales (how many wallets, how many still hold, what share of supply they hold). 'dev_wallet_now' is the creator's whole wallet right now: SOL balance, its dollar value, and the other coins it holds. 'dev_history' is the dev's earlier coins. When asked about the dev, bundlers, snipers or holders, answer with these exact numbers.
+- Coin details in LIVE DATA: 'wallets' has holders, the top 10 holders with labels, the dev's position in this coin (how much it holds, bought, sold), and bundlers, snipers and whales (how many wallets, how many still hold, what share of supply they hold). 'dev_wallet_now' is the creator's whole wallet right now: SOL balance, its dollar value, and the other coins it holds. 'dev_history' is the dev's earlier coins. 'groups' has bundles (wallets that bought in the same block) and clusters (wallets funded by the same wallet, likely one person; dev true means the dev is in it), each with its size and the share of supply it still holds. When asked about the dev, bundlers, snipers or holders, answer with these exact numbers.
 - Chances are given as 0 to 1; say them as percentages.
 - Never promise profit or tell someone to put money in. Explain risk plainly; most new memecoins go to zero. Suggest the demo account, small sizes and a stop loss.
 - Never ask for a seed phrase or private key, and warn that anyone asking for one is a scammer.

@@ -9,6 +9,7 @@ mod demo;
 mod rug_exit;
 mod presence;
 mod book;
+mod funders;
 mod devs;
 mod dex;
 mod growth;
@@ -533,6 +534,7 @@ async fn main() -> Result<()> {
         .route("/token/{mint}", get(token_handler))
         .route("/token/{mint}/wallets", get(wallets_handler))
         .route("/token/{mint}/labels", get(labels_handler))
+        .route("/token/{mint}/groups", get(funders::groups_handler))
         .route("/token/{mint}/dex", get(dex_handler))
         .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))

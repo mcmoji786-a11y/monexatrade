@@ -4,8 +4,8 @@ import { NoteButton } from "@/components/notes/note-button";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Bell, BellOff, Check, Copy, ExternalLink, Eye, Loader2, Maximize2, RefreshCw, X } from "lucide-react";
-import { useWalletLabels, type WalletLabel } from "@/lib/labels";
+import { Bell, BellOff, Boxes, Check, Copy, ExternalLink, Eye, Loader2, Maximize2, RefreshCw, Users, X } from "lucide-react";
+import { useWalletGroups, useWalletLabels, type WalletLabel } from "@/lib/labels";
 import { useFeatures } from "@/lib/features";
 import { pnlByCoin, pnlFromLive, useActivity, useKixoPnl, useLiveTrades, usePortfolio, type Holding, type Trade } from "@/lib/portfolio";
 import { useMonitor } from "@/lib/prefs";
@@ -61,6 +61,33 @@ export function LabelChip({ label }: { label: WalletLabel }) {
   );
 }
 
+/** A wallet's bundle and cluster in the coin in scope: how many wallets, and what they hold. */
+function GroupChips({ address }: { address: string }) {
+  const { bundle, cluster } = useWalletGroups(address);
+  return (
+    <>
+      {bundle && (
+        <span
+          title={`Bundle: ${bundle.size} wallets bought in the same block at launch, usually one person. ${bundle.still_holding} still hold ${bundle.hold_pct}% of the supply`}
+          className="inline-flex items-center gap-0.5 rounded border border-negative/30 px-1 font-mono text-[10px] leading-4 text-negative"
+        >
+          <Boxes size={10} strokeWidth={1.5} />
+          {bundle.size}
+        </span>
+      )}
+      {cluster && (
+        <span
+          title={`${cluster.dev ? "Dev cluster" : "Cluster"}: ${cluster.size} wallets got their first SOL from the same wallet${cluster.funder ? ` (${shortAddress(cluster.funder)})` : ""}, likely one person${cluster.dev ? ", with the dev" : ""}. ${cluster.still_holding} still hold ${cluster.hold_pct}% of the supply`}
+          className={`inline-flex items-center gap-0.5 rounded border px-1 font-mono text-[10px] leading-4 ${cluster.dev ? "border-negative/30 text-negative" : "border-warning/30 text-warning"}`}
+        >
+          <Users size={10} strokeWidth={1.5} />
+          {cluster.dev ? `Dev ${cluster.size}` : cluster.size}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** A wallet address anywhere on the site: its labels (from the coin in scope and Smart
  *  Money), the address (opens the Wallet Tracker), copy, and a Track button. */
 export function WalletLink({
@@ -81,6 +108,7 @@ export function WalletLink({
   return (
     <span className="inline-flex items-center gap-1">
       {badges && labelsOn && labels.map((l) => <LabelChip key={l} label={l} />)}
+      {badges && labelsOn && <GroupChips address={address} />}
       <button
         type="button"
         title={`Open ${address} in the Wallet Tracker`}

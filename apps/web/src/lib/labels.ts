@@ -85,3 +85,53 @@ export function useWalletLabels(wallet: string, extra: (WalletLabel | false | un
   for (const l of extra) if (l) all.add(l);
   return LABEL_ORDER.filter((l) => all.has(l));
 }
+
+/* ---------------- One coin's bundles and clusters ---------------- */
+
+/** A bundle (wallets that bought in the same block at launch) or a cluster (wallets whose
+ *  first SOL came from the same wallet), from the gateway (funders.rs). */
+export type CoinGroup = { id: string; size: number; hold_pct: number; still_holding: number; wallets: string[]; funder?: string; dev?: boolean; slot?: number };
+export type CoinGroups = { bundles: CoinGroup[]; clusters: CoinGroup[]; scanning?: boolean; checked?: number; of?: number };
+export type WalletGroups = { bundle?: CoinGroup; cluster?: CoinGroup };
+
+const NO_GROUPS: CoinGroups = { bundles: [], clusters: [] };
+
+/** A coin's bundles and clusters, refreshed every 15 seconds while shown (the funder
+ *  lookups finish in the background, so clusters fill in over the first minute). */
+export function useCoinGroups(mint: string | null): CoinGroups {
+  const [state, setState] = useState<{ mint: string; groups: CoinGroups } | null>(null);
+  useEffect(() => {
+    if (!mint) return;
+    let live = true;
+    const load = async () => {
+      try {
+        const r = await fetch(`${GATEWAY_HTTP}/token/${mint}/groups`, { cache: "no-store" });
+        if (!r.ok) return;
+        const v = (await r.json()) as CoinGroups;
+        if (live) setState({ mint, groups: { ...NO_GROUPS, ...v } });
+      } catch {}
+    };
+    void load();
+    const t = setInterval(load, 15_000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [mint]);
+  return state && state.mint === mint ? state.groups : NO_GROUPS;
+}
+
+/** Wallet -> its bundle and cluster, for quick lookups in long lists. */
+export function groupIndex(g: CoinGroups): Map<string, WalletGroups> {
+  const m = new Map<string, WalletGroups>();
+  for (const b of g.bundles) for (const w of b.wallets) m.set(w, { ...m.get(w), bundle: b });
+  for (const c of g.clusters) for (const w of c.wallets) m.set(w, { ...m.get(w), cluster: c });
+  return m;
+}
+
+/** The coin groups in scope (set by the trade page around its lists). */
+export const CoinGroupsContext = createContext<Map<string, WalletGroups> | null>(null);
+
+export function useWalletGroups(wallet: string): WalletGroups {
+  return useContext(CoinGroupsContext)?.get(wallet) ?? {};
+}

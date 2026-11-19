@@ -130,6 +130,8 @@ struct Book {
     pending: VecDeque<Pending>,
     /// Buyers per slot during the bundle window.
     early_buyers: HashMap<u64, Vec<String>>,
+    /// Every bundle found, by slot: the wallets that bought in it (kept after the window).
+    bundle_groups: HashMap<u64, Vec<String>>,
 }
 
 impl Book {
@@ -162,6 +164,7 @@ impl Book {
             wallets: HashMap::new(),
             pending: VecDeque::new(),
             early_buyers: HashMap::new(),
+            bundle_groups: HashMap::new(),
         }
     }
 
@@ -277,6 +280,7 @@ impl Book {
                 buyers.push(t.user.clone());
             }
             if buyers.len() >= BUNDLE_MIN_WALLETS {
+                self.bundle_groups.insert(slot, buyers.clone());
                 for w in buyers.iter() {
                     if let Some(p) = self.wallets.get_mut(w) {
                         p.bundler = true;
@@ -439,6 +443,7 @@ impl Books {
             wallets: HashMap::new(),
             pending: VecDeque::new(),
             early_buyers: HashMap::new(),
+            bundle_groups: HashMap::new(),
         });
         book.source = dex.to_string();
         book.pool = Some(pool.to_string());
@@ -533,6 +538,14 @@ impl Books {
     }
 
     /// One book's positions, read before the book is dropped.
+    /// Each bundle of a coin: its slot and the positions of the wallets in it.
+    pub fn bundles(&self, mint: &str) -> Vec<(u64, Vec<Position>)> {
+        let Some(b) = self.books.get(mint) else { return Vec::new() };
+        let mut out: Vec<(u64, Vec<Position>)> = b.bundle_groups.iter().map(|(slot, ws)| (*slot, ws.iter().filter_map(|w| b.wallets.get(w).cloned()).collect())).collect();
+        out.sort_by_key(|(slot, _)| *slot);
+        out
+    }
+
     pub fn positions_of(&self, mint: &str) -> Vec<Position> {
         self.books.get(mint).map(|b| b.wallets.values().cloned().collect()).unwrap_or_default()
     }
