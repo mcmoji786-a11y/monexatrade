@@ -21,7 +21,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, os.path.dirname(__file__))
-from features import FEATURES, WINDOW, WalletBook, early_buyers, features, prepare  # noqa: E402
+from features import FEATURES, WINDOW, WalletBook, early_buyers, features, model_columns, prepare  # noqa: E402
 
 DATA = os.environ.get("KIXO_DATA", "E:/KixoData/live")
 OUT = os.environ.get("KIXO_AI", "E:/KixoAI/models")
@@ -339,9 +339,25 @@ def main():
     for target in ("dump", "pump"):
         model = models[best][target]
         p = model.predict_proba(te[FEATURES])[:, 1]
+        auc = roc_auc_score(te[target], p) if te[target].nunique() > 1 else float("nan")
+        # The model in use, judged on the same unseen coins: a new model replaces it only
+        # if it is at least as good, so a training run never makes Kixo AI worse.
+        keep_old = False
+        old_path = f"{OUT}/{target}_latest.txt"
+        if os.path.exists(old_path) and te[target].nunique() > 1:
+            try:
+                old = lgb.Booster(model_file=old_path)
+                cols = model_columns(old)
+                if all(c in te.columns for c in cols):
+                    p_old = old.predict(te[cols])
+                    auc_old = roc_auc_score(te[target], p_old)
+                    print(f"  {target}: model in use AUC {auc_old:.4f}, new model {auc:.4f}", flush=True)
+                    if auc_old > auc + 0.002:
+                        keep_old, p, auc = True, p_old, auc_old
+            except Exception as e:  # an unreadable old model is simply replaced
+                print(f"  {target}: could not judge the model in use ({e})", flush=True)
         te[f"p_{target}"] = p
         base = te[target].mean()
-        auc = roc_auc_score(te[target], p) if te[target].nunique() > 1 else float("nan")
         order = np.argsort(-p)
         n10 = max(1, len(te) // 10)
         report["targets"][target] = {
@@ -350,8 +366,12 @@ def main():
             "top10pct_rate": round(float(te[target].values[order[:n10]].mean()), 4),
             "bottom10pct_rate": round(float(te[target].values[order[-n10:]].mean()), 4),
         }
+        report["targets"][target]["kept"] = "previous" if keep_old else "new"
         model.booster_.save_model(f"{OUT}/{target}_{stamp}.txt")
-        shutil.copy(f"{OUT}/{target}_{stamp}.txt", f"{OUT}/{target}_latest.txt")
+        if keep_old:
+            print(f"  {target}: keeping the model in use (it is better on the unseen coins)", flush=True)
+        else:
+            shutil.copy(f"{OUT}/{target}_{stamp}.txt", f"{OUT}/{target}_latest.txt")
         print(f"{target.upper()}: base {base:.1%}, riskiest 10% {report['targets'][target]['top10pct_rate']:.1%}, AUC {auc:.3f}", flush=True)
 
     # Backtest on the unseen days: every coin vs the coins the model picks.
