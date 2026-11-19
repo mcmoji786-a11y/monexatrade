@@ -430,6 +430,25 @@ fn group<'a>(it: impl Iterator<Item = &'a Outcome>) -> Value {
     json!({ "coins": n, "dumped": rate(d), "doubled": rate(p) })
 }
 
+/// The symbol the AI saw when it scored a coin, if any (for coins no longer on the board).
+pub fn symbol_of(mint: &str) -> Option<String> {
+    store().lock().expect("ai store lock").scores.get(mint).map(|r| r.symbol.clone()).filter(|s| !s.is_empty())
+}
+
+/// The AI's real record over the last 24 hours: of the coins it called Danger, and of all
+/// coins, how many crashed 70%+ (or doubled) within the hour after its word.
+pub fn record_24h() -> Value {
+    let t = now();
+    let s = store().lock().expect("ai store lock");
+    let o: Vec<&Outcome> = s.outcomes.iter().filter(|o| o.at >= t - 24 * 3600).collect();
+    json!({
+        "danger_calls": group(o.iter().copied().filter(|o| o.dump >= 0.4)),
+        "all_coins": group(o.iter().copied()),
+        "low_crash_calls": group(o.iter().copied().filter(|o| o.dump < 0.1)),
+        "good_odds_calls": group(o.iter().copied().filter(|o| o.pump >= 0.2)),
+    })
+}
+
 /// `GET /ai/overview`: the AI page. Live lists of the newest scores, the track record
 /// (scores against what really happened within the hour), and the model's test results.
 pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {

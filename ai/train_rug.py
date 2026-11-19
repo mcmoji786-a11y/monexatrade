@@ -273,9 +273,36 @@ def compact(df):
     return df
 
 
+# Model settings tried on every training. The newest 15% of the training coins (by launch
+# time) choose between them with early stopping; the test coins stay unseen.
+PARAMS = {
+    "base": dict(learning_rate=0.05, num_leaves=31, min_child_samples=40, colsample_bytree=0.8),
+    "deep": dict(learning_rate=0.03, num_leaves=63, min_child_samples=80, colsample_bytree=0.7, reg_lambda=1.0),
+    "strict": dict(learning_rate=0.05, num_leaves=15, min_child_samples=200, colsample_bytree=0.7, reg_lambda=5.0),
+}
+MAX_TREES = 2000
+
+
 def fit(train, target):
-    model = lgb.LGBMClassifier(n_estimators=400, learning_rate=0.05, num_leaves=31, min_child_samples=40, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, verbose=-1)
+    """The best of PARAMS for this target, refit on all the training coins with the number
+    of trees early stopping found."""
+    train = train.sort_values("start")
+    cut = int(len(train) * 0.85)
+    tr, va = train.iloc[:cut], train.iloc[cut:]
+    best = None
+    if va[target].nunique() > 1 and tr[target].nunique() > 1:
+        for name, p in PARAMS.items():
+            m = lgb.LGBMClassifier(n_estimators=MAX_TREES, subsample=0.8, subsample_freq=1, verbose=-1, **p)
+            m.fit(tr[FEATURES], tr[target], eval_X=va[FEATURES], eval_y=va[target], eval_metric="auc", callbacks=[lgb.early_stopping(100, verbose=False)])
+            auc = roc_auc_score(va[target], m.predict_proba(va[FEATURES], num_iteration=m.best_iteration_)[:, 1])
+            trees = max(50, int((m.best_iteration_ or MAX_TREES) * 1.1))
+            print(f"    {target} {name}: validation AUC {auc:.4f} with {trees} trees", flush=True)
+            if best is None or auc > best[0]:
+                best = (auc, name, trees)
+    name, trees = (best[1], best[2]) if best else ("base", 400)
+    model = lgb.LGBMClassifier(n_estimators=trees, subsample=0.8, subsample_freq=1, verbose=-1, **PARAMS[name])
     model.fit(train[FEATURES], train[target])
+    print(f"    {target}: using {name} ({trees} trees)", flush=True)
     return model
 
 
