@@ -92,46 +92,146 @@ export function outlook(risk: AiRisk | null, safety: Safety | null | undefined, 
 
 function Outlook({ risk, safety, num }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers }) {
   const o = outlook(risk, safety, num?.ageSecs ?? null);
+  const sim = useSimilar(risk);
   if (!o) return null;
   const p = plan(o.tone, risk, safety, num);
   const watching = !risk && num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + 60;
+  const reasons = plainReasons(safety, num);
+  // "Out of 10 coins like this": past coins with the same AI scores when known, else the AI's own chances.
+  const crash = sim?.similar.crashed ?? risk?.dump ?? null;
+  const double = sim?.similar.doubled ?? risk?.pump ?? null;
   return (
-    <div className="mb-5 flex flex-col gap-3">
-      {risk ? (
-        <Prediction risk={risk} num={num} />
-      ) : watching ? (
-        <Countdown launchedAt={num?.launchedAt ?? null} ageSecs={num!.ageSecs!} />
-      ) : null}
-      <div className={`rounded-lg border border-border bg-bg/60 px-4 py-3 ${risk ? "hidden" : ""}`}>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className={`inline-flex h-7 items-center rounded-full border px-3 text-sm font-medium ${TONE[o.tone]}`}>{o.word}</span>
-          <span className="text-xs text-muted">Next hour</span>
-        </div>
-        <p className="mt-2 text-sm leading-6 text-text">{o.headline}</p>
-        <p className="mt-1 text-xs text-muted">{o.source}</p>
-      </div>
-      <div className={`rounded-lg border px-4 py-3 ${TONE[p.tone]}`}>
-        <p className="text-xs text-muted">What to do</p>
-        <p className="mt-1 text-base font-medium">{p.title}</p>
-        <ul className="mt-2 flex flex-col gap-1.5 text-sm leading-6 text-text">
-          {p.steps.map((s) => (
-            <li key={s} className="flex gap-2">
-              <span className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" aria-hidden="true" />
-              {s}
-            </li>
-          ))}
-        </ul>
-        {p.watch.length > 0 && (
-          <>
-            <p className="mt-3 text-xs text-muted">Watch for</p>
-            <ul className="mt-1 flex flex-col gap-1 text-[13px] leading-5 text-text-2">
-              {p.watch.map((w) => (
-                <li key={w}>{w}</li>
+    <div className="mb-4 flex flex-col gap-3">
+      <div className={`rounded-xl border-2 px-4 py-4 ${TONE[p.tone]}`}>
+        <p className="text-xs text-muted">Kixo says</p>
+        <p className="mt-1 text-xl font-semibold">{p.title}</p>
+        <p className="mt-1 text-sm text-text">{p.sub}</p>
+
+        {crash != null && double != null && (
+          <div className="mt-3 rounded-lg bg-surface px-3 py-2.5 text-sm text-text">
+            <p className="text-xs text-muted">Out of 10 coins like this one, within an hour</p>
+            <p className="mt-1">
+              <span className="font-semibold text-negative">{outOf10(crash)} lose most of their value</span>
+              <span className="text-muted"> · </span>
+              <span className="font-semibold text-positive">{outOf10(double)} double</span>
+            </p>
+            {Math.round(crash * 10) + Math.round(double * 10) > 10 && <p className="mt-0.5 text-xs text-muted">Some do both: they double first, then crash</p>}
+          </div>
+        )}
+        {watching && <Countdown launchedAt={num?.launchedAt ?? null} ageSecs={num!.ageSecs!} />}
+
+        {reasons.bad.length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs text-muted">Why</p>
+            <ul className="mt-1 flex flex-col gap-1 text-sm leading-6 text-text">
+              {reasons.bad.map((r) => (
+                <li key={r} className="flex gap-2">
+                  <X size={14} strokeWidth={2} className="mt-1 shrink-0 text-negative" />
+                  {r}
+                </li>
+              ))}
+              {reasons.good.map((r) => (
+                <li key={r} className="flex gap-2">
+                  <Check size={14} strokeWidth={2} className="mt-1 shrink-0 text-positive" />
+                  {r}
+                </li>
               ))}
             </ul>
-          </>
+          </div>
         )}
+
+        {p.steps.length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs text-muted">{p.stepsTitle}</p>
+            <ol className="mt-1 flex flex-col gap-1 text-sm leading-6 text-text">
+              {p.steps.map((st, i) => (
+                <li key={st} className="flex gap-2">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface font-mono text-[11px] text-text-2">{i + 1}</span>
+                  {st}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {p.watch && <p className="mt-3 text-[13px] text-text-2">Watch: {p.watch}</p>}
       </div>
+    </div>
+  );
+}
+
+/** "3 out of 10", from a share between 0 and 1. */
+function outOf10(x: number) {
+  const n = Math.round(x * 10);
+  return n === 0 && x > 0 ? "Less than 1" : `${n}`;
+}
+
+/** The coin's main red flags (and good signs) in words a first-time trader understands,
+ *  from the same checks as the safety score. Unknown data is left out. */
+function plainReasons(safety: Safety | null | undefined, n?: Numbers) {
+  const say: Record<string, (d?: string) => string> = {
+    "Mint authority active": () => "The creator can print more coins at any time",
+    "Freeze authority active": () => "The creator can freeze your coins so you cannot sell",
+    "Top 10 wallets hold a lot": (d) => `Just 10 wallets own ${d ?? "a big share"} of it. If they sell, the price falls hard`,
+    "Dev holds a lot": (d) => `The creator owns ${d ?? "a big share"}. If they sell, the price falls hard`,
+    "Bundled wallets hold a share": (d) => `Wallets that bought together at launch own ${d ?? "a share"}. Often the creator's own`,
+    "Early buyers (first 3 s) hold a share": (d) => `Bots that bought in the first seconds own ${d ?? "a share"} and usually sell fast`,
+    "Dev sold everything": () => "The creator already sold everything and left",
+    "Dev is selling": () => "The creator is selling right now",
+    "Dev rugged before": (d) => `This creator ran off with buyers' money before (${d ?? "earlier coins"})`,
+    "Dev's earlier coins died fast": () => "This creator's earlier coins died within minutes",
+    "Copies an established coin's symbol": () => "It copies the name of a famous coin. Likely a fake",
+    "Another new coin uses this symbol": () => "Other new coins use the same name. It may be a copy",
+    "X account shared with other new coins": () => "Its X account is used by other new coins too. Likely a copy",
+    "No social links": () => "No website, X or Telegram: nobody stands behind it",
+    "Sells far outnumber buys": () => "Many more people are selling than buying",
+    "Price crashed in 5 minutes": (d) => `The price fell ${d?.replace("-", "") ?? "a lot"} in the last 5 minutes`,
+    "Liquidity under $5K": () => "Very little money in its pool: selling can cost you a lot",
+    "Almost nobody holds it": () => "Almost nobody owns it yet",
+    "Fewer than 25 holders": (d) => `Only ${d ?? "a few"} people own it so far`,
+    "Under 2 minutes old: too new to judge": () => "It is brand new: too early to know if it is safe",
+    "Very volatile": () => "The price is jumping up and down wildly",
+    "Mostly bot trading": () => "Most of the trading looks like bots, not real people",
+  };
+  const bad = (safety?.factors ?? [])
+    .filter((f) => f.points < 0 && say[f.label])
+    .slice(0, 3)
+    .map((f) => say[f.label](f.detail));
+  const good: string[] = [];
+  if (bad.length < 3) {
+    for (const f of safety?.factors ?? []) {
+      if (f.points > 0 && f.label === "Dev graduated coins before") good.push("This creator's earlier coins did well");
+      if (f.points > 0 && f.label === "Verified token") good.push("It is a verified token");
+    }
+    if (n?.holders != null && n.holders >= 100) good.push(`${n.holders.toLocaleString()} people own it`);
+  }
+  return { bad, good: good.slice(0, 2) };
+}
+
+/** The safety-score read, for coins Kixo AI did not score (older or not yet). */
+function SafetyRead({ risk, safety, num }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers }) {
+  const o = outlook(risk, safety, num?.ageSecs ?? null);
+  if (!o) return null;
+  return (
+    <div className="rounded-lg border border-border bg-bg/60 px-4 py-3">
+      <span className={`inline-flex h-7 items-center rounded-full border px-3 text-sm font-medium ${TONE[o.tone]}`}>{o.word}</span>
+      <p className="mt-2 text-sm leading-6 text-text">{o.headline}</p>
+      <p className="mt-1 text-xs text-muted">{o.source}</p>
+    </div>
+  );
+}
+
+/** Where each part of this analysis comes from, in plain words. */
+function Sources({ ai }: { ai: boolean }) {
+  return (
+    <div className="mt-4 rounded-lg bg-surface px-3 py-2.5 text-xs leading-5 text-text-2">
+      <p className="font-medium text-text">Where this comes from</p>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {ai && <li>Prediction: Kixo AI, trained by Kixo on hundreds of thousands of past Solana coins, reads this coin&apos;s first 2 minutes of trades</li>}
+        {ai && <li>&quot;Coins like this one&quot;: what really happened to past coins with the same scores, from Kixo&apos;s own records</li>}
+        <li>Warning signs: Kixo&apos;s safety checks on the coin&apos;s live trades, holders and creator history, read from the Solana blockchain</li>
+        <li>Written read: a language model that only summarises this same data</li>
+        <li>The decision at the top is worked out from all of the above by fixed rules, the same for every coin</li>
+      </ul>
     </div>
   );
 }
@@ -254,95 +354,66 @@ function Countdown({ launchedAt, ageSecs }: { launchedAt: number | null; ageSecs
  *  would change the picture. Market cap levels are the real numbers for this coin. */
 function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers) {
   const mc = n?.mcUsd ?? null;
-  const at = (x: number) => (mc ? ` (market cap about ${usd(mc * x)})` : "");
+  const at = (x: number) => (mc ? ` (market cap ${usd(mc * x)})` : "");
   const young = n?.ageSecs != null && n.ageSecs < 120;
   const fewHolders = n?.holders != null && n.holders < 20;
   const falling = n?.change5m != null && n.change5m <= -30;
   const pumped = n?.change5m != null && n.change5m >= 100;
-  const sellers = n?.buys1h != null && n?.sells1h != null && n.sells1h > n.buys1h * 1.5 && n.sells1h >= 10;
   const v = risk ? verdict(risk).key : null;
-  const watch: string[] = [];
-  if (n?.devSoldAll) watch.push("The dev already sold everything: nobody behind it is holding");
-  else watch.push("Get out at once if the dev starts selling");
-  if (fewHolders) watch.push("Holders climbing past 20 is the first sign real buyers are coming");
-  if (sellers) watch.push(`More sellers than buyers in the last hour (${n?.sells1h} sells, ${n?.buys1h} buys)`);
+  const watch = n?.devSoldAll ? "" : "if the creator starts selling, sell at once";
+  const ifBuy = (size: string, stop: number, take: number) => [
+    `Use only ${size}: money you are fine losing`,
+    `If it falls ${Math.round((1 - stop) * 100)}%, sell${at(stop)}`,
+    `If it reaches ${take}x, sell at least half${at(take)}`,
+  ];
 
-  const avoid = tone === "bad" || v === "danger" || n?.devSoldAll;
-  if (avoid) {
+  if (tone === "bad" || v === "danger" || n?.devSoldAll) {
     return {
       tone: "bad" as Tone,
-      title: "Avoid. Don't buy this one",
-      steps: [
-        v === "danger"
-          ? `Kixo AI gives it a ${pct(risk!.dump)} chance of crashing 70% or more within the hour`
-          : `Safety score ${safety?.score ?? "low"}/100: too many red flags`,
-        "If you already hold it, sell into the next green candle instead of hoping",
-        "There are new coins every minute. Skipping this one costs you nothing",
-      ],
+      title: "Don't buy",
+      sub: v === "danger" ? "High chance you lose most of your money within the hour" : "Too many warning signs on this coin",
+      stepsTitle: "If you already own it",
+      steps: ["Sell it, ideally on the next small rise", "Look for another coin: new ones launch every minute"],
       watch,
     };
   }
   if (young || fewHolders) {
     return {
       tone: "warn" as Tone,
-      title: "Wait. Too early to tell",
-      steps: [
-        young ? "It is under 2 minutes old: most of the risk shows in the first minutes" : `Only ${n?.holders} holders so far: a few wallets can move the price anywhere`,
-        "Come back when it has 20+ holders and the dev still holds",
-        "If you buy anyway, use a small test amount you are fine losing",
-      ],
+      title: "Wait, don't buy yet",
+      sub: young ? "It is too new: the next minutes show if it is safe" : "Too few people own it yet to tell",
+      stepsTitle: "What to do",
+      steps: ["Come back in a few minutes and open this again", "A good sign: 20+ people own it and the creator has not sold"],
       watch,
     };
   }
   if (falling) {
     return {
       tone: "warn" as Tone,
-      title: "Wait. It is dropping fast",
-      steps: [
-        `Down ${Math.abs(n!.change5m!).toFixed(0)}% in 5 minutes. Don't catch a falling knife`,
-        "Wait for 2 or 3 candles that stop going lower before you think about buying",
-      ],
+      title: "Wait, it is falling",
+      sub: `Down ${Math.abs(n!.change5m!).toFixed(0)}% in 5 minutes. Buying a falling coin usually loses money`,
+      stepsTitle: "What to do",
+      steps: ["Wait until the price stops falling for a few minutes", "Then open this again"],
       watch,
     };
   }
   if (pumped) {
     return {
       tone: "warn" as Tone,
-      title: "Don't chase. It already pumped",
-      steps: [
-        `Up ${n!.change5m!.toFixed(0)}% in 5 minutes. Buying now often means buying the top`,
-        "Wait for a pullback of 20 to 30% that holds, then a small buy",
-        `If you already hold it, take some profit now`,
-      ],
+      title: "Too late for now",
+      sub: `It already went up ${n!.change5m!.toFixed(0)}% in 5 minutes. Buying now often means buying the top`,
+      stepsTitle: "What to do",
+      steps: ["Wait for the price to cool down", "If you own it, this is a good moment to take some profit"],
       watch,
     };
   }
   if (tone === "good") {
-    return {
-      tone: "good" as Tone,
-      title: "OK for a small buy, with a plan",
-      steps: [
-        "Use a small size: 1 to 3% of your balance",
-        `Stop loss at -25%${at(0.75)}`,
-        `Sell half at 2x${at(2)}, then let the rest run with a 20% trailing stop`,
-      ],
-      watch,
-    };
+    return { tone: "good" as Tone, title: "OK to try, with a small amount", sub: "Fewer warning signs than most new coins. Still risky, like every memecoin", stepsTitle: "If you buy", steps: ifBuy("a small amount (1 to 3% of your balance)", 0.75, 2), watch };
   }
   if (tone === "warn") {
-    return {
-      tone: "warn" as Tone,
-      title: "Only a small test buy, or skip",
-      steps: ["Real crash risk. Keep it to 1% of your balance", `Tight stop loss at -20%${at(0.8)}`, `Take profit early, around +50%${at(1.5)}`],
-      watch,
-    };
+    return { tone: "warn" as Tone, title: "Risky: a very small amount, or skip", sub: "Some warning signs. Real chance of losing money", stepsTitle: "If you buy anyway", steps: ifBuy("a very small amount (about 1% of your balance)", 0.8, 1.5), watch };
   }
-  return {
-    tone: "muted" as Tone,
-    title: "Nothing special. Skip unless you have a reason",
-    steps: ["No strong signal either way from Kixo AI", `If you trade it, stop loss at -20%${at(0.8)} and keep it small`],
-    watch,
-  };
+  return { tone: "muted" as Tone, title: "Nothing special: better to skip", sub: "No strong reason to buy it", stepsTitle: "If you buy anyway", steps: ifBuy("a small amount", 0.8, 1.5), watch };
 }
 
 /** The question sent to the model: the coin's live facts only, and the shape of the answer. */
@@ -356,7 +427,7 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Live facts: ${facts}.`,
     s ? `Kixo safety score ${s.score}/100.${flags ? ` Flags: ${flags}.` : " No red flags."}` : "",
     v && risk ? `Kixo AI word: ${v.label} (crash chance ${pct(risk.dump)}, double chance ${pct(risk.pump)}, from its first 2 minutes).` : "",
-    `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a sharp trader friend: casual, plain English, short. Write chances as whole percentages only (like 17%), never as decimals.`,
+    `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a friendly guide to someone buying their first memecoin: simple everyday English, short sentences, no trading jargon (if you must use a word like liquidity or bundle, explain it in a few words). Write chances as whole percentages only (like 17%), never as decimals.`,
     `Answer in plain text, one item per line, every line starting with its label:`,
     `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
     `Good: one strength per line, up to 3 lines, each with the real number.`,
@@ -461,24 +532,46 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
           {/* Kixo's outlook and call, from the AI model or the safety checks */}
           <Outlook risk={risk} safety={input.safety} num={input.num} />
 
-          {/* The written read */}
-          {read === "loading" ? (
-            <p className="flex items-center gap-2 text-sm text-text-2">
-              <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
-              Kixo AI is reading this coin&apos;s live data
-            </p>
-          ) : read ? (
-            <Read lines={read} holders={input.num?.holders ?? null} />
-          ) : rules?.status === "ok" ? (
-            <div className="flex flex-col gap-4 text-sm">
-              <p className="leading-6 text-text">{rules.summary}</p>
-              <Section title="Strengths" tone="text-positive" items={rules.strengths} />
-              <Section title="Risks" tone="text-negative" items={rules.risks} />
-              <Section title="What to watch" tone="text-warning" items={rules.watch} />
+          {/* For traders who want the numbers: the prediction, the written read, the data and where it comes from */}
+          <details className="group mt-4 rounded-lg border border-border">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm text-text-2 hover:text-text">
+              More details
+              <span className="text-xs text-muted group-open:hidden">numbers, Kixo AI&apos;s full read, sources</span>
+            </summary>
+            <div className="border-t border-border px-4 pt-4 pb-4">
+              {risk ? <Prediction risk={risk} num={input.num} /> : <SafetyRead risk={risk} safety={input.safety} num={input.num} />}
+              <div className="mt-4">
+            {/* The written read */}
+            {read === "loading" ? (
+              <p className="flex items-center gap-2 text-sm text-text-2">
+                <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+                Kixo AI is reading this coin&apos;s live data
+              </p>
+            ) : read ? (
+              <Read lines={read} holders={input.num?.holders ?? null} />
+            ) : rules?.status === "ok" ? (
+              <div className="flex flex-col gap-4 text-sm">
+                <p className="leading-6 text-text">{rules.summary}</p>
+                <Section title="Strengths" tone="text-positive" items={rules.strengths} />
+                <Section title="Risks" tone="text-negative" items={rules.risks} />
+                <Section title="What to watch" tone="text-warning" items={rules.watch} />
+              </div>
+            ) : (
+              <p className="text-sm text-text-2">Kixo AI is busy right now. The live data is below</p>
+            )}
+              </div>
+            <h3 className="mt-5 text-xs text-muted">Live data the analysis uses</h3>
+            <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+              {input.facts.map((f) => (
+                <div key={f.label} className="min-w-0">
+                  <dt className="text-[11px] text-muted">{f.label}</dt>
+                  <dd className="truncate font-mono text-xs text-text">{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+              <Sources ai={!!risk} />
             </div>
-          ) : (
-            <p className="text-sm text-text-2">Kixo AI is busy right now. The live data is below</p>
-          )}
+          </details>
 
           {/* Ask more about this coin */}
           {turns.map((t, i) => (
@@ -505,15 +598,6 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
             </button>
           </form>
 
-          <h3 className="mt-5 text-xs text-muted">Live data the analysis uses</h3>
-          <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-            {input.facts.map((f) => (
-              <div key={f.label} className="min-w-0">
-                <dt className="text-[11px] text-muted">{f.label}</dt>
-                <dd className="truncate font-mono text-xs text-text">{f.value}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted">
