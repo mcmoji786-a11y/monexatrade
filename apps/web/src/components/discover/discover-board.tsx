@@ -1,5 +1,6 @@
 "use client";
 import { TradeLink } from "@/components/token/trade-link";
+import { QuickBuy } from "@/components/trade/quick-buy";
 
 import Link from "next/link";
 import { tokenHref, useOpenToken } from "@/lib/open-token";
@@ -17,9 +18,9 @@ import { useDiscoverFilters, useWatchlist } from "@/lib/prefs";
 import { DiscoverFiltersMenu, passesDiscover } from "./discover-filters";
 import { StarButton } from "@/components/token/star-button";
 import { buildRows, CATEGORIES, changeIn, rank, rowRisk, volIn, WINDOWS, type Category, type DiscoverRow, type MetricKey, type Window } from "@/lib/categories";
-import { amount, pct, price, usd } from "@/lib/gateway";
+import { amount, pct, usd } from "@/lib/gateway";
 import { formatAge, useNow, useRadarFeed, type FeedStatus } from "@/components/radar/use-radar-feed";
-import { CopyMint, TokenLogo } from "@/components/token/token-bits";
+import { TokenLogo } from "@/components/token/token-bits";
 import { Tick } from "@/components/token/tick";
 import { age, changeTone, Move, SourceTag, TokenTable } from "./token-table";
 
@@ -111,37 +112,51 @@ export function DiscoverBoard() {
 
   return (
     <section>
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-medium text-text">Discover</h1>
+      {/* One line: the title, the categories and the controls */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-1.5">
+        <div className="flex shrink-0 items-center gap-2 pr-2" title="Solana memecoins moving right now, updated live">
+          <h1 className="text-lg font-medium text-text">Discover</h1>
           <LiveBadge status={status} updatedAt={updatedAt} now={now} />
-          <DiscoverFiltersMenu />
-          <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="View">
+        </div>
+        <div className="no-scrollbar flex min-w-0 gap-0.5 overflow-x-auto" role="tablist" aria-label="Categories">
+          {cats.map((c) => (
+            <CategoryTile key={c.key} cat={c} on={c.key === cat.key} count={ranked[c.key].length} onClick={() => setActive(c.key)} />
+          ))}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {cat.windowed && (
+            <div className="flex rounded-md border border-border p-0.5" role="group" aria-label="Time window">
+              {WINDOWS.map((w) => (
+                <button key={w} type="button" onClick={() => setWin(w)} aria-pressed={win === w} className={`h-6 rounded px-2 font-mono text-[11px] transition-colors ${win === w ? "bg-surface-3 text-text" : "text-muted hover:text-text"}`}>
+                  {w}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="[&_button]:h-7 [&_button]:text-xs">
+            <DiscoverFiltersMenu />
+          </span>
+          <div className="flex rounded-md border border-border p-0.5" role="group" aria-label="View">
             {(["table", "cards"] as const).map((v) => (
-              <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)} className={`h-7 rounded-md px-2.5 text-xs capitalize transition-colors ${view === v ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}>
+              <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)} className={`h-6 rounded px-2 text-[11px] capitalize transition-colors ${view === v ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}>
                 {v}
               </button>
             ))}
           </div>
         </div>
-        <dl className="flex gap-x-8">
+      </div>
+
+      {/* The newest launches, with the market figures beside them */}
+      <div className="mt-1.5 flex items-center gap-4">
+        <JustLaunched tokens={latest} now={now} />
+        <dl className="hidden shrink-0 items-center gap-x-4 xl:flex">
           <Stat label="Tokens" value={String(rows.length)} />
-          <Stat label="Volume 1h" value={usd(volume1h)} raw={volume1h} />
+          <Stat label="Vol 1h" value={usd(volume1h)} raw={volume1h} />
           <Stat label="SOL" value={solUsd ? `$${solUsd.toFixed(2)}` : "—"} raw={solUsd} />
         </dl>
       </div>
 
-      {/* Category selector */}
-      <div className="no-scrollbar mt-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="Categories">
-        {cats.map((c) => (
-          <CategoryTile key={c.key} cat={c} on={c.key === cat.key} count={ranked[c.key].length} onClick={() => setActive(c.key)} />
-        ))}
-      </div>
-
-      <JustLaunched tokens={latest} now={now} />
-
-      <CategoryView key={cat.key} cat={cat} list={ranked[cat.key]} now={now} status={status} sparks={sparks} win={win} setWin={setWin} launches={launches} smart={smart} view={view} />
+      <CategoryView key={cat.key} cat={cat} list={ranked[cat.key]} now={now} status={status} sparks={sparks} win={win} launches={launches} smart={smart} view={view} />
 
       <p className="mt-6 max-w-3xl text-xs leading-5 text-muted">
         Memecoins only: tokens tagged meme or launched on a memecoin launchpad. Stocks, RWAs and DeFi tokens are
@@ -161,7 +176,6 @@ function CategoryView({
   status,
   sparks,
   win,
-  setWin,
   launches,
   smart,
   view,
@@ -173,60 +187,41 @@ function CategoryView({
   status: FeedStatus;
   sparks: Record<string, number[]>;
   win: Window;
-  setWin: (w: Window) => void;
   launches: Map<string, FeedToken>;
   smart: Record<string, number>;
 }) {
   const moves = useRankMoves(list.slice(0, 100).map((r) => r.mint));
-  // Table view: every coin in the dense table from rank 1. Cards view: the top three as
-  // large cards, then the table.
-  const podium = view === "cards" ? list.slice(0, 3) : [];
-  const rest = list.slice(podium.length, 100);
+  // Table view: every coin in one dense table. Cards view: every coin as a compact card,
+  // the same build as Sol Radar's.
+  const rest = list.slice(0, 100);
 
   return (
     <div className="fade-up">
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-text-2">{cat.windowed ? cat.description.replace(/last 5 minutes|1h price rise/, (m) => (m === "last 5 minutes" ? `last ${win}` : `${win} price rise`)) : cat.description}</p>
-        {cat.windowed && (
-          <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Time window">
-            {WINDOWS.map((w) => (
-              <button
-                key={w}
-                type="button"
-                onClick={() => setWin(w)}
-                aria-pressed={win === w}
-                className={`h-7 rounded-md px-3 font-mono text-xs transition-colors ${win === w ? "bg-surface-3 text-text" : "text-muted hover:text-text"}`}
-              >
-                {w}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
 
       {list.length === 0 ? (
-        <div className="mt-4 rounded-2xl border border-dashed border-border px-8 py-20 text-center text-sm text-muted">
+        <div className="mt-3 rounded-xl border border-dashed border-border px-8 py-16 text-center text-sm text-muted">
           {status === "live" ? "Nothing fits this category yet. It fills as data comes in" : "Connecting to the Kixo gateway"}
         </div>
       ) : (
         <>
-          {/* Podium: the top three get the spotlight */}
-          <div className={podium.length ? "mt-3 grid gap-3 lg:grid-cols-3" : "hidden"}>
-            {podium.map((r, i) => (
-              <Spotlight key={r.mint} row={r} rank={i + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} safety={safetyScore(rowSignals(r, launches.get(r.mint) ?? null, smart[r.mint] ?? 0, now / 1000))} />
-            ))}
-          </div>
+          {view === "cards" && (
+            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3 min-[2200px]:grid-cols-4">
+              {rest.map((r, i) => (
+                <CoinCard key={r.mint} row={r} rank={i + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} safety={safetyScore(rowSignals(r, launches.get(r.mint) ?? null, smart[r.mint] ?? 0, now / 1000))} />
+              ))}
+            </div>
+          )}
 
-          {rest.length > 0 && (
+          {view === "table" && rest.length > 0 && (
             <>
               {/* Desktop: dense table */}
               <div className="mt-3 hidden overflow-hidden rounded-xl border border-border bg-surface md:block">
-                <TokenTable rows={rest} now={now} metric={cat.metric} startRank={podium.length + 1} moves={moves} sparks={sparks} launches={launches} smart={smart} />
+                <TokenTable rows={rest} now={now} metric={cat.metric} startRank={1} moves={moves} sparks={sparks} launches={launches} smart={smart} />
               </div>
               {/* Mobile: compact rows */}
               <ol className="mt-3 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface md:hidden">
                 {rest.map((r, i) => (
-                  <MobileRow key={r.mint} row={r} rank={i + podium.length + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} />
+                  <MobileRow key={r.mint} row={r} rank={i + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} />
                 ))}
               </ol>
             </>
@@ -258,7 +253,7 @@ function useRankMoves(mints: string[]) {
 function JustLaunched({ tokens, now }: { tokens: { mint: string; symbol: string; timestamp: number; meta: { image: string | null } | null; arrived?: boolean }[]; now: number }) {
   if (tokens.length === 0) return null;
   return (
-    <div className="mt-6 flex items-center gap-3 overflow-hidden rounded-xl border border-border bg-surface px-4 py-2.5">
+    <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-lg border border-border bg-surface px-3 py-1.5">
       <span className="flex shrink-0 items-center gap-2 text-xs text-text-2">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
         Just launched
@@ -268,9 +263,9 @@ function JustLaunched({ tokens, now }: { tokens: { mint: string; symbol: string;
           <Link
             key={t.mint}
             href={tokenHref(t.mint)}
-            className={`flex shrink-0 items-center gap-2 rounded-lg border border-border bg-bg px-2 py-1 transition-colors hover:bg-surface-2 ${t.arrived ? "row-in" : ""}`}
+            className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-bg px-1.5 transition-colors hover:bg-surface-2 ${t.arrived ? "row-in" : ""}`}
           >
-            <TokenLogo src={t.meta?.image ?? null} symbol={t.symbol} size={20} />
+            <TokenLogo src={t.meta?.image ?? null} symbol={t.symbol} size={18} />
             <span className="max-w-24 truncate text-xs text-text">{t.symbol || "—"}</span>
             <span className={`font-mono text-[11px] ${now / 1000 - t.timestamp < 60 ? "text-emerald" : "text-muted"}`}>
               {formatAge(now / 1000 - t.timestamp)}
@@ -290,19 +285,22 @@ function CategoryTile({ cat, on, count, onClick }: { cat: Category; on: boolean;
       role="tab"
       aria-selected={on}
       onClick={onClick}
-      className={`-mb-px flex h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-sm whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
-        on ? "border-emerald text-text" : "border-transparent text-text-2 hover:text-text"
+      title={cat.description}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+        on ? "bg-surface-3 text-text" : "text-text-2 hover:bg-surface-2 hover:text-text"
       }`}
     >
-      <Icon size={14} strokeWidth={1.5} className={on ? "text-emerald" : "text-muted"} />
+      <Icon size={13} strokeWidth={1.5} className={on ? "text-emerald" : "text-muted"} />
       {cat.label}
-      <span className="font-mono text-xs text-muted">{count}</span>
+      <span className="font-mono text-[11px] text-muted">{count}</span>
     </button>
   );
 }
 
-/** Large card for ranks 1 to 3. */
-function Spotlight({
+/** One coin as a compact card, built like Sol Radar's: identity and market cap, age,
+ *  links, holders and the 5 minute move, the figure this category ranks by with its
+ *  chart, then buy/sell pressure, liquidity, top 10, safety and actions. */
+function CoinCard({
   row: r,
   rank: n,
   metric,
@@ -326,95 +324,100 @@ function Spotlight({
   const buys = r.buys1h ?? 0;
   const sells = r.sells1h ?? 0;
   const flow = buys + sells;
+  const top10 = r.top10Pct;
   return (
     <article
       onClick={open(r.mint)}
-      className={`relative flex cursor-pointer flex-col gap-3 overflow-hidden rounded-2xl border bg-surface p-4 transition-colors duration-150 hover:bg-surface-2 ${
-        n === 1 ? "border-emerald/30" : "border-border"
-      }`}
+      className={`group flex cursor-pointer flex-col rounded-lg border bg-surface transition-colors duration-150 hover:bg-surface-2 ${n === 1 ? "border-emerald/40" : "border-border hover:border-[rgb(255_255_255/0.16)]"}`}
     >
-      {n === 1 && <span className="absolute inset-x-0 top-0 h-px bg-emerald/60" />}
-
-      {/* Identity */}
-      <div className="flex items-center gap-3">
-        <TokenLogo src={r.image} symbol={r.symbol} size={40} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate text-base font-medium text-text">{r.symbol || "—"}</span>
-              {r.verified && <BadgeCheck size={15} strokeWidth={1.5} className="shrink-0 text-cyan" aria-label="Verified" />}
-              <SourceTag row={r} />
-              <StarButton mint={r.mint} />
-            </span>
-            <span className="flex shrink-0 items-center gap-3 font-mono text-xs text-muted">
-              <SafetyBadge safety={safety} />
-              <span className="flex items-center gap-2">
-                <Move by={move} />#{n}
-              </span>
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="min-w-0 truncate text-text-2">{r.name}</span>
-            <CopyMint mint={r.mint} />
-          </div>
+      <div className="flex gap-2.5 p-2.5 pb-2">
+        <div className="flex shrink-0 flex-col items-center gap-0.5">
+          <TokenLogo src={r.image} symbol={r.symbol} size={56} />
+          <span className="flex items-center gap-1 font-mono text-[10px] leading-3 text-muted">
+            #{n}
+            <Move by={move} />
+          </span>
         </div>
-      </div>
 
-      {/* The ranking figure and price, with the chart beside them */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
-            <Tick value={f.raw} className={`font-mono text-xl ${f.tone}`}>
+        <div className="flex min-w-0 flex-1 flex-col justify-between gap-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="max-w-[45%] shrink-0 truncate text-[13px] font-medium text-text" title={r.symbol}>
+              {r.symbol || "—"}
+            </span>
+            {r.verified && <BadgeCheck size={13} strokeWidth={1.5} className="shrink-0 text-cyan" aria-label="Verified" />}
+            <span className="min-w-0 truncate text-[11px] text-muted" title={r.name}>
+              {r.name}
+            </span>
+            <span className="opacity-0 transition-opacity group-hover:opacity-100">
+              <StarButton mint={r.mint} size={11} />
+            </span>
+            <span className="ml-auto shrink-0 font-mono text-sm leading-5 text-cyan" title="Market cap">
+              <span className="font-sans text-[10px] text-muted">MC </span>
+              <Tick value={r.mcUsd}>{usd(r.mcUsd)}</Tick>
+            </span>
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2 text-[11px]">
+            <span className="font-mono text-text-2" title="Age">
+              {age(r, now)}
+            </span>
+            <span className="[&_a]:h-4 [&_a]:w-4">
+              <Socials twitter={r.twitter} telegram={r.telegram} website={r.website} />
+            </span>
+            <span className="font-mono text-text-2" title="Holders">
+              {r.holders != null ? `${r.holdersApprox ? "~" : ""}${amount(r.holders)}` : "—"}
+              <span className="ml-0.5 font-sans text-[10px] text-muted">holders</span>
+            </span>
+            <span className="ml-auto shrink-0 font-mono">
+              <span className={changeTone(r.change5m)}>{pct(r.change5m)}</span>
+              <span className="ml-0.5 font-sans text-[10px] text-muted">5m</span>
+              <span className={`ml-2 ${changeTone(r.change1h)}`}>{pct(r.change1h)}</span>
+              <span className="ml-0.5 font-sans text-[10px] text-muted">1h</span>
+            </span>
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2">
+            <Tick value={f.raw} className={`shrink-0 font-mono text-[13px] ${f.tone}`}>
               {f.value}
             </Tick>
-            <span className="text-xs text-muted">{f.unit}</span>
+            <span className="min-w-0 truncate text-[10px] text-muted">{f.unit}</span>
+            <span className="ml-auto shrink-0">
+              <Sparkline points={spark} width={84} height={20} />
+            </span>
           </div>
-          <p className="mt-1 flex flex-wrap gap-x-2.5 font-mono text-[11px]">
-            <span className="text-text">{price(r.priceUsd)}</span>
-            <Change label="5m" v={r.change5m} />
-            <Change label="1h" v={r.change1h} />
-          </p>
         </div>
-        <Sparkline points={spark} width={110} height={36} />
       </div>
 
-      {/* Market figures in one row, buy and sell pressure under them */}
-      <dl className="grid grid-cols-4 gap-2 border-t border-border pt-3 font-mono text-xs">
-        <Mini k="MC" v={<Tick value={r.mcUsd}>{usd(r.mcUsd)}</Tick>} />
-        <Mini k="Liquidity" v={usd(r.liquidityUsd)} />
-        <Mini k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${amount(r.holders)}` : "—"} />
-        <Mini k="Age" v={age(r, now)} />
-      </dl>
-      <div className="flex items-center gap-2 font-mono text-[11px]" title={flow ? `Last hour: ${buys.toLocaleString()} buys, ${sells.toLocaleString()} sells` : "No trades counted"}>
-        <span className="text-positive">{amount(buys)}</span>
-        <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-surface-3">
-          {flow > 0 && (
-            <>
-              <span className="h-full bg-positive" style={{ width: `${(buys / flow) * 100}%` }} />
-              <span className="h-full bg-negative" style={{ width: `${(sells / flow) * 100}%` }} />
-            </>
-          )}
+      <div className="mt-auto flex items-center gap-2.5 border-t border-border px-2.5 py-1.5 font-mono text-[11px]">
+        <span className="flex items-center gap-1" title={flow ? `Last hour: ${buys.toLocaleString()} buys, ${sells.toLocaleString()} sells` : "No trades counted"}>
+          <span className="text-positive">{amount(buys)}</span>
+          <span className="flex h-0.5 w-8 overflow-hidden rounded-full bg-surface-3">
+            {flow > 0 && (
+              <>
+                <span className="h-full bg-positive" style={{ width: `${(buys / flow) * 100}%` }} />
+                <span className="h-full bg-negative" style={{ width: `${(sells / flow) * 100}%` }} />
+              </>
+            )}
+          </span>
+          <span className="text-negative">{amount(sells)}</span>
         </span>
-        <span className="text-negative">{amount(sells)}</span>
-      </div>
-
-      <div className="mt-auto flex items-center gap-2">
-        <Socials twitter={r.twitter} telegram={r.telegram} website={r.website} />
-        <AiButton input={() => inputFromRow(r)} safety={safety} />
-        <div className="flex-1">
-          <TradeLink mint={r.mint} full />
-        </div>
+        <span title="Liquidity">
+          <span className="font-sans text-[10px] text-muted">Liq </span>
+          <span className="text-text-2">{usd(r.liquidityUsd)}</span>
+        </span>
+        {top10 != null && (
+          <span title="Top 10 holders' share" className={top10 >= 30 ? "text-negative" : "text-positive"}>
+            <span className="font-sans text-[10px] text-muted">T10 </span>
+            {top10.toFixed(0)}%
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 [&_button]:h-6">
+          <SafetyBadge safety={safety} align="right" />
+          <AiButton input={() => inputFromRow(r)} safety={safety} compact />
+          <QuickBuy mint={r.mint} symbol={r.symbol} className="px-2" />
+        </span>
       </div>
     </article>
-  );
-}
-
-function Change({ label, v }: { label: string; v: number | null }) {
-  return (
-    <span>
-      <span className="text-muted">{label} </span>
-      <span className={changeTone(v)}>{pct(v)}</span>
-    </span>
   );
 }
 
@@ -451,20 +454,11 @@ function MobileRow({ row: r, rank: n, metric, now, move, spark, win }: { row: Di
   );
 }
 
-function Mini({ k, v }: { k: string; v: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[11px] text-muted">{k}</dt>
-      <dd className="mt-0.5 truncate text-text">{v}</dd>
-    </div>
-  );
-}
-
 function Stat({ label, value, raw }: { label: string; value: string; raw?: number | null }) {
   return (
-    <div>
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-1 font-mono text-lg text-text md:text-lg">{raw !== undefined ? <Tick value={raw}>{value}</Tick> : value}</dd>
+    <div className="flex items-baseline gap-1.5">
+      <dt className="text-[11px] text-muted">{label}</dt>
+      <dd className="font-mono text-[13px] text-text">{raw !== undefined ? <Tick value={raw}>{value}</Tick> : value}</dd>
     </div>
   );
 }
@@ -473,9 +467,9 @@ function LiveBadge({ status, updatedAt, now }: { status: FeedStatus; updatedAt: 
   const live = status === "live";
   const ago = updatedAt && now ? Math.max(0, Math.round((now - updatedAt) / 1000)) : null;
   return (
-    <span className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-text-2">
+    <span title={ago == null ? undefined : `Updated ${ago}s ago`} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-text-2">
       <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald" : "bg-warning"}`} />
-      {live ? (ago == null ? "Live" : `Live · updated ${ago}s ago`) : status === "connecting" ? "Connecting" : "Reconnecting"}
+      {live ? "Live" : status === "connecting" ? "Connecting" : "Reconnecting"}
     </span>
   );
 }

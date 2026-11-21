@@ -99,6 +99,9 @@ function ModeSwitch() {
   useSettings(applyStartMode);
   if (!enabled) return null;
   return (
+    <>
+    {/* Wide screens: the demo notice sits here instead of a strip across the page. */}
+    {mode === "demo" && <span className="hidden text-[11px] text-warning/80 md:inline" title="Demo account: virtual money at live market prices">Virtual money</span>}
     <div role="group" aria-label="Account mode" className="flex h-8 items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
       {(["demo", "real"] as const).map((m) => (
         <button
@@ -112,6 +115,7 @@ function ModeSwitch() {
         </button>
       ))}
     </div>
+    </>
   );
 }
 

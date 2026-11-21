@@ -62,7 +62,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <AnnouncementBar />
         <MarketingBanner />
         <MarketingPopup />
-        <main className="mx-auto w-full max-w-[1800px] flex-1 px-4 py-3 md:px-5 md:py-4 has-[.terminal]:max-w-none has-[.terminal]:p-0">
+        <main className="mx-auto w-full max-w-[1800px] flex-1 px-4 pt-2 pb-4 md:px-5 has-[.terminal]:max-w-none has-[.terminal]:p-0">
           {/* Pages the admin paused show a notice instead (lib/features.ts). */}
           <Suspense fallback={children}>
             <AuthGate>
