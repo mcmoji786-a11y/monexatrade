@@ -1208,6 +1208,41 @@ async fn ws_token(
     ws.on_upgrade(move |socket| stream_token(socket, state, mint))
 }
 
+/// A pump.fun coin still on its curve but with no book here (opened after a gateway
+/// restart, or pruned while it was quiet): its book is made from the curve account so the
+/// page goes live at once on the trade stream, instead of polling a DEX indexer.
+async fn track_curve(state: &Arc<AppState>, mint: &str) -> bool {
+    let Ok(key) = solana_tx::pubkey(mint) else { return false };
+    let curve = solana_tx::b58(&pumpfun_tx::bonding_curve(&key));
+    let rpc_url = state.config.helius_rpc_url();
+    let Some(Ok((owner, data))) = tokio::time::timeout(Duration::from_secs(4), rpc::account_data(&state.http, &rpc_url, &curve)).await.ok().map(|r| r.ok_or(())) else { return false };
+    if owner != pumpfun_tx::PROGRAM {
+        return false;
+    }
+    let Some(c) = pumpfun_tx::Curve::parse(&data) else { return false };
+    if c.complete || !c.sol_quoted() {
+        return false;
+    }
+    let total_supply = data.get(40..48).and_then(|b| b.try_into().ok()).map(u64::from_le_bytes).unwrap_or(0);
+    let token = monexa_ingest::pumpfun::NewToken {
+        signature: String::new(),
+        name: String::new(),
+        symbol: String::new(),
+        uri: String::new(),
+        mint: mint.to_string(),
+        bonding_curve: curve,
+        creator: solana_tx::b58(&c.creator),
+        // Unknown launch time: 0 keeps the bundle window (first seconds) from misfiring.
+        timestamp: 0,
+        reserves: Some(monexa_ingest::pumpfun::Reserves { virtual_token: c.virtual_token, virtual_sol: c.virtual_sol, real_token: c.real_token, total_supply: if total_supply > 0 { total_supply } else { 1_000_000_000_000_000 } }),
+        standard: monexa_ingest::pumpfun::TokenStandard::Spl,
+        quote_mint: None,
+        launchpad: "pump.fun".into(),
+    };
+    state.books.lock().expect("books lock").add(&token);
+    true
+}
+
 /// One token's trade book: a snapshot (recent trades and candles), then each new trade.
 /// Tokens we do not decode get `{"type":"untracked"}` and the socket closes.
 async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String) {
@@ -1223,13 +1258,19 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
         .tokens
         .get(&mint)
         .is_some_and(|t| t.market.as_ref().is_some_and(|m| m.complete));
-    let known = state.books.lock().expect("books lock").contains(&mint);
+    let mut known = state.books.lock().expect("books lock").contains(&mint);
+    // A curve coin without a book gets one now; its earlier chart loads below.
+    let mut fresh_curve = false;
+    if !known && !graduated && track_curve(&state, &mint).await {
+        known = true;
+        fresh_curve = true;
+    }
     let needs_pool = graduated || !known;
     // The pool's 1 minute history loads in the background: the first snapshot goes out
     // as soon as the pool is set up, and the chart fills in the moment the history
     // arrives (a refresh sends the book again). Waiting for it here kept the page blank
     // for up to 4 seconds.
-    if needs_pool {
+    if needs_pool || fresh_curve {
         let (st, m) = (state.clone(), mint.clone());
         tokio::spawn(async move {
             if let Ok(Some(h)) = tokio::time::timeout(Duration::from_secs(10), dex::history(&st.http, &st.dex, &m)).await {
@@ -1600,6 +1641,32 @@ fn seed_candles(state: &AppState, mint: &str, h: &dex::DexHistory) -> bool {
         .map(|c| book::Candle { t: c.t, o: c.o * k, h: c.h * k, l: c.l * k, c: c.c * k, v: c.v / sol_usd })
         .collect();
     books.backfill_candles(mint, candles);
+    // The pool's recent trades too, priced in SOL like live ones (a book with no trades
+    // yet, so nothing live is replaced).
+    let creator = books.creator_of(mint);
+    let trades = h
+        .trades
+        .iter()
+        .map(|t| {
+            let sol = t.usd / sol_usd;
+            let price_sol = t.price_usd / sol_usd;
+            book::TradeRow {
+                signature: t.signature.clone(),
+                ts: t.ts,
+                wallet: t.wallet.clone(),
+                is_buy: t.is_buy,
+                sol,
+                tokens: t.tokens,
+                price_sol,
+                mc_sol: price_sol * supply,
+                whale: sol >= 5.0,
+                dev: creator.as_deref() == Some(t.wallet.as_str()),
+                sniper: false,
+                bundler: false,
+            }
+        })
+        .collect();
+    books.seed_trade_rows(mint, trades);
     true
 }
 

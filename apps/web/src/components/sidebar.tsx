@@ -9,30 +9,33 @@ import { NAV_GROUPS } from "@/lib/nav";
 import { useSupportUnread } from "@/lib/support";
 import { toggleNews, useNews } from "@/lib/news";
 
-/* Collapsed or full sidebar, remembered per browser (a convenience only). */
-const KEY = "mx.sidebar";
-let collapsed = false;
+/* Collapsed or full sidebar, remembered per browser (a convenience only). Coin pages
+   keep their own choice and start collapsed, so the chart gets the room. */
+const KEYS = { app: "mx.sidebar", trade: "mx.sidebar.trade" } as const;
+type Where = keyof typeof KEYS;
+const collapsed: Record<Where, boolean> = { app: false, trade: true };
 let loaded = false;
 const listeners = new Set<() => void>();
 function load() {
   if (loaded || typeof window === "undefined") return;
   loaded = true;
   try {
-    collapsed = localStorage.getItem(KEY) === "1";
+    collapsed.app = localStorage.getItem(KEYS.app) === "1";
+    collapsed.trade = localStorage.getItem(KEYS.trade) !== "0";
   } catch {}
 }
-function setCollapsed(v: boolean) {
-  collapsed = v;
+function setCollapsed(where: Where, v: boolean) {
+  collapsed[where] = v;
   try {
-    localStorage.setItem(KEY, v ? "1" : "0");
+    localStorage.setItem(KEYS[where], v ? "1" : "0");
   } catch {}
   listeners.forEach((l) => l());
 }
-function useCollapsed() {
+function useCollapsed(where: Where) {
   return useSyncExternalStore(
     (l) => (listeners.add(l), () => listeners.delete(l)),
-    () => (load(), collapsed),
-    () => false,
+    () => (load(), collapsed[where]),
+    () => where === "trade",
   );
 }
 
@@ -119,18 +122,19 @@ function Keycap({ children }: { children: React.ReactNode }) {
 }
 
 export function Sidebar() {
-  const rail = useCollapsed();
+  const where: Where = usePathname().startsWith("/token/") ? "trade" : "app";
+  const rail = useCollapsed(where);
 
   // "[" toggles the sidebar, as in most trading terminals (not while typing).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable='true']");
       if (e.key !== "[" || e.metaKey || e.ctrlKey || e.altKey || typing) return;
-      setCollapsed(!collapsed);
+      setCollapsed(where, !collapsed[where]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [where]);
 
   return (
     <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex ${rail ? "w-16" : "w-60"}`}>
@@ -143,7 +147,7 @@ export function Sidebar() {
       <div className={`shrink-0 border-t border-border p-2 ${rail ? "flex justify-center" : ""}`}>
         <button
           type="button"
-          onClick={() => setCollapsed(!rail)}
+          onClick={() => setCollapsed(where, !rail)}
           title={rail ? "Expand sidebar  [" : "Collapse sidebar  ["}
           aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!rail}

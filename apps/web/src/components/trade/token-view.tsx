@@ -1,5 +1,6 @@
 "use client";
 
+import { LiveTradesColumn } from "./live-trades-column";
 import { WalletLink } from "@/components/tracker/wallet-tracker";
 
 import { useEffect, useMemo, useState } from "react";
@@ -87,16 +88,22 @@ export function TokenView() {
 
       <div className="flex flex-col lg:flex-row">
         <div className="flex min-w-0 flex-1 flex-col">
-          <section data-tour="trade-chart" className="h-[520px] md:h-(--chart-h)" style={{ "--chart-h": `${chartH}px` } as React.CSSProperties}>
-            <PriceChart
-              symbol={row.symbol}
-              mint={mint}
-              book={book}
-              solUsd={feed.solUsd}
-              mcUsd={row.mcUsd}
-              supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null}
-            />
-          </section>
+          <div className="flex h-[520px] md:h-(--chart-h)" style={{ "--chart-h": `${chartH}px` } as React.CSSProperties}>
+            <section data-tour="trade-chart" className="h-full min-w-0 flex-1">
+              <PriceChart
+                symbol={row.symbol}
+                mint={mint}
+                book={book}
+                solUsd={feed.solUsd}
+                mcUsd={row.mcUsd}
+                supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null}
+              />
+            </section>
+            {/* The tape next to the chart on wide screens; the Trades tab has it everywhere. */}
+            <div className="hidden w-80 shrink-0 2xl:block">
+              <LiveTradesColumn book={book} solUsd={feed.solUsd} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} now={now} />
+            </div>
+          </div>
           <Splitter axis="row" value={chartH} onChange={setChartH} label="Resize chart height" />
           <Activity mint={mint} book={book} solUsd={feed.solUsd} now={now} creator={launch?.creator ?? null} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} />
         </div>
@@ -281,8 +288,8 @@ function Header({
 
   return (
     <section className="border-b border-border bg-surface">
-      {/* Identity and actions */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 pt-3 pb-3">
+      {/* Identity, figures and actions on one line (figures wrap below on narrow screens) */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
         <Link
           href="/discover"
           aria-label="Back to Discover"
@@ -291,8 +298,8 @@ function Header({
           <ArrowLeft size={16} strokeWidth={1.5} />
         </Link>
 
-        <TokenLogo src={r.image} symbol={r.symbol} size={40} />
-        <div className="min-w-0 flex-1">
+        <TokenLogo src={r.image} symbol={r.symbol} size={32} />
+        <div className="min-w-0 flex-1 xl:max-w-56 xl:flex-none">
           <div className="flex items-baseline gap-2">
             <h1 className="truncate text-lg font-medium text-text">{r.symbol || "—"}</h1>
             {r.verified && <BadgeCheck size={15} strokeWidth={1.5} className="shrink-0 self-center text-cyan" aria-label="Verified" />}
@@ -313,6 +320,74 @@ function Header({
           </div>
         </div>
 
+        {/* Figures: one strip, the market cap leads */}
+        <dl data-tour="trade-figures" className="no-scrollbar order-last -mx-4 flex w-[calc(100%+2rem)] overflow-x-auto border-t border-border xl:order-none xl:mx-0 xl:w-auto xl:min-w-0 xl:flex-1 xl:border-t-0">
+          <div className="flex shrink-0 flex-col justify-center px-3 py-1.5">
+            <dt className="text-[11px] text-muted">Market cap</dt>
+            <dd>
+              <Tick value={r.mcUsd} className="font-mono text-lg leading-6 text-emerald">
+                {usd(r.mcUsd)}
+              </Tick>
+            </dd>
+          </div>
+          <Cell k="Price" v={<Tick value={r.priceUsd}>{price(r.priceUsd)}</Tick>} />
+          <Cell k="5m" v={<Change v={r.change5m} />} />
+          <Cell k="1h" v={<Change v={r.change1h} />} />
+          <Cell k="Liquidity" v={usd(r.liquidityUsd)} />
+          <Cell k="Vol 1h" v={usd(r.vol1hUsd)} />
+          <Cell k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${r.holders.toLocaleString()}` : "—"} />
+          <Cell k="Supply" v={supply ? amount(supply) : "—"} />
+          {ath != null && <Cell k="ATH" v={usd(ath)} title="Highest market cap since tracking started" />}
+          {market?.change_24h_pct != null && <Cell k="24h" v={<Change v={market.change_24h_pct} />} />}
+          {market?.volume_24h_usd != null && <Cell k="Vol 24h" v={usd(market.volume_24h_usd)} />}
+          <Cell
+            k="Buys / sells 1h"
+            v={
+              <span>
+                <span className="text-positive">{r.buys1h?.toLocaleString() ?? "—"}</span>
+                <span className="text-muted"> / </span>
+                <span className="text-negative">{r.sells1h?.toLocaleString() ?? "—"}</span>
+              </span>
+            }
+          />
+          {market?.traders_1h != null && <Cell k="Traders 1h" v={market.traders_1h.toLocaleString()} title="Distinct wallets that traded in the last hour" />}
+          {r.top10Pct != null && (
+            <Cell k="Top 10" v={<span className={r.top10Pct > TOP10_WARN ? "text-negative" : "text-text"}>{r.top10Pct.toFixed(1)}%</span>} />
+          )}
+          {market?.organic_score != null && (
+            <Cell
+              k="Organic score"
+              title="0-100 estimate of how much trading comes from real wallets, not bots"
+              v={<span className={market.organic_score >= 60 ? "text-positive" : market.organic_score >= 30 ? "text-warning" : "text-negative"}>{market.organic_score.toFixed(0)}</span>}
+            />
+          )}
+          {market && (
+            <Cell
+              k="Mint / freeze"
+              title="Whether more tokens can be minted, and whether wallets can be frozen"
+              v={
+                <span>
+                  <span className={market.mint_authority_disabled ? "text-positive" : "text-negative"}>{market.mint_authority_disabled ? "Off" : "On"}</span>
+                  <span className="text-muted"> / </span>
+                  <span className={market.freeze_authority_disabled === false ? "text-negative" : "text-positive"}>{market.freeze_authority_disabled === false ? "On" : "Off"}</span>
+                </span>
+              }
+            />
+          )}
+          {curve && (
+            <Cell
+              k={curve.complete ? "Graduated" : "Bonding curve"}
+              v={
+                <span className="flex items-center gap-2">
+                  <span className="h-1 w-14 overflow-hidden rounded-full bg-surface-3">
+                    <span className="block h-full bg-emerald" style={{ width: `${Math.min(100, curve.curve_progress)}%` }} />
+                  </span>
+                  {curve.curve_progress.toFixed(1)}%
+                </span>
+              }
+            />
+          )}
+        </dl>
         <div data-tour="trade-tools" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {safety && <SafetyBadge safety={safety} size="md" />}
           <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
@@ -328,74 +403,6 @@ function Header({
         </div>
       </div>
 
-      {/* Figures: one strip, the market cap leads */}
-      <dl data-tour="trade-figures" className="no-scrollbar flex overflow-x-auto border-t border-border">
-        <div className="flex shrink-0 flex-col justify-center px-4 py-2.5">
-          <dt className="text-[11px] text-muted">Market cap</dt>
-          <dd>
-            <Tick value={r.mcUsd} className="font-mono text-xl leading-7 text-emerald">
-              {usd(r.mcUsd)}
-            </Tick>
-          </dd>
-        </div>
-        <Cell k="Price" v={<Tick value={r.priceUsd}>{price(r.priceUsd)}</Tick>} />
-        <Cell k="5m" v={<Change v={r.change5m} />} />
-        <Cell k="1h" v={<Change v={r.change1h} />} />
-        <Cell k="Liquidity" v={usd(r.liquidityUsd)} />
-        <Cell k="Vol 1h" v={usd(r.vol1hUsd)} />
-        <Cell k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${r.holders.toLocaleString()}` : "—"} />
-        <Cell k="Supply" v={supply ? amount(supply) : "—"} />
-        {ath != null && <Cell k="ATH" v={usd(ath)} title="Highest market cap since tracking started" />}
-        {market?.change_24h_pct != null && <Cell k="24h" v={<Change v={market.change_24h_pct} />} />}
-        {market?.volume_24h_usd != null && <Cell k="Vol 24h" v={usd(market.volume_24h_usd)} />}
-        <Cell
-          k="Buys / sells 1h"
-          v={
-            <span>
-              <span className="text-positive">{r.buys1h?.toLocaleString() ?? "—"}</span>
-              <span className="text-muted"> / </span>
-              <span className="text-negative">{r.sells1h?.toLocaleString() ?? "—"}</span>
-            </span>
-          }
-        />
-        {market?.traders_1h != null && <Cell k="Traders 1h" v={market.traders_1h.toLocaleString()} title="Distinct wallets that traded in the last hour" />}
-        {r.top10Pct != null && (
-          <Cell k="Top 10" v={<span className={r.top10Pct > TOP10_WARN ? "text-negative" : "text-text"}>{r.top10Pct.toFixed(1)}%</span>} />
-        )}
-        {market?.organic_score != null && (
-          <Cell
-            k="Organic score"
-            title="0-100 estimate of how much trading comes from real wallets, not bots"
-            v={<span className={market.organic_score >= 60 ? "text-positive" : market.organic_score >= 30 ? "text-warning" : "text-negative"}>{market.organic_score.toFixed(0)}</span>}
-          />
-        )}
-        {market && (
-          <Cell
-            k="Mint / freeze"
-            title="Whether more tokens can be minted, and whether wallets can be frozen"
-            v={
-              <span>
-                <span className={market.mint_authority_disabled ? "text-positive" : "text-negative"}>{market.mint_authority_disabled ? "Off" : "On"}</span>
-                <span className="text-muted"> / </span>
-                <span className={market.freeze_authority_disabled === false ? "text-negative" : "text-positive"}>{market.freeze_authority_disabled === false ? "On" : "Off"}</span>
-              </span>
-            }
-          />
-        )}
-        {curve && (
-          <Cell
-            k={curve.complete ? "Graduated" : "Bonding curve"}
-            v={
-              <span className="flex items-center gap-2">
-                <span className="h-1 w-14 overflow-hidden rounded-full bg-surface-3">
-                  <span className="block h-full bg-emerald" style={{ width: `${Math.min(100, curve.curve_progress)}%` }} />
-                </span>
-                {curve.curve_progress.toFixed(1)}%
-              </span>
-            }
-          />
-        )}
-      </dl>
     </section>
   );
 }
@@ -403,7 +410,7 @@ function Header({
 /** One figure in the header strip, separated by a hairline. */
 function Cell({ k, v, title }: { k: string; v: React.ReactNode; title?: string }) {
   return (
-    <div title={title} className="flex shrink-0 flex-col justify-center border-l border-border px-4 py-2.5">
+    <div title={title} className="flex shrink-0 flex-col justify-center border-l border-border px-3 py-1.5">
       <dt className="text-[11px] text-muted">{k}</dt>
       <dd className="mt-0.5 font-mono text-sm text-text">{v}</dd>
     </div>

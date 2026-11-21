@@ -509,6 +509,26 @@ impl Books {
         }
     }
 
+    /// The coin's creator, when the book knows it.
+    pub fn creator_of(&self, mint: &str) -> Option<String> {
+        self.books.get(mint).map(|b| b.creator.clone()).filter(|c| !c.is_empty())
+    }
+
+    /// Earlier trades (newest first) for a book that has none yet, such as a curve book
+    /// made when its page opened: the Trades list is not empty while live ones arrive.
+    pub fn seed_trade_rows(&mut self, mint: &str, older: Vec<TradeRow>) {
+        let Some(b) = self.books.get_mut(mint) else { return };
+        if !b.trades.is_empty() {
+            return;
+        }
+        for r in older.into_iter().take(MAX_TRADES) {
+            if r.whale {
+                b.whales.push_back(r.clone());
+            }
+            b.trades.push_back(r);
+        }
+    }
+
     pub fn supply(&self, mint: &str) -> Option<f64> {
         self.books.get(mint).map(|b| b.supply)
     }

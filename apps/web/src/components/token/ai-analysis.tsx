@@ -122,7 +122,7 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
     `Good: one strength per line, up to 3 lines, each with the real number.`,
     `Bad: one risk per line, up to 3 lines, each with the real number (dev selling, bundlers or snipers holding, top 10 share, dev's past rugs).`,
-    `Rules for you, never repeat them: top 10 holders under 20% is healthy (Good), over 30% is a risk (Bad). Liquidity under $10K is thin (Bad), over $50K is decent (Good). Bundles or snipers still holding over 10% is a risk. A fact goes in Good or in Bad, never both, and never contradict yourself. The live facts above come first: if LIVE DATA disagrees or is missing, trust the live facts. Never list missing or unknown data as a strength or a risk; just leave it out.`,
+    `Rules for you, never repeat them: top 10 holders under 20% is healthy (Good), over 30% is a risk (Bad). Liquidity under $10K is thin (Bad), over $50K is decent (Good). Bundles or snipers still holding over 10% is a risk. Kixo's safety score: 75 or more is good, under 50 is a risk (a low score is never a strength). A fact goes in Good or in Bad, never both, and never contradict yourself. The live facts above come first: if LIVE DATA disagrees or is missing, trust the live facts. Never list missing or unknown data as a strength or a risk; just leave it out.`,
     `Do not write a prediction or a call: Kixo adds those itself.`,
   ]
     .filter(Boolean)
