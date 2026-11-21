@@ -19,6 +19,23 @@ export type Toast = {
   action?: { label: string; onClick: () => void };
   /** How long it stays, in ms (set by pushToast). */
   life?: number;
+  /** A filled trade: shown with the trade layout (lib/trade-toast.ts). */
+  trade?: TradeNote;
+};
+
+export type TradeNote = {
+  side: "buy" | "sell";
+  venue: "demo" | "real";
+  symbol: string;
+  mint: string;
+  usd: number | null;
+  sol: number;
+  tokens: number | null;
+  priceUsd: number | null;
+  feeUsd: number | null;
+  /** Sells: profit and its share of the cost. */
+  pnl: number | null;
+  pnlPct: number | null;
 };
 
 let toasts: Toast[] = [];
@@ -35,7 +52,7 @@ export function pushToast(t: Omit<Toast, "id">): number {
     if (n.sound && t.kind !== "sniper") playTone(t.tone !== "bad");
   }
   const id = next++;
-  const life = t.action ? 14_000 : LIFE_MS;
+  const life = t.trade ? 12_000 : t.action ? 14_000 : LIFE_MS;
   toasts = [{ ...t, id, life }, ...toasts].slice(0, MAX);
   emit();
   setTimeout(() => dismissToast(id), life);

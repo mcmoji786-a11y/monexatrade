@@ -101,6 +101,9 @@ export function OrdersCard({ mint, symbol }: { mint: string; symbol: string }) {
         <h2 className="text-xs font-medium text-text">Orders</h2>
         <span className="font-mono text-[11px] text-muted">{price ? `Now ${tinyPrice(price)}` : "Pricing…"}</span>
       </div>
+      <p className="mt-1 text-[11px] leading-4 text-muted">
+        Pick a price and Kixo trades for you when the coin gets there: buy cheaper (Limit buy), take profit (Limit sell), cut a loss (Stop loss) or follow a rise and sell when it turns (Trailing).
+      </p>
 
       {open.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1">

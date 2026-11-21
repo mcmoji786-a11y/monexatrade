@@ -9,6 +9,7 @@ import { confirmDanger } from "@/components/safety/danger-confirm";
 import { execute, tradeErrorText, useVenue } from "@/lib/execute";
 import { updateSettings, useSettings } from "@/lib/settings";
 import { dismissToast, pushToast } from "@/lib/toast";
+import { tradeToast } from "@/lib/trade-toast";
 import { useDemo } from "@/lib/demo";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 
@@ -47,13 +48,7 @@ export function InstantTrade({ mint, symbol }: { mint: string; symbol: string })
         solUsd,
         source: "quick",
       });
-      const amount = f.usd != null ? money(f.usd) : `${f.sol.toFixed(3)} SOL`;
-      pushToast({
-        kind: "trade",
-        tone: "good",
-        title: `${side === "buy" ? "Bought" : "Sold"} ${f.symbol || symbol} · ${venue}`,
-        body: `${amount}${f.feeUsd != null ? ` · fee ${money(f.feeUsd)}` : ""}${f.realizedUsd != null ? ` · P&L ${f.realizedUsd >= 0 ? "+" : "−"}${money(Math.abs(f.realizedUsd))}` : ""}`,
-      });
+      tradeToast({ venue, side, mint, symbol: f.symbol || symbol, usd: f.usd, sol: f.sol, tokens: f.tokens, priceUsd: f.priceUsd, feeUsd: f.feeUsd, realizedUsd: f.realizedUsd, openedAt: side === "sell" ? (held?.opened_at ?? null) : null, source: "quick" });
     } catch (e) {
       pushToast({ tone: "bad", title: `${side === "buy" ? "Buy" : "Sell"} failed: ${symbol || "coin"}`, body: tradeErrorText(e) });
     } finally {

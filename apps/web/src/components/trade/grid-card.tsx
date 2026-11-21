@@ -64,11 +64,14 @@ export function GridCard({ mint, symbol }: { mint: string; symbol: string }) {
   }
 
   return (
-    <section className="border-b border-border p-4">
+    <section className="border-b border-border p-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-text">Grid</h2>
+        <h2 className="text-xs font-medium text-text">Grid</h2>
         <span className="text-[11px] text-muted">Buys dips, sells rises in a range</span>
       </div>
+      <p className="mt-1 text-[11px] leading-4 text-muted">
+        Kixo splits a price range around today&apos;s price into steps, buys each time the price drops to a step and sells at the next step up, again and again. Made for coins that bounce up and down; runs while Kixo is open.
+      </p>
 
       {mine.map((g) => (
         <RunningGrid key={g.id} g={g} price={price} />

@@ -34,6 +34,38 @@ const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "s
 export function TradeShareCard({ trade: t, onClose }: { trade: ShareTrade; onClose: () => void }) {
   const r = tradeResult(t);
   const sym = t.symbol || t.mint.slice(0, 4);
+  if (t.side === "buy") {
+    // An opened position: what was bought, at what price.
+    return (
+      <ShareDialog
+        title="Share trade"
+        text={`Bought $${sym} for ${money(Number(t.usd))} on my Kixo demo account`}
+        fileName={`kixo-${sym}-buy-${t.id}.png`}
+        label={DEMO}
+        footLeft="Virtual money at live market prices"
+        seed={Number(t.id)}
+        paintKey={`trade-buy-${t.id}`}
+        onClose={onClose}
+        paint={(g, f) => {
+          g.fillStyle = C.text;
+          g.font = `500 46px ${f.sans}`;
+          const s = `$${sym}`;
+          g.fillText(s, 64, 222);
+          const sw = g.measureText(s).width;
+          g.fillStyle = C.text2;
+          g.font = `400 26px ${f.sans}`;
+          g.fillText(`Bought · ${new Date(t.ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`, 64 + sw + 20, 220);
+          g.fillStyle = C.positive;
+          g.font = `600 150px ${f.mono}`;
+          g.fillText(money(Number(t.usd)), 56, 382);
+          g.fillStyle = C.text2;
+          g.font = `500 36px ${f.mono}`;
+          g.fillText(`at ${tinyPrice(Number(t.price_usd))}`, 64, 444);
+          paintFacts(g, [["Entry", tinyPrice(Number(t.price_usd))], ["Size", money(Number(t.usd))], ["Fee", money(Number(t.fee_usd))]], f);
+        }}
+      />
+    );
+  }
   return (
     <ShareDialog
       title="Share trade"

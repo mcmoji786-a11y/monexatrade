@@ -7,7 +7,7 @@ import { execute, tradeErrorText, useVenue } from "@/lib/execute";
 import { useFeatures } from "@/lib/features";
 import { useSettings } from "@/lib/settings";
 import { pushToast } from "@/lib/toast";
-import { tokenHref } from "@/lib/open-token";
+import { tradeToast } from "@/lib/trade-toast";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 
 const money = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: v >= 100 ? 0 : 2 });
@@ -38,14 +38,7 @@ export function QuickBuy({ mint, symbol, className = "" }: { mint: string; symbo
     setBusy(true);
     try {
       const f = await execute(venue, { mint, symbol, side: "buy", ...(venue === "demo" ? { usd: amount } : { sol: amount }), solUsd, source: "quick" });
-      const spent = venue === "demo" ? money(f.usd ?? amount) : `${f.sol.toFixed(3)} SOL`;
-      pushToast({
-        kind: "trade",
-        tone: "good",
-        title: `Bought ${f.symbol || symbol} · ${venue}`,
-        body: `${spent}${f.priceUsd ? ` at $${f.priceUsd < 0.0001 ? f.priceUsd.toExponential(2) : f.priceUsd.toPrecision(4)}` : ""}${f.feeUsd != null ? ` · fee ${money(f.feeUsd)}` : ""}`,
-        href: tokenHref(mint),
-      });
+      tradeToast({ venue, side: "buy", mint, symbol: f.symbol || symbol, usd: f.usd, sol: f.sol, tokens: f.tokens, priceUsd: f.priceUsd, feeUsd: f.feeUsd, realizedUsd: null, source: "quick" });
     } catch (err) {
       pushToast({ tone: "bad", title: `Quick Buy failed: ${symbol || "coin"}`, body: tradeErrorText(err) });
     } finally {

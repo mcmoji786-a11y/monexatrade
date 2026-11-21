@@ -9,14 +9,15 @@ import { GATEWAY_HTTP } from "@/lib/gateway";
 export const W = 1200;
 export const H = 675;
 export const C = {
-  bg: "#08090a",
-  text: "#ededed",
-  text2: "#a1a1a6",
-  muted: "#85858b",
-  emerald: "#34d399",
-  positive: "#4cc38a",
-  negative: "#e5484d",
-  warning: "#e0a63e",
+  // The app's palette (globals.css), so cards match the site.
+  bg: "#000000",
+  text: "#f7f7f8",
+  text2: "#b8b8bf",
+  muted: "#8b8b93",
+  emerald: "#2ee59d",
+  positive: "#2ee59d",
+  negative: "#ff4d5e",
+  warning: "#ffb547",
 };
 
 export const BACKGROUNDS = Array.from({ length: 9 }, (_, i) => `/share/bg-${i + 1}.jpg`);

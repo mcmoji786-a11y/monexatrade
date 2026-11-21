@@ -1,7 +1,7 @@
 "use client";
 import { confirmDanger } from "@/components/safety/danger-confirm";
 
-import { openShareCard, type ShareTrade } from "@/lib/share";
+import { tradeToast } from "@/lib/trade-toast";
 import { pctOf, usePlatform } from "@/lib/platform";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -84,44 +84,8 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
       );
       const f = r.fill;
       const sym = r.symbol || symbol;
-      if (side === "sell") {
-        // The result, big, with the share card one click away.
-        const pnl = r.realized_usd ?? 0;
-        const cost = f.usd - pnl;
-        const pct = cost > 0 ? (pnl / cost) * 100 : 0;
-        const trade: ShareTrade = {
-          id: Math.round(f.tokens) + Math.round(f.usd * 100),
-          mint,
-          symbol: sym,
-          side: "sell",
-          tokens: f.tokens,
-          usd: f.usd,
-          sol: f.sol,
-          price_usd: f.price_usd,
-          fee_usd: f.fee_usd,
-          impact_pct: f.impact_pct,
-          source: "manual",
-          realized_usd: r.realized_usd,
-          round: 0,
-          ts: new Date().toISOString(),
-          openedAt: openedAt,
-        };
-        pushToast({
-          kind: "trade",
-          tone: pnl < 0 ? "bad" : "good",
-          title: `Sold ${sym} · demo`,
-          figure: `${signed(pnl)}  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`,
-          body: `Received ${money(f.usd)} at ${tinyPrice(f.price_usd)} · fee ${money(f.fee_usd)}`,
-          action: { label: "View card", onClick: () => openShareCard(trade) },
-        });
-      } else {
-        pushToast({
-          kind: "trade",
-          tone: "good",
-          title: `Bought ${sym} · demo`,
-          body: `${money(f.usd)} at ${tinyPrice(f.price_usd)} · fee ${money(f.fee_usd)}`,
-        });
-      }
+      // The fill, with its share card one click away (a sell's profit shown large).
+      tradeToast({ venue: "demo", side, mint, symbol: sym, usd: f.usd, sol: f.sol, tokens: f.tokens, priceUsd: f.price_usd, feeUsd: f.fee_usd, realizedUsd: side === "sell" ? r.realized_usd : null, impactPct: f.impact_pct, openedAt: side === "sell" ? openedAt : null, source: "manual" });
       setAmount("");
       setPreview(null);
       // Exits typed with the buy are placed once it has filled.
