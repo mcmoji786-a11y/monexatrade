@@ -238,7 +238,19 @@ fn on(c: &AlertsCtx) -> Result<(), ApiErr> {
 /* ---------------- Sending ---------------- */
 
 /// One message to every channel this user has; what each channel answered.
-async fn send(c: &AlertsCtx, row: &Row, title: &str, body: &str, link: Option<String>, email_ok: bool) -> Value {
+/// What the email of an alert uses: its template (Admin, Emails) and the values.
+pub struct Mail {
+    pub kind: &'static str,
+    pub vars: Vec<(&'static str, String)>,
+}
+
+impl Mail {
+    pub fn new(kind: &'static str, vars: Vec<(&'static str, String)>) -> Self {
+        Self { kind, vars }
+    }
+}
+
+async fn send(c: &AlertsCtx, row: &Row, title: &str, body: &str, link: Option<String>, email_ok: bool, mail: &Mail) -> Value {
     let link_line = link.clone().map(|l| format!("\n{l}")).unwrap_or_default();
     let mut out = json!({});
     if let (Some(chat), Some(tok)) = (row.telegram, telegram_token()) {
@@ -255,38 +267,38 @@ async fn send(c: &AlertsCtx, row: &Row, title: &str, body: &str, link: Option<St
         let r = c.http.post(&row.discord).json(&json!({ "username": "Kixo", "content": text, "allowed_mentions": { "parse": [] } })).timeout(Duration::from_secs(10)).send().await;
         out["discord"] = json!(r.is_ok_and(|r| r.status().is_success()));
     }
-    if row.email_on && email_ok {
-        if let (Some(to), Some(key)) = (row.email.as_deref(), monexa_common::secret("RESEND_API_KEY")) {
-            let from = monexa_common::secret("ALERTS_EMAIL_FROM").unwrap_or_else(|| "Kixo <onboarding@resend.dev>".into());
-            let text = format!("{body}{link_line}\n\nYou get this because email alerts are on in Kixo (Settings, Notifications).");
-            let r = c.http.post("https://api.resend.com/emails").bearer_auth(key).json(&json!({ "from": from, "to": [to], "subject": title, "text": text })).timeout(Duration::from_secs(10)).send().await;
-            let ok = r.as_ref().is_ok_and(|r| r.status().is_success());
-            if !ok {
-                tracing::warn!(status = ?r.as_ref().map(|r| r.status()).ok(), "email alert not sent");
+    if row.email_on && email_ok && crate::emails::ready() {
+        if let Some(to) = row.email.as_deref() {
+            let mut vars = mail.vars.clone();
+            if let Some(l) = &link {
+                vars.push(("link", l.clone()));
             }
-            out["email"] = json!(ok);
+            // None: this email is switched off in Admin, Emails.
+            if let Some(m) = crate::emails::for_event(mail.kind, &vars) {
+                out["email"] = json!(crate::emails::send(&c.http, to, &m).await.is_ok());
+            }
         }
     }
     out
 }
 
 /// An alert to one user by id, if they have a channel on (X Tracker uses it).
-pub fn notify(c: &AlertsCtx, user: &str, title: String, body: String, link: Option<String>) {
+pub fn notify(c: &AlertsCtx, user: &str, title: String, body: String, link: Option<String>, mail: Mail) {
     let row = mem().lock().expect("alerts lock").rows.get(user).cloned();
     if let Some(row) = row {
-        alert(c, row, title, body, link);
+        alert(c, row, title, body, link, mail);
     }
 }
 
 /// An alert, within the user's hourly limit, sent in the background.
-fn alert(c: &AlertsCtx, row: Row, title: String, body: String, link: Option<String>) {
+fn alert(c: &AlertsCtx, row: Row, title: String, body: String, link: Option<String>, mail: Mail) {
     let (ok, email_ok) = mem().lock().expect("alerts lock").allow(&row.user);
     if !ok {
         return;
     }
     let c = c.clone();
     tokio::spawn(async move {
-        send(&c, &row, &title, &body, link, email_ok).await;
+        send(&c, &row, &title, &body, link, email_ok, &mail).await;
     });
 }
 
@@ -385,15 +397,20 @@ fn on_trade(c: &AlertsCtx, mint: &str, t: &crate::book::TradeRow) {
     let sol_usd = c.state.board.lock().expect("board lock").sol_usd;
     let link = Some(format!("{}/token/{mint}", site()));
     let worth = sol_usd.map(|p| format!(" (about {})", usd(t.sol * p))).unwrap_or_default();
+    let worth_v = sol_usd.map(|p| format!("about {}", usd(t.sol * p))).unwrap_or_else(|| "value unknown".into());
+    let sol = format!("{:.2}", t.sol);
     for (row, who, kind) in hits {
-        let (title, body) = if kind == "dev" {
-            (format!("Dev is selling {sym}"), format!("The creator of {sym}, a coin you starred, just sold {:.2} SOL{worth}", t.sol))
-        } else if t.is_buy {
-            (format!("{who} bought {sym}"), format!("{who} bought {sym} for {:.2} SOL{worth}", t.sol))
+        let (title, body, mail) = if kind == "dev" {
+            (format!("Dev is selling {sym}"), format!("The creator of {sym}, a coin you starred, just sold {:.2} SOL{worth}", t.sol), Mail::new("alert_dev", vec![("symbol", sym.clone()), ("sol", sol.clone()), ("worth", worth_v.clone())]))
         } else {
-            (format!("{who} sold {sym}"), format!("{who} sold {sym} for {:.2} SOL{worth}", t.sol))
+            let action = if t.is_buy { "bought" } else { "sold" };
+            (
+                format!("{who} {action} {sym}"),
+                format!("{who} {action} {sym} for {:.2} SOL{worth}", t.sol),
+                Mail::new("alert_wallet", vec![("wallet", who.clone()), ("action", action.into()), ("symbol", sym.clone()), ("sol", sol.clone()), ("worth", worth_v.clone())]),
+            )
         };
-        alert(c, row, title, body, link.clone());
+        alert(c, row, title, body, link.clone(), mail);
     }
 }
 
@@ -448,7 +465,9 @@ async fn prices_loop(c: AlertsCtx) {
             let sym = if p.symbol.is_empty() { symbol_of(&c.state, &p.mint) } else { p.symbol.clone() };
             let title = format!("{sym} market cap {} {}", if p.above { "above" } else { "below" }, usd(p.mc_usd));
             let body = format!("{sym} is at {} market cap now. This alert is done and removed", usd(mc));
-            alert(&c, row.clone(), title, body, Some(format!("{}/token/{}", site(), p.mint)));
+            let dir = if p.above { "above" } else { "below" };
+            let mail = Mail::new("alert_price", vec![("symbol", sym.clone()), ("direction", dir.into()), ("target", usd(p.mc_usd)), ("mc", usd(mc))]);
+            alert(&c, row.clone(), title, body, Some(format!("{}/token/{}", site(), p.mint)), mail);
             let _ = c.acct.rest(reqwest::Method::PATCH, &format!("user_alerts?user_id=eq.{user}"), Some(json!({ "price": row.price }))).await;
         }
     }
@@ -686,7 +705,7 @@ pub async fn test(State(c): State<AlertsCtx>, headers: HeaderMap) -> Result<Json
     }
     let row = row_of(&c, &u.id).await?.as_ref().and_then(Row::from).ok_or((StatusCode::BAD_REQUEST, "Turn on a channel first".into()))?;
     let email_ok = mem().lock().expect("alerts lock").allow(&u.id).1;
-    let out = send(&c, &row, "Kixo test alert", "Alerts reach you here, even when Kixo is closed", Some(site()), email_ok).await;
+    let out = send(&c, &row, "Kixo test alert", "Alerts reach you here, even when Kixo is closed", Some(site()), email_ok, &Mail::new("alert_test", vec![])).await;
     Ok(Json(json!({ "sent": out })))
 }
 

@@ -13,18 +13,21 @@ import { ALL_ON, FEATURE_LIST, type Features } from "@/lib/features";
 import { GATEWAY_HTTP } from "@/lib/gateway";
 import { SupportInbox } from "./support-inbox";
 import { KolsAdmin } from "./kols-admin";
+import { EmailsAdmin } from "./emails-admin";
+import { Mail } from "lucide-react";
 import { StrategiesAdmin } from "./strategies-admin";
 import { FlaskConical } from "lucide-react";
 import { BadgeCheck } from "lucide-react";
 import { FALLBACK_CONFIG, type GatewayTier, type RewardsConfig } from "@/lib/rewards";
 
-type View = "strategies" | "kols" | "system" | "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
+type View = "emails" | "strategies" | "kols" | "system" | "overview" | "users" | "earnings" | "marketing" | "live" | "features" | "platform" | "keys" | "review" | "rewards" | "creators" | "approvals" | "audit" | "team" | "support";
 /** `preview`: a design only, nothing on it saves yet. */
 const NAV: { key: View; label: string; icon: typeof Gauge; preview?: boolean }[] = [
   { key: "overview", label: "Dashboard", icon: Gauge },
   { key: "users", label: "Users", icon: UserRound },
   { key: "earnings", label: "Earnings", icon: Coins },
   { key: "marketing", label: "Marketing", icon: Rocket },
+  { key: "emails", label: "Emails", icon: Mail },
   { key: "live", label: "Live users and activity", icon: Activity },
   { key: "system", label: "System health", icon: HeartPulse },
   { key: "features", label: "Features", icon: ToggleRight },
@@ -123,6 +126,7 @@ function AdminApp() {
           )}
           {view === "features" && <FeaturesEditor />}
           {view === "kols" && <KolsAdmin />}
+          {view === "emails" && <EmailsAdmin />}
           {view === "strategies" && <StrategiesAdmin />}
           {view === "review" && <Review />}
           {view === "rewards" && <RewardsEditor live={live} />}

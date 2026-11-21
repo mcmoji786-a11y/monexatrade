@@ -157,7 +157,7 @@ async fn poll(c: &XCtx, tok: &str) {
             };
             let link = format!("{}/token/{}", crate::alerts::site(), mints[0]);
             for user in followers {
-                crate::alerts::notify(&c.alerts, &user, format!("@{h} posted a coin"), format!("@{h} on X: {}", text.chars().take(200).collect::<String>()), Some(link.clone()));
+                crate::alerts::notify(&c.alerts, &user, format!("@{h} posted a coin"), format!("@{h} on X: {}", text.chars().take(200).collect::<String>()), Some(link.clone()), crate::alerts::Mail::new("alert_x", vec![("handle", h.to_string()), ("text", text.chars().take(400).collect())]));
             }
         }
     }

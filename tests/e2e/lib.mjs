@@ -56,6 +56,7 @@ export async function tempUser(tag) {
   };
   call.id = u.id;
   call.token = s.access_token;
+  call.session = s;
   call.email = email;
   return call;
 }
