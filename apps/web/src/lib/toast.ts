@@ -17,6 +17,8 @@ export type Toast = {
   figure?: string;
   /** One button, such as "View card". */
   action?: { label: string; onClick: () => void };
+  /** How long it stays, in ms (set by pushToast). */
+  life?: number;
 };
 
 let toasts: Toast[] = [];
@@ -26,16 +28,18 @@ const emit = () => listeners.forEach((l) => l());
 const LIFE_MS = 7_000;
 const MAX = 4;
 
-export function pushToast(t: Omit<Toast, "id">) {
+export function pushToast(t: Omit<Toast, "id">): number {
   if (t.kind) {
     const n = getSettings().notifications;
-    if ((t.kind === "trade" && !n.trades) || (t.kind === "exit" && !n.exits) || (t.kind === "sniper" && !n.sniper)) return;
+    if ((t.kind === "trade" && !n.trades) || (t.kind === "exit" && !n.exits) || (t.kind === "sniper" && !n.sniper)) return 0;
     if (n.sound && t.kind !== "sniper") playTone(t.tone !== "bad");
   }
   const id = next++;
-  toasts = [{ ...t, id }, ...toasts].slice(0, MAX);
+  const life = t.action ? 14_000 : LIFE_MS;
+  toasts = [{ ...t, id, life }, ...toasts].slice(0, MAX);
   emit();
-  setTimeout(() => dismissToast(id), t.action ? 14_000 : LIFE_MS);
+  setTimeout(() => dismissToast(id), life);
+  return id;
 }
 
 export function dismissToast(id: number) {

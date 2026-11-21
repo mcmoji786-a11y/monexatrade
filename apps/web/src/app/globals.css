@@ -97,6 +97,21 @@ body {
   animation: coin-in 1400ms var(--mx-ease);
 }
 
+/* A toast's time bar shrinks to nothing over the toast's life. */
+@keyframes toast-life {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.toast-life {
+  animation-name: toast-life;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
 /* Radar scope sweep: the one moving element on Sol Radar. */
 @keyframes sweep {
   to {

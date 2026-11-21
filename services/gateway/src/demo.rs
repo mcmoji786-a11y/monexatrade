@@ -360,7 +360,15 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
     let _guard = if o.preview { None } else { Some(lock.lock().await) };
     // The fill is priced the moment the order arrives: balance, positions and the live
     // quote load side by side, so a demo order answers in one database round trip.
-    let (acct, q) = tokio::join!(account_rows(&c, &u.id), quote(&c.app, &o.mint));
+    // A buy's daily loss limit is read at the same time, not after.
+    let limit_check = async {
+        if o.side == "buy" && !o.preview {
+            crate::limits::check_buy(&c.acct, &c.app, &u.id, true).await
+        } else {
+            Ok(())
+        }
+    };
+    let (acct, q, limit) = tokio::join!(account_rows(&c, &u.id), quote(&c.app, &o.mint), limit_check);
     let (cash, _, _, rows) = acct?;
     let held = rows.iter().find(|p| p["mint"].as_str() == Some(&o.mint)).map(|p| num(&p["tokens"])).unwrap_or(0.0);
     let q = q?.held(held);
@@ -370,9 +378,7 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
             if usd < MIN_ORDER_USD {
                 return Err((StatusCode::BAD_REQUEST, "minimum order is $1".into()));
             }
-            if !o.preview {
-                crate::limits::check_buy(&c.acct, &c.app, &u.id, true).await.map_err(|m| (StatusCode::FORBIDDEN, m))?;
-            }
+            limit.map_err(|m| (StatusCode::FORBIDDEN, m))?;
             if usd > cash + 1e-9 {
                 return Err((StatusCode::BAD_REQUEST, format!("not enough demo balance (${cash:.2} available)")));
             }

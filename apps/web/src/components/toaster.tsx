@@ -1,11 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { dismissToast, useToasts, type Toast } from "@/lib/toast";
 
-const DOT = { good: "bg-positive", bad: "bg-negative", info: "bg-cyan" } as const;
 const FIGURE = { good: "text-positive", bad: "text-negative", info: "text-text" } as const;
+/** Per tone: the card's border, the icon tile and the time bar. */
+const TONE = {
+  good: { card: "border-positive/40", tile: "bg-positive/15 text-positive", bar: "bg-positive", Icon: CheckCircle2 },
+  bad: { card: "border-negative/40", tile: "bg-negative/15 text-negative", bar: "bg-negative", Icon: AlertTriangle },
+  info: { card: "border-cyan/35", tile: "bg-cyan/15 text-cyan", bar: "bg-cyan", Icon: Info },
+} as const;
 
 /** In-app notifications, top right under the top bar, newest on top. */
 export function Toaster() {
@@ -21,18 +26,21 @@ export function Toaster() {
 }
 
 function ToastCard({ t }: { t: Toast }) {
+  const tone = TONE[t.tone];
   const content = (
     <span className="flex min-w-0 flex-1 items-start gap-3">
-      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT[t.tone]}`} aria-hidden="true" />
-      <span className="min-w-0 flex-1">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone.tile}`} aria-hidden="true">
+        <tone.Icon size={16} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1 pt-0.5">
         <span className="block truncate text-sm font-medium text-text">{t.title}</span>
         {t.figure && <span className={`mt-1 block font-mono text-xl tabular-nums leading-tight ${FIGURE[t.tone]}`}>{t.figure}</span>}
-        {t.body && <span className="mt-1 line-clamp-2 block text-xs text-text-2">{t.body}</span>}
+        {t.body && <span className="mt-0.5 line-clamp-2 block font-mono text-xs text-text-2">{t.body}</span>}
       </span>
     </span>
   );
   return (
-    <div className="row-in pointer-events-auto rounded-xl border border-border bg-surface-2 p-3 shadow-lg shadow-black/40">
+    <div className={`row-in pointer-events-auto relative overflow-hidden rounded-xl border bg-surface-2 p-3 pb-3.5 shadow-xl shadow-black/50 ${tone.card}`}>
       <div className="flex items-start gap-2">
         {t.href ? (
           <Link href={t.href} onClick={() => dismissToast(t.id)} className="flex min-w-0 flex-1 hover:opacity-90">
@@ -45,6 +53,8 @@ function ToastCard({ t }: { t: Toast }) {
           <X size={14} strokeWidth={1.5} />
         </button>
       </div>
+      {/* Time left before it closes */}
+      {t.life && <span className="toast-life absolute inset-x-0 bottom-0 h-0.5 origin-left opacity-70" style={{ animationDuration: `${t.life}ms` }} aria-hidden="true"><span className={`block h-full w-full ${tone.bar}`} /></span>}
       {t.action && (
         <div className="mt-2.5 flex justify-end">
           <button

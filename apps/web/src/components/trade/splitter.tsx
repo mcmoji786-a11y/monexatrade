@@ -88,7 +88,7 @@ export function Splitter({
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       className={`group relative z-20 shrink-0 touch-none outline-none ${
-        axis === "row" ? "h-1.5 w-full cursor-row-resize" : "hidden h-full w-1.5 cursor-col-resize lg:block"
+        axis === "row" ? "h-2 w-full cursor-row-resize" : "hidden w-2 cursor-col-resize self-stretch lg:block"
       }`}
     >
       <span
@@ -97,7 +97,7 @@ export function Splitter({
         } ${axis === "row" ? "inset-x-0 top-1/2 h-px -translate-y-1/2" : "inset-y-0 left-1/2 w-px -translate-x-1/2"}`}
       />
       <span
-        className={`absolute rounded-full bg-surface-3 opacity-0 transition-opacity group-hover:opacity-100 ${dragging ? "opacity-100" : ""} ${
+        className={`absolute rounded-full bg-text-2/40 opacity-40 transition-opacity group-hover:bg-emerald/70 group-hover:opacity-100 ${dragging ? "opacity-100" : ""} ${
           axis === "row" ? "top-1/2 left-1/2 h-1 w-10 -translate-1/2" : "top-1/2 left-1/2 h-10 w-1 -translate-1/2"
         }`}
       />

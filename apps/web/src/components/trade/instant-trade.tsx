@@ -8,7 +8,7 @@ import { Check, Loader2, Pencil, Zap } from "lucide-react";
 import { confirmDanger } from "@/components/safety/danger-confirm";
 import { execute, tradeErrorText, useVenue } from "@/lib/execute";
 import { updateSettings, useSettings } from "@/lib/settings";
-import { pushToast } from "@/lib/toast";
+import { dismissToast, pushToast } from "@/lib/toast";
 import { useDemo } from "@/lib/demo";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 
@@ -36,6 +36,8 @@ export function InstantTrade({ mint, symbol }: { mint: string; symbol: string })
     }
     if (side === "buy" && !(await confirmDanger(mint, symbol))) return;
     setBusy(key);
+    // Shown the moment the button is pressed; replaced by the fill when it lands.
+    const pending = pushToast({ tone: "info", title: side === "buy" ? `Buying ${venue === "demo" ? money(value) : `${value} SOL`} of ${symbol || "coin"}` : `Selling ${value}% of ${symbol || "coin"}`, body: "Filling at the live price" });
     try {
       const f = await execute(venue, {
         mint,
@@ -55,6 +57,7 @@ export function InstantTrade({ mint, symbol }: { mint: string; symbol: string })
     } catch (e) {
       pushToast({ tone: "bad", title: `${side === "buy" ? "Buy" : "Sell"} failed: ${symbol || "coin"}`, body: tradeErrorText(e) });
     } finally {
+      dismissToast(pending);
       setBusy(null);
     }
   };
