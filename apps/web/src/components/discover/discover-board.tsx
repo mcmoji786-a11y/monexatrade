@@ -65,6 +65,19 @@ export function DiscoverBoard() {
   const now = useDeferredValue(useNow());
   const [active, setActive] = useState(CATEGORIES[0].key);
   const [win, setWin] = useState<Window>("5m");
+  const [view, setView] = useState<"table" | "cards">(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem("mx.discover.view") === "cards" ? "cards" : "table";
+    } catch {
+      return "table";
+    }
+  });
+  const pickView = (v: "table" | "cards") => {
+    setView(v);
+    try {
+      localStorage.setItem("mx.discover.view", v);
+    } catch {}
+  };
   const watch = useWatchlist().mints;
   // Starred coins, in the order they were starred.
   const cats = useMemo<Category[]>(
@@ -99,16 +112,20 @@ export function DiscoverBoard() {
   return (
     <section>
       {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-5">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text md:text-3xl">Discover</h1>
-            <LiveBadge status={status} updatedAt={updatedAt} now={now} />
-            <DiscoverFiltersMenu />
+      <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-medium text-text">Discover</h1>
+          <LiveBadge status={status} updatedAt={updatedAt} now={now} />
+          <DiscoverFiltersMenu />
+          <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="View">
+            {(["table", "cards"] as const).map((v) => (
+              <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)} className={`h-7 rounded-md px-2.5 text-xs capitalize transition-colors ${view === v ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}>
+                {v}
+              </button>
+            ))}
           </div>
-          <p className="mt-1.5 text-sm text-text-2">Solana memecoins moving right now, updated live</p>
         </div>
-        <dl className="grid grid-cols-3 gap-x-8 gap-y-3">
+        <dl className="flex gap-x-8">
           <Stat label="Tokens" value={String(rows.length)} />
           <Stat label="Volume 1h" value={usd(volume1h)} raw={volume1h} />
           <Stat label="SOL" value={solUsd ? `$${solUsd.toFixed(2)}` : "—"} raw={solUsd} />
@@ -116,7 +133,7 @@ export function DiscoverBoard() {
       </div>
 
       {/* Category selector */}
-      <div className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6" role="tablist" aria-label="Categories">
+      <div className="no-scrollbar mt-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="Categories">
         {cats.map((c) => (
           <CategoryTile key={c.key} cat={c} on={c.key === cat.key} count={ranked[c.key].length} onClick={() => setActive(c.key)} />
         ))}
@@ -124,7 +141,7 @@ export function DiscoverBoard() {
 
       <JustLaunched tokens={latest} now={now} />
 
-      <CategoryView key={cat.key} cat={cat} list={ranked[cat.key]} now={now} status={status} sparks={sparks} win={win} setWin={setWin} launches={launches} smart={smart} />
+      <CategoryView key={cat.key} cat={cat} list={ranked[cat.key]} now={now} status={status} sparks={sparks} win={win} setWin={setWin} launches={launches} smart={smart} view={view} />
 
       <p className="mt-6 max-w-3xl text-xs leading-5 text-muted">
         Memecoins only: tokens tagged meme or launched on a memecoin launchpad. Stocks, RWAs and DeFi tokens are
@@ -147,7 +164,9 @@ function CategoryView({
   setWin,
   launches,
   smart,
+  view,
 }: {
+  view: "table" | "cards";
   cat: Category;
   list: DiscoverRow[];
   now: number;
@@ -159,12 +178,14 @@ function CategoryView({
   smart: Record<string, number>;
 }) {
   const moves = useRankMoves(list.slice(0, 100).map((r) => r.mint));
-  const podium = list.slice(0, 3);
-  const rest = list.slice(3, 100);
+  // Table view: every coin in the dense table from rank 1. Cards view: the top three as
+  // large cards, then the table.
+  const podium = view === "cards" ? list.slice(0, 3) : [];
+  const rest = list.slice(podium.length, 100);
 
   return (
     <div className="fade-up">
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-text-2">{cat.windowed ? cat.description.replace(/last 5 minutes|1h price rise/, (m) => (m === "last 5 minutes" ? `last ${win}` : `${win} price rise`)) : cat.description}</p>
         {cat.windowed && (
           <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Time window">
@@ -190,7 +211,7 @@ function CategoryView({
       ) : (
         <>
           {/* Podium: the top three get the spotlight */}
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <div className={podium.length ? "mt-3 grid gap-3 lg:grid-cols-3" : "hidden"}>
             {podium.map((r, i) => (
               <Spotlight key={r.mint} row={r} rank={i + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} safety={safetyScore(rowSignals(r, launches.get(r.mint) ?? null, smart[r.mint] ?? 0, now / 1000))} />
             ))}
@@ -199,13 +220,13 @@ function CategoryView({
           {rest.length > 0 && (
             <>
               {/* Desktop: dense table */}
-              <div className="mt-4 hidden overflow-hidden rounded-2xl border border-border bg-surface md:block">
-                <TokenTable rows={rest} now={now} metric={cat.metric} startRank={4} moves={moves} sparks={sparks} launches={launches} smart={smart} />
+              <div className="mt-3 hidden overflow-hidden rounded-xl border border-border bg-surface md:block">
+                <TokenTable rows={rest} now={now} metric={cat.metric} startRank={podium.length + 1} moves={moves} sparks={sparks} launches={launches} smart={smart} />
               </div>
               {/* Mobile: compact rows */}
               <ol className="mt-3 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface md:hidden">
                 {rest.map((r, i) => (
-                  <MobileRow key={r.mint} row={r} rank={i + 4} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} />
+                  <MobileRow key={r.mint} row={r} rank={i + podium.length + 1} metric={cat.metric} now={now} move={moves.get(r.mint)} spark={sparks[r.mint]} win={win} />
                 ))}
               </ol>
             </>
@@ -269,17 +290,13 @@ function CategoryTile({ cat, on, count, onClick }: { cat: Category; on: boolean;
       role="tab"
       aria-selected={on}
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${
-        on ? "border-emerald/40 bg-surface-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]" : "border-border bg-surface hover:bg-surface-2"
+      className={`-mb-px flex h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-sm whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+        on ? "border-emerald text-text" : "border-transparent text-text-2 hover:text-text"
       }`}
     >
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${on ? "bg-emerald/15 text-emerald" : "bg-surface-2 text-muted"}`}>
-        <Icon size={18} strokeWidth={1.5} />
-      </span>
-      <span className="min-w-0">
-        <span className={`block text-sm font-medium ${on ? "text-text" : "text-text-2"}`}>{cat.label}</span>
-        <span className="block font-mono text-xs text-muted">{count} tokens</span>
-      </span>
+      <Icon size={14} strokeWidth={1.5} className={on ? "text-emerald" : "text-muted"} />
+      {cat.label}
+      <span className="font-mono text-xs text-muted">{count}</span>
     </button>
   );
 }

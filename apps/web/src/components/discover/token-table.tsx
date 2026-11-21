@@ -174,7 +174,7 @@ export function TokenTable({
     <div className="overflow-x-auto">
       <table className="w-full min-w-240 text-sm whitespace-nowrap">
         <thead>
-          <tr className="h-10 border-b border-border text-left text-xs text-muted">
+          <tr className="h-9 border-b border-border text-left text-xs text-muted">
             <th className="w-12 pl-5 font-normal">#</th>
             <th className="pr-4 font-normal">Token</th>
             <th className="pr-3 font-normal" title="Safety score: 100 minus red flags. Hover a score for the reasons">Safety</th>
@@ -197,7 +197,7 @@ export function TokenTable({
         </thead>
         <tbody>
           {sorted.map((r, i) => (
-            <tr key={r.mint} onClick={open(r.mint)} className="group h-14 cursor-pointer border-b hover:shadow-[inset_2px_0_0_var(--mx-emerald)] border-border transition-colors duration-150 last:border-0 hover:bg-surface-2">
+            <tr key={r.mint} onClick={open(r.mint)} className="group h-11 cursor-pointer border-b hover:shadow-[inset_2px_0_0_var(--mx-emerald)] border-border transition-colors duration-150 last:border-0 hover:bg-surface-2">
               <td className="pl-5 font-mono text-xs text-muted">
                 <div className="flex flex-col leading-4">
                   {startRank + i}
