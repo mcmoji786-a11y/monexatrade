@@ -34,7 +34,8 @@ export function DemoPortfolio() {
   const sells = round.filter((t) => t.side === "sell" && t.realized_usd != null);
   const realized = sells.reduce((a, t) => a + (t.realized_usd ?? 0), 0);
   const wins = sells.filter((t) => (t.realized_usd ?? 0) > 0).length;
-  const unrealized = account.positions.reduce((a, p) => a + ((p.value_usd ?? 0) - p.cost_usd), 0);
+  // Positions without a value right now (no price) are left out, not counted as a loss.
+  const unrealized = account.positions.reduce((a, p) => a + (p.value_usd != null ? p.value_usd - p.cost_usd : 0), 0);
   const total = account.equity_usd - account.start_usd;
   const fees = round.reduce((a, t) => a + t.fee_usd, 0);
   const volume = round.reduce((a, t) => a + t.usd, 0);

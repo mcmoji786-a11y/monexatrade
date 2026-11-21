@@ -537,10 +537,17 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
   const sales = mine.some((t) => t.side === "sell");
   const pos = mode === "demo" ? account?.positions.find((p) => p.mint === mint) : undefined;
   // The chart price when this account figure arrived: later moves scale the figure.
-  const [base, setBase] = useState<{ of: unknown; price: number | null }>({ of: null, price: null });
-  if (base.of !== account) setBase({ of: account, price: livePrice });
-  const scale = base.of === account && base.price && livePrice ? livePrice / base.price : 1;
-  const value = pos?.value_usd != null ? pos.value_usd * scale : null;
+  // A refresh without a value (the price missed for a moment) keeps the last one shown for
+  // this position, never a value of zero.
+  const [base, setBase] = useState<{ of: unknown; price: number | null; value: number | null; key: string }>({ of: null, price: null, value: null, key: "" });
+  const key = pos ? `${mint}:${pos.opened_at}:${pos.tokens}` : "";
+  if (base.of !== account) setBase({ of: account, price: livePrice, value: pos?.value_usd ?? (base.key === key ? base.value : null), key });
+  const ratio = base.of === account && base.price && livePrice ? livePrice / base.price : 1;
+  // A chart price that jumps far between two refreshes (a feed switching source) is not a
+  // market move: the figure waits for the next refresh instead.
+  const scale = ratio > 0.5 && ratio < 2 ? ratio : 1;
+  const known = pos?.value_usd ?? (base.key === key ? base.value : null);
+  const value = pos && known != null ? known * scale : null;
   const cost = pos ? pos.cost_usd : null;
   const pnl = value != null && cost != null ? value - cost : null;
   const pct = pnl != null && cost ? (pnl / cost) * 100 : null;

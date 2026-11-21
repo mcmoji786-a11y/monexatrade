@@ -161,9 +161,47 @@ impl Quote {
     }
 }
 
+/// The last good quote of each coin. A price source can miss for a moment (a new coin
+/// between its curve feed and the market lists, Jupiter busy, SOL price reloading): the
+/// coin is not worth nothing then, and valuing it at zero showed positions at -100%.
+static LAST_QUOTE: Mutex<Option<HashMap<String, (Instant, Quote)>>> = Mutex::new(None);
+/// Orders may use a quote this old when the live one misses (a blip, not a stale price).
+const ORDER_QUOTE_GRACE: Duration = Duration::from_secs(30);
+/// Account figures may use one this old: the position keeps its last known value.
+const VALUE_QUOTE_GRACE: Duration = Duration::from_secs(15 * 60);
+
+fn remember(mint: &str, q: &Quote) {
+    let mut m = LAST_QUOTE.lock().expect("last quote lock");
+    let map = m.get_or_insert_with(HashMap::new);
+    if map.len() > 20_000 {
+        map.retain(|_, (at, _)| at.elapsed() < VALUE_QUOTE_GRACE);
+    }
+    map.insert(mint.to_string(), (Instant::now(), q.clone()));
+}
+
+fn recent(mint: &str, grace: Duration) -> Option<Quote> {
+    LAST_QUOTE.lock().expect("last quote lock").as_ref()?.get(mint).filter(|(at, _)| at.elapsed() < grace).map(|(_, q)| q.clone())
+}
+
+/// The live quote, or the last good one within `grace` when the live one misses.
+pub async fn quote_within(app: &crate::AppState, mint: &str, grace: Duration) -> Result<Quote, (StatusCode, String)> {
+    match live_quote(app, mint).await {
+        Ok(q) => {
+            remember(mint, &q);
+            Ok(q)
+        }
+        Err(e) => recent(mint, grace).ok_or(e),
+    }
+}
+
+/// The quote orders fill at (a brief miss falls back to the last 30 seconds).
+pub async fn quote(app: &crate::AppState, mint: &str) -> Result<Quote, (StatusCode, String)> {
+    quote_within(app, mint, ORDER_QUOTE_GRACE).await
+}
+
 /// The live price and depth of a coin: our own curve feed first, then the market board,
 /// then a direct Jupiter lookup.
-pub async fn quote(app: &crate::AppState, mint: &str) -> Result<Quote, (StatusCode, String)> {
+async fn live_quote(app: &crate::AppState, mint: &str) -> Result<Quote, (StatusCode, String)> {
     let (curve, market, sol_usd) = {
         let b = app.board.lock().expect("board lock");
         let curve = b.tokens.get(mint).and_then(|t| {
@@ -262,7 +300,8 @@ pub struct Account {
     pub start_usd: f64,
     pub round: i64,
     pub positions: Vec<Position>,
-    /// Cash plus positions at live prices (positions without a price count at zero).
+    /// Cash plus positions at what selling them now would bring (a position never priced
+    /// counts at its cost until a price arrives).
     pub equity_usd: f64,
 }
 
@@ -303,11 +342,12 @@ pub async fn get_account(State(c): State<DemoCtx>, headers: HeaderMap) -> Result
         // Valued at what selling now would bring (fee and impact included), so the P&L the
         // user watches is the P&L they get. Founder decision 2026-11-08, after marking at
         // the market price made every sale look like a sudden loss.
-        // A coin with no price any more (rugged, delisted) is worth nothing.
-        let q = quote(&c.app, &mint).await.ok();
+        // A price that misses for a moment keeps the last good one (15 minutes); with none
+        // at all the value is unknown (null), never zero: zero showed a -100% that was not.
+        let q = quote_within(&c.app, &mint, VALUE_QUOTE_GRACE).await.ok();
         let held = q.as_ref().map(|q| q.held(tokens));
-        let market = Some(held.as_ref().map_or(0.0, |h| mark_value(tokens, h)));
-        let exit = Some(held.as_ref().and_then(|h| h.sell(tokens)).map_or(0.0, |f| f.usd));
+        let market = held.as_ref().map(|h| mark_value(tokens, h));
+        let exit = held.as_ref().and_then(|h| h.sell(tokens)).map(|f| f.usd);
         let value = exit;
         positions.push(Position {
             symbol: p["symbol"].as_str().filter(|s| !s.is_empty()).map(String::from).or_else(|| q.as_ref().map(|q| q.symbol.clone())).unwrap_or_default(),
@@ -322,7 +362,9 @@ pub async fn get_account(State(c): State<DemoCtx>, headers: HeaderMap) -> Result
             opened_at: p["opened_at"].as_str().unwrap_or("").to_string(),
         });
     }
-    let equity = cash + positions.iter().map(|p| p.value_usd.unwrap_or(0.0)).sum::<f64>();
+    // A position never priced (not even in the last 15 minutes) counts at its cost until a
+    // price arrives, so the balance does not dip and jump back on a missing quote.
+    let equity = cash + positions.iter().map(|p| p.value_usd.unwrap_or(p.cost_usd)).sum::<f64>();
     Ok(Json(Account { cash_usd: cash, start_usd: start, round, positions, equity_usd: equity }))
 }
 
@@ -865,6 +907,15 @@ mod tests {
 
     fn pump(price_sol: f64) -> Quote {
         Quote::from_curve("T".into(), price_sol, 150.0).expect("quote")
+    }
+
+    #[test]
+    fn a_missed_price_falls_back_to_the_last_good_one_only() {
+        let q = pump(30.0 / 1_073_000_000.0);
+        remember("MISSED", &q);
+        assert!(recent("MISSED", ORDER_QUOTE_GRACE).is_some_and(|r| r.price_usd == q.price_usd));
+        assert!(recent("NEVER", VALUE_QUOTE_GRACE).is_none(), "a coin never priced has no value, not zero");
+        assert!(recent("MISSED", Duration::ZERO).is_none(), "past its grace the old quote is not used");
     }
 
     #[test]

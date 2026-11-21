@@ -377,6 +377,112 @@ pub fn recent_cached(cache: &DexCache, mint: &str) -> Vec<DexTrade> {
     stale(&cache.trades, &format!("{}:{mint}", p.address)).unwrap_or_default()
 }
 
+/* ---------------- Jupiter charts (first choice for candles) ---------------- */
+
+/// Jupiter's chart data (what jup.ag draws): a coin's 1 minute candles in USD from its
+/// first trade, on curves and pools alike, without a key. Measured 2026-11-22: 18 calls in
+/// 11 s answered, against GeckoTerminal's free plan blocking Kixo for minutes at a time.
+const JUP_CHARTS: &str = "https://datapi.jup.ag/v2/charts";
+/// Its latest trades on the coin (30, newest first; it pages no further).
+const JUP_TXS: &str = "https://datapi.jup.ag/v1/txs";
+
+/// Jupiter calls pause this long after a 429, like GeckoTerminal's.
+static JUP_PAUSED: Mutex<Option<Instant>> = Mutex::new(None);
+
+async fn jup_json(http: &reqwest::Client, url: &str) -> Option<Value> {
+    if JUP_PAUSED.lock().expect("jup pause lock").is_some_and(|t| Instant::now() < t) {
+        return None;
+    }
+    let res = http.get(url).header("accept", "application/json").timeout(Duration::from_secs(8)).send().await.ok()?;
+    if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        *JUP_PAUSED.lock().expect("jup pause lock") = Some(Instant::now() + Duration::from_secs(30));
+        tracing::warn!("jupiter charts rate limited, pausing 30s");
+        return None;
+    }
+    if !res.status().is_success() {
+        return None;
+    }
+    res.json().await.ok()
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// The coin's last 1,000 one-minute candles from Jupiter, oldest first (cached 30 s).
+async fn jup_candles(http: &reqwest::Client, cache: &DexCache, mint: &str) -> Option<Vec<DexCandle>> {
+    let key = format!("jup:{mint}");
+    if let Some(c) = cached(&cache.candles, &key, CANDLES_TTL) {
+        return Some(c);
+    }
+    let url = format!("{JUP_CHARTS}/{mint}?interval=1_MINUTE&to={}&candles=1000&type=price&quote=usd", unix_now() * 1000);
+    let Some(v) = jup_json(http, &url).await else {
+        return stale(&cache.candles, &key);
+    };
+    let mut list = jup_candles_of(&v);
+    list.sort_by_key(|c| c.t);
+    store(&cache.candles, &key, list.clone(), CANDLES_TTL);
+    Some(list)
+}
+
+fn jup_candles_of(v: &Value) -> Vec<DexCandle> {
+    v["candles"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|r| {
+                    let c = DexCandle { t: r["time"].as_i64()?, o: num(&r["open"]), h: num(&r["high"]), l: num(&r["low"]), c: num(&r["close"]), v: num(&r["volume"]) };
+                    (c.o > 0.0 && c.c > 0.0).then_some(c)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The coin's latest trades from Jupiter (cached ten seconds, merged as they grow).
+async fn jup_trades(http: &reqwest::Client, cache: &DexCache, mint: &str) -> Vec<DexTrade> {
+    let key = format!("jup:{mint}");
+    if let Some(t) = cached(&cache.trades, &key, TRADES_TTL) {
+        return t;
+    }
+    let Some(v) = jup_json(http, &format!("{JUP_TXS}/{mint}?dir=desc")).await else {
+        return stale(&cache.trades, &key).unwrap_or_default();
+    };
+    let list = merge_trades(jup_trades_of(&v, mint), stale(&cache.trades, &key).unwrap_or_default());
+    store(&cache.trades, &key, list.clone(), TRADES_TTL);
+    list
+}
+
+fn jup_trades_of(v: &Value, mint: &str) -> Vec<DexTrade> {
+    v["txs"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter(|r| r["asset"].as_str() == Some(mint))
+                .filter_map(|r| {
+                    Some(DexTrade {
+                        signature: r["txHash"].as_str()?.to_string(),
+                        ts: chrono_like_parse(r["timestamp"].as_str()?)?,
+                        wallet: r["traderAddress"].as_str().unwrap_or_default().to_string(),
+                        is_buy: match r["type"].as_str()? {
+                            "buy" => true,
+                            "sell" => false,
+                            _ => return None,
+                        },
+                        usd: num(&r["usdVolume"]),
+                        tokens: num(&r["amount"]),
+                        price_usd: num(&r["usdPrice"]),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The coin's chart history and latest trades. Candles come from Jupiter first (fast, no
+/// key, from the first trade), GeckoTerminal when Jupiter has none; trades from
+/// GeckoTerminal (up to 300) when it answers, Jupiter's latest 30 otherwise. None when
+/// neither knows the coin.
 pub async fn history(
     http: &reqwest::Client,
     cache: &Arc<DexCache>,
@@ -390,11 +496,23 @@ pub async fn history(
         f.entry(mint.to_string()).or_default().clone()
     };
     let _one = flight.lock().await;
-    let pool = pool(http, cache, mint).await?;
-    let (candles, trades) = tokio::join!(
-        candles(http, cache, &pool.address, mint),
-        trades(http, cache, &pool.address, mint)
-    );
+    let (pool, jup) = tokio::join!(pool(http, cache, mint), jup_candles(http, cache, mint));
+    let candles = match (jup, &pool) {
+        (Some(c), _) if !c.is_empty() => c,
+        (_, Some(p)) => candles(http, cache, &p.address, mint).await,
+        _ => Vec::new(),
+    };
+    let mut trades = match &pool {
+        Some(p) => trades(http, cache, &p.address, mint).await,
+        None => Vec::new(),
+    };
+    if trades.is_empty() {
+        trades = jup_trades(http, cache, mint).await;
+    }
+    if pool.is_none() && candles.is_empty() && trades.is_empty() {
+        return None;
+    }
+    let pool = pool.unwrap_or_else(|| Pool { address: String::new(), name: "Jupiter".into(), dex: None, quote: None });
     Some(DexHistory {
         pool,
         candle_secs: 60,
@@ -407,6 +525,30 @@ pub async fn history(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn reads_jupiter_candles_and_trades() {
+        let v = json!({ "candles": [
+            { "time": 1795231980, "open": 0.0013, "high": 0.0014, "low": 0.0012, "close": 0.00132, "volume": 47.4 },
+            { "time": 1795231920, "open": 0.0, "high": 0.0, "low": 0.0, "close": 0.0, "volume": 0.0 }
+        ]});
+        let c = jup_candles_of(&v);
+        assert_eq!(c.len(), 1, "an empty candle is dropped");
+        assert_eq!(c[0].t, 1795231980);
+        assert!((c[0].c - 0.00132).abs() < 1e-12 && (c[0].v - 47.4).abs() < 1e-9);
+
+        let v = json!({ "txs": [
+            { "asset": "M", "type": "buy", "usdVolume": 14.4, "traderAddress": "W1", "txHash": "S1", "timestamp": "2026-11-21T20:32:13.000Z", "usdPrice": 0.0017, "amount": 8470.0 },
+            { "asset": "M", "type": "sell", "usdVolume": 2.0, "traderAddress": "W2", "txHash": "S2", "timestamp": "2026-11-21T20:32:10.000Z", "usdPrice": 0.0017, "amount": 1176.0 },
+            { "asset": "M", "type": "add", "usdVolume": 9.0, "traderAddress": "W3", "txHash": "S3", "timestamp": "2026-11-21T20:32:09.000Z" },
+            { "asset": "OTHER", "type": "buy", "usdVolume": 1.0, "traderAddress": "W4", "txHash": "S4", "timestamp": "2026-11-21T20:32:08.000Z" }
+        ]});
+        let t = jup_trades_of(&v, "M");
+        assert_eq!(t.len(), 2, "only this coin's buys and sells");
+        assert!(t[0].is_buy && !t[1].is_buy);
+        assert_eq!(t[0].ts, chrono_like_parse("2026-11-21T20:32:13Z").unwrap());
+        assert_eq!(t[1].wallet, "W2");
+    }
 
     fn t(sig: &str, ts: i64) -> DexTrade {
         DexTrade {
