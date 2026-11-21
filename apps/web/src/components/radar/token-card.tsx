@@ -133,124 +133,154 @@ function TokenCardView({
   const devPct = ownWallets ? m.dev_pct : null;
   const earlyPct = ownWallets ? m.sniper_pct : null;
   const bundlePct = ownWallets ? m.bundle_pct : null;
+  const change5m = m?.change_5m_pct ?? alt?.change_5m_pct ?? null;
+  const pad = LAUNCHPAD[token.launchpad] ?? null;
 
   return (
     <article
       onClick={open(token.mint)}
-      className={`group flex h-full cursor-pointer gap-3 rounded-lg border bg-surface p-2.5 transition-colors duration-150 hover:bg-surface-2 ${token.arrived ? "row-in" : ""} ${
-        graduating || lowerRisk ? "border-emerald/40" : "border-border hover:border-[rgb(237_237_237/0.16)]"
+      className={`group flex h-full cursor-pointer flex-col rounded-lg border bg-surface transition-colors duration-150 hover:bg-surface-2 ${token.arrived ? "row-in" : ""} ${
+        graduating || lowerRisk ? "border-emerald/40" : "border-border hover:border-[rgb(255_255_255/0.16)]"
       }`}
     >
-      {/* Logo with the bonding curve under it */}
-      <div className="flex shrink-0 flex-col gap-1" title={m && curve ? `${m.complete ? "Graduated" : "Bonding curve"} ${m.curve_progress.toFixed(1)}%` : undefined}>
-        <TokenLogo src={meta?.image ?? null} symbol={token.symbol} size={68} />
-        <span className="h-1 w-[68px] overflow-hidden rounded-full bg-surface-3">
-          {curve && m && <span className={`block h-full ${graduating || m.complete ? "bg-emerald" : "bg-cyan"}`} style={{ width: `${Math.max(2, Math.min(100, m.curve_progress))}%` }} />}
+      <div className="flex gap-2.5 p-2.5 pb-2">
+        {/* Logo, the launchpad under it */}
+        <div className="flex shrink-0 flex-col items-center gap-0.5">
+          <TokenLogo src={meta?.image ?? null} symbol={token.symbol} size={56} />
+          {pad && <span className="font-mono text-[9px] leading-3 text-muted" title={token.launchpad}>{pad}</span>}
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col justify-between gap-1">
+          {/* Row 1: name, market cap */}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="max-w-[45%] shrink-0 truncate text-[13px] font-medium text-text" title={token.symbol}>
+              {token.symbol || "—"}
+            </span>
+            <span className="min-w-0 truncate text-[11px] text-muted" title={token.name}>
+              {token.name}
+            </span>
+            <CopyIcon value={token.mint} />
+            <span className="ml-auto shrink-0 font-mono text-sm leading-5 text-cyan" title="Market cap">
+              <span className="font-sans text-[10px] text-muted">MC </span>
+              {usd(mc)}
+            </span>
+          </div>
+
+          {/* Row 2: age, links, holders, net buying; the 5 minute move */}
+          <div className="flex min-w-0 items-center gap-2 text-[11px]">
+            <span className={`font-mono ${age < 60 ? "text-emerald" : age < 600 ? "text-text" : "text-warning"}`} title="Age">
+              {formatAge(age)}
+            </span>
+            <span className="flex items-center gap-1.5">
+              {meta?.twitter && <IconLink href={meta.twitter} label="X"><XGlyph /></IconLink>}
+              {meta?.telegram && <IconLink href={meta.telegram} label="Telegram"><Send size={12} strokeWidth={1.5} /></IconLink>}
+              {meta?.website && <IconLink href={meta.website} label="Website"><Globe size={12} strokeWidth={1.5} /></IconLink>}
+              <IconLink href={`https://x.com/search?q=${encodeURIComponent(token.mint)}`} label="Search this coin on X"><Search size={12} strokeWidth={1.5} /></IconLink>
+            </span>
+            <span className="flex items-center gap-1 font-mono text-text-2" title={ownWallets ? "Holders, counted from trades since launch (change in the last hour)" : "Holders"}>
+              <Users size={12} strokeWidth={1.5} className="text-muted" />
+              {holders != null ? holders.toLocaleString() : "—"}
+              {ownWallets && m.holders_change_1h > 0 && <span className="text-positive">+{m.holders_change_1h}</span>}
+            </span>
+            {netBuy != null && Math.abs(netBuy) >= 1 && (
+              <span className={`font-mono ${netBuy >= 0 ? "text-positive" : "text-negative"}`} title="Net buying, last hour (bought minus sold)">
+                {netBuy >= 0 ? "+" : "−"}
+                {usd(Math.abs(netBuy))}
+              </span>
+            )}
+            <span className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  blockDev(token.creator);
+                }}
+                title="Hide every coin from this creator (undo in Filters)"
+                aria-label="Hide this creator's coins"
+                className="flex h-4 w-4 items-center justify-center rounded text-muted transition-colors hover:text-negative"
+              >
+                <EyeOff size={11} strokeWidth={1.5} />
+              </button>
+              <StarButton mint={token.mint} size={11} />
+            </span>
+            <span className={`ml-auto shrink-0 font-mono ${change5m == null ? "text-muted" : change5m >= 0 ? "text-positive" : "text-negative"}`} title="Price change, last 5 minutes (since launch if younger)">
+              {change5m == null ? "—" : `${change5m >= 0 ? "+" : "−"}${Math.abs(change5m).toFixed(change5m !== 0 && Math.abs(change5m) < 10 ? 1 : 0)}%`}
+              <span className="ml-0.5 font-sans text-[10px] text-muted">5m</span>
+            </span>
+          </div>
+
+          {/* Row 3: holder shares and the top flag; volume */}
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="flex h-5 min-w-0 flex-1 items-center gap-1 overflow-hidden">
+              <Pct icon={Users} tone={pctTone(top10, TOP10_WARN)} text={pctText(top10)} title="Top 10 holders' share" />
+              <Pct icon={UserCog} tone={pctTone(devPct, DEV_WARN)} text={pctText(devPct)} title="Creator's share" />
+              <Pct icon={Crosshair} tone={pctTone(earlyPct, EARLY_WARN)} text={pctText(earlyPct)} title={ownWallets ? `Early buyers: ${m.snipers} wallets bought in the first 3 seconds; share they still hold` : "Early buyers"} />
+              <Pct icon={Boxes} tone={pctTone(bundlePct, BUNDLE_WARN)} text={pctText(bundlePct)} title={ownWallets ? `Bundles: ${m.bundled} wallets bought together in one slot after launch; share they still hold` : "Bundles"} />
+              {shown.map((f) => (
+                <FlagChip key={f.key} flag={f} />
+              ))}
+              {flags.length > 1 && (
+                <span className="flex h-5 shrink-0 items-center rounded-full border border-border px-1.5 font-mono text-[10px] text-text-2" title={flags.slice(1).map((f) => f.text).join(" · ")}>
+                  +{flags.length - 1}
+                </span>
+              )}
+              {flags.length === 0 && <AiRiskChip mint={token.mint} ageSecs={age} />}
+            </div>
+            <span className="shrink-0 font-mono text-[11px] text-text-2" title="Volume, last hour">
+              <span className="font-sans text-[10px] text-muted">V </span>
+              {usd(vol1h)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer: curve, trades, checks, safety and actions */}
+      <div className="mt-auto flex items-center gap-2.5 border-t border-border px-2.5 py-1.5 font-mono text-[11px]">
+        <span className="flex items-center gap-1.5" title={m && curve ? `${m.complete ? "Graduated" : "Bonding curve"} ${m.curve_progress.toFixed(1)}%` : "No bonding curve data"}>
+          <span className="h-1 w-10 overflow-hidden rounded-full bg-surface-3">
+            {curve && m && <span className={`block h-full ${graduating || m.complete ? "bg-emerald" : "bg-cyan"}`} style={{ width: `${Math.max(2, Math.min(100, m.curve_progress))}%` }} />}
+          </span>
+          <span className={graduating || m?.complete ? "text-emerald" : "text-text-2"}>{curve && m ? `${m.curve_progress.toFixed(0)}%` : "—"}</span>
         </span>
-      </div>
-
-      {/* Middle: name, then age and links, then holder shares and flags */}
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="max-w-[55%] shrink-0 truncate text-sm font-medium text-text" title={token.symbol}>
-            {token.symbol || "—"}
-          </span>
-          <span className="min-w-0 truncate text-xs text-muted" title={token.name}>
-            {token.name}
-          </span>
-          <CopyIcon value={token.mint} />
-        </div>
-
-        <div className="flex min-w-0 items-center gap-2.5 text-xs">
-          <span className={`font-mono ${age < 60 ? "text-emerald" : age < 600 ? "text-text" : "text-warning"}`} title="Age">
-            {formatAge(age)}
-          </span>
-          <span className="flex items-center gap-1.5">
-            {meta?.twitter && <IconLink href={meta.twitter} label="X"><XGlyph /></IconLink>}
-            {meta?.telegram && <IconLink href={meta.telegram} label="Telegram"><Send size={13} strokeWidth={1.5} /></IconLink>}
-            {meta?.website && <IconLink href={meta.website} label="Website"><Globe size={13} strokeWidth={1.5} /></IconLink>}
-            <IconLink href={`https://x.com/search?q=${encodeURIComponent(token.mint)}`} label="Search this coin on X"><Search size={13} strokeWidth={1.5} /></IconLink>
-          </span>
-          <span className="flex items-center gap-1 font-mono text-text-2" title={ownWallets ? "Holders, counted from trades since launch" : "Holders"}>
-            <Users size={13} strokeWidth={1.5} className="text-muted" />
-            {holders != null ? holders.toLocaleString() : "—"}
-          </span>
-          {netBuy != null && Math.abs(netBuy) >= 1 && (
-            <span className={`hidden font-mono sm:inline ${netBuy >= 0 ? "text-positive" : "text-negative"}`} title="Net buying, last hour (bought minus sold)">
-              {netBuy >= 0 ? "+" : "−"}
-              {usd(Math.abs(netBuy))}
+        <span className="flex items-center gap-1" title={buys != null ? `Last hour: ${buys} buys, ${sells ?? 0} sells` : "Trades"}>
+          <span className="font-sans text-[10px] text-muted">TX</span>
+          <span className="text-text">{m ? m.trades_total.toLocaleString() : flow ? flow.toLocaleString() : "—"}</span>
+          {buys != null && (
+            <span className="hidden min-[1700px]:inline">
+              <span className="text-positive">{buys}</span>
+              <span className="text-muted">/</span>
+              <span className="text-negative">{sells ?? 0}</span>
             </span>
           )}
-          <span className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                blockDev(token.creator);
-              }}
-              title="Hide every coin from this creator (undo in Filters)"
-              aria-label="Hide this creator's coins"
-              className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:bg-surface-3 hover:text-negative"
-            >
-              <EyeOff size={12} strokeWidth={1.5} />
-            </button>
-            <StarButton mint={token.mint} size={12} />
+          <span className="flex h-0.5 w-6 overflow-hidden rounded-full bg-surface-3">
+            {flow > 0 && (
+              <>
+                <span className="h-full bg-positive" style={{ width: `${((buys ?? 0) / flow) * 100}%` }} />
+                <span className="h-full bg-negative" style={{ width: `${((sells ?? 0) / flow) * 100}%` }} />
+              </>
+            )}
           </span>
-        </div>
-
-        <div className="flex h-6 min-w-0 items-center gap-1 overflow-hidden">
-          <Pct icon={Users} tone={pctTone(top10, TOP10_WARN)} text={pctText(top10)} title="Top 10 holders' share" />
-          <Pct icon={UserCog} tone={pctTone(devPct, DEV_WARN)} text={pctText(devPct)} title="Creator's share" />
-          <Pct icon={Crosshair} tone={pctTone(earlyPct, EARLY_WARN)} text={pctText(earlyPct)} title={ownWallets ? `Early buyers: ${m.snipers} wallets bought in the first 3 seconds; share they still hold` : "Early buyers"} />
-          <Pct icon={Boxes} tone={pctTone(bundlePct, BUNDLE_WARN)} text={pctText(bundlePct)} title={ownWallets ? `Bundles: ${m.bundled} wallets bought together in one slot after launch; share they still hold` : "Bundles"} />
-          {shown.map((f) => (
-            <FlagChip key={f.key} flag={f} />
-          ))}
-          {flags.length > 1 && (
-            <span className="flex h-5 shrink-0 items-center rounded-full border border-border px-1.5 font-mono text-[10px] text-text-2" title={flags.slice(1).map((f) => f.text).join(" · ")}>
-              +{flags.length - 1}
-            </span>
-          )}
-          {flags.length === 0 && <AiRiskChip mint={token.mint} ageSecs={age} />}
-        </div>
-      </div>
-
-      {/* Right: volume and market cap, trades, actions */}
-      <div className="flex shrink-0 flex-col items-end justify-between gap-1">
-        <div className="flex items-baseline gap-2 font-mono">
-          <span className="text-xs text-text-2" title="Volume, last hour">
-            <span className="font-sans text-[10px] text-muted">V </span>
-            {usd(vol1h)}
-          </span>
-          <span className="text-[15px] leading-5 text-cyan" title="Market cap">
-            <span className="font-sans text-[10px] text-muted">MC </span>
-            {usd(mc)}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 font-mono text-xs">
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 [&_button]:h-6">
           {checks.length > 0 && <ChecksChip checks={checks} listed={lowerRisk} score={safety.score} />}
           <SafetyBadge safety={safety} />
-          <span className="flex items-center gap-1.5" title={buys != null ? `Last hour: ${buys} buys, ${sells ?? 0} sells` : "Trades"}>
-            <span className="font-sans text-[10px] text-muted">TX</span>
-            <span className="text-text">{m ? m.trades_total.toLocaleString() : flow ? flow.toLocaleString() : "—"}</span>
-            <span className="flex h-0.5 w-8 overflow-hidden rounded-full bg-surface-3">
-              {flow > 0 && (
-                <>
-                  <span className="h-full bg-positive" style={{ width: `${((buys ?? 0) / flow) * 100}%` }} />
-                  <span className="h-full bg-negative" style={{ width: `${((sells ?? 0) / flow) * 100}%` }} />
-                </>
-              )}
-            </span>
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
           <AiButton input={() => inputFromLaunch(token)} safety={safety} compact />
-          <QuickBuy mint={token.mint} symbol={token.symbol} className="px-2.5 text-xs" />
-        </div>
+          <QuickBuy mint={token.mint} symbol={token.symbol} className="px-2" />
+        </span>
       </div>
     </article>
   );
 }
+
+/** Short launchpad names under the logo. */
+const LAUNCHPAD: Record<string, string> = {
+  "pump.fun": "pump",
+  "letsbonk.fun": "bonk",
+  bags: "bags",
+  "met-dbc": "meteora",
+  "raydium-launchlab": "launchlab",
+  moonshot: "moonshot",
+};
 
 /** One holder-share chip: green under its warning level, red over it, dim if unknown. */
 function Pct({ icon: Icon, tone, text, title }: { icon: LucideIcon; tone: string; text: string; title: string }) {
@@ -313,10 +343,10 @@ function FlagChip({ flag: f }: { flag: Flag }) {
   const body = (
     <>
       {f.glyph ? <XGlyph /> : Icon ? <Icon size={12} strokeWidth={1.5} /> : null}
-      <span className="truncate">{f.text}</span>
+      <span className="min-w-0 truncate">{f.text}</span>
     </>
   );
-  const cls = `flex h-5 max-w-44 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] whitespace-nowrap ${FLAG_TONE[f.tone]}`;
+  const cls = `flex h-5 max-w-32 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] whitespace-nowrap ${FLAG_TONE[f.tone]}`;
   return f.href ? (
     <Link href={f.href} onClick={(e) => e.stopPropagation()} title={f.title} className={`${cls} transition-colors hover:brightness-125`}>
       {body}

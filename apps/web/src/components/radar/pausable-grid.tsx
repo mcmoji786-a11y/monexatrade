@@ -45,7 +45,7 @@ export function PausableGrid({ tokens, render }: { tokens: RadarToken[]; render:
           )}
         </div>
       )}
-      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 min-[1700px]:grid-cols-3">{shown.slice(0, limit).map(render)}</div>
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3 min-[2200px]:grid-cols-4">{shown.slice(0, limit).map(render)}</div>
       {shown.length > limit && (
         <div className="mt-4 flex justify-center">
           <button

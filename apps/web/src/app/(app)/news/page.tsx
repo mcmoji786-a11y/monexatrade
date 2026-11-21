@@ -11,7 +11,7 @@ export const metadata: Metadata = {
  *  panel beside any page. */
 export default function NewsPage() {
   return (
-    <section className="-mx-4 -my-6 h-[calc(100dvh-2.75rem)] border-border bg-surface md:mx-auto md:my-0 md:h-[calc(100dvh-8rem)] md:max-w-2xl md:rounded-xl md:border">
+    <section className="-mx-4 -my-3 h-[calc(100dvh-2.75rem)] border-border bg-surface md:mx-auto md:my-0 md:h-[calc(100dvh-8rem)] md:max-w-2xl md:rounded-xl md:border">
       <NewsFeed />
     </section>
   );
