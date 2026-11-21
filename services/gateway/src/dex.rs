@@ -66,6 +66,7 @@ pub struct DexCache {
     pools: Slot<Option<Pool>>,
     candles: Slot<Vec<DexCandle>>,
     trades: Slot<Vec<DexTrade>>,
+    big: Slot<Vec<DexTrade>>,
     /// When the last calls went out, to stay inside the rate limit.
     calls: Mutex<std::collections::VecDeque<Instant>>,
     /// After a 429 no call goes out until this time: retrying while blocked only
@@ -325,6 +326,28 @@ fn chrono_like_parse(s: &str) -> Option<i64> {
 }
 
 /// Pool, candles and trades for one token. None when no Solana pool is known.
+/// Trades of `min_usd` or more on the coin's main pool in the last day (the provider
+/// returns up to 300), newest first. One call, cached two minutes.
+pub async fn big_trades(http: &reqwest::Client, cache: &Arc<DexCache>, mint: &str, min_usd: u32) -> Option<(Pool, Vec<DexTrade>)> {
+    let pool = pool(http, cache, mint).await?;
+    let key = format!("{}:{mint}:{min_usd}", pool.address);
+    if let Some(t) = cached(&cache.big, &key, Duration::from_secs(120)) {
+        return Some((pool, t));
+    }
+    let Some(v) = get_json(http, cache, &format!("{BASE}/pools/{}/trades?trade_volume_in_usd_greater_than={min_usd}", pool.address)).await else {
+        return stale(&cache.big, &key).map(|t| (pool, t));
+    };
+    let list: Vec<DexTrade> = v["data"].as_array().map(|rows| rows.iter().filter_map(|r| trade_of(&r["attributes"], mint)).collect()).unwrap_or_default();
+    store(&cache.big, &key, list.clone(), Duration::from_secs(120));
+    Some((pool, list))
+}
+
+/// The coin's latest trades on its main pool (cached ten seconds), for wallet filters.
+pub async fn recent_trades(http: &reqwest::Client, cache: &Arc<DexCache>, mint: &str) -> Option<Vec<DexTrade>> {
+    let pool = pool(http, cache, mint).await?;
+    Some(trades(http, cache, &pool.address, mint).await)
+}
+
 pub async fn history(
     http: &reqwest::Client,
     cache: &Arc<DexCache>,

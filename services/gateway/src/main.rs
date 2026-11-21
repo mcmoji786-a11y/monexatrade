@@ -545,6 +545,7 @@ async fn main() -> Result<()> {
         .route("/token/{mint}/groups", get(funders::groups_handler))
         .route("/token/{mint}/dex", get(dex_handler))
         .route("/token/{mint}/profile", get(profile::handler))
+        .route("/token/{mint}/market-trades", get(market_trades_handler))
         .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))
         .route("/competition/onchain", get(onchain_top_handler))
@@ -1912,6 +1913,65 @@ async fn update_smart(state: Arc<AppState>) {
         state.board.lock().expect("board lock").smart = counts.clone();
         let _ = state.feed.send(FeedEvent::Smart { counts });
     }
+}
+
+/// Whales: a single trade of this many dollars or more.
+const WHALE_USD: u32 = 1_000;
+
+/// `GET /token/{mint}/market-trades`: the coin's trades from the whole market, not only
+/// those Kixo saw live: its whale trades ($1K+) of the last day and its creator's trades
+/// among the latest ones (GeckoTerminal), with the creator, its share now and its record
+/// (Jupiter). For the trade page's Whales and Dev filters on coins Kixo did not watch
+/// from launch. Cached a minute per coin.
+async fn market_trades_handler(State(state): State<Arc<AppState>>, Path(mint): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
+    static CACHE: Mutex<Option<HashMap<String, (Instant, serde_json::Value)>>> = Mutex::new(None);
+    if !is_mint(&mint) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some((at, v)) = CACHE.lock().expect("market trades cache").get_or_insert_with(HashMap::new).get(&mint) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return Ok(Json(v.clone()));
+        }
+    }
+    let creator = {
+        let board = state.board.lock().expect("board lock");
+        board.tokens.get(&mint).map(|t| t.token.creator.clone()).filter(|c| !c.is_empty())
+    };
+    let (token, big, recent) = tokio::join!(lookup_token(&state, &mint), dex::big_trades(&state.http, &state.dex, &mint, WHALE_USD), dex::recent_trades(&state.http, &state.dex, &mint));
+    let token = token.flatten();
+    let dev = creator.or_else(|| token.as_ref().and_then(|t| t.dev.clone()));
+    let mut dev_trades: Vec<dex::DexTrade> = Vec::new();
+    if let Some(d) = &dev {
+        for t in recent.iter().flatten().chain(big.as_ref().map(|(_, b)| b.iter()).into_iter().flatten()) {
+            if &t.wallet == d && !dev_trades.iter().any(|x| x.signature == t.signature) {
+                dev_trades.push(t.clone());
+            }
+        }
+        dev_trades.sort_by(|a, b| b.ts.cmp(&a.ts));
+    }
+    let out = serde_json::json!({
+        "dev": dev.map(|w| serde_json::json!({
+            "wallet": w,
+            "pct": token.as_ref().and_then(|t| t.dev_pct),
+            "coins": token.as_ref().and_then(|t| t.dev_mints),
+            "graduated": token.as_ref().and_then(|t| t.dev_migrations),
+        })),
+        "whale_usd": WHALE_USD,
+        "whales": big.as_ref().map(|(_, b)| b.iter().take(150).collect::<Vec<_>>()).unwrap_or_default(),
+        "dev_trades": dev_trades,
+        "pool": big.as_ref().map(|(p, _)| &p.name),
+        "ok": big.is_some(),
+    });
+    let mut c = CACHE.lock().expect("market trades cache");
+    let map = c.get_or_insert_with(HashMap::new);
+    if map.len() > 2_000 {
+        map.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
+    }
+    // An answer without the provider's trades is kept only briefly.
+    if big.is_some() {
+        map.insert(mint, (Instant::now(), out.clone()));
+    }
+    Ok(Json(out))
 }
 
 /// `GET /smart-money`: the leaderboard of smart wallets (devs.rs), with the age of the

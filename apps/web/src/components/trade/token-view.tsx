@@ -104,7 +104,7 @@ export function TokenView() {
               <>
                 <Splitter axis="col" value={tapeW} onChange={setTapeW} invert label="Resize live trades" />
                 <div className="shrink-0" style={{ width: tapeW }}>
-                  <LiveTradesColumn book={book} solUsd={feed.solUsd} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} now={now} />
+                  <LiveTradesColumn mint={mint} book={book} solUsd={feed.solUsd} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} now={now} />
                 </div>
               </>
             )}

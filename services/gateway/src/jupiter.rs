@@ -85,6 +85,12 @@ pub struct MarketToken {
     pub created_at: Option<String>,
     /// When the coin left its launchpad curve for a pool (ISO time), if it did.
     pub graduated_at: Option<String>,
+    /// The wallet that created the coin, its share now, how many coins it created and how
+    /// many of them graduated (provider figures, for coins Kixo did not watch launch).
+    pub dev: Option<String>,
+    pub dev_pct: Option<f64>,
+    pub dev_mints: Option<u64>,
+    pub dev_migrations: Option<u64>,
     pub twitter: Option<String>,
     pub telegram: Option<String>,
     pub website: Option<String>,
@@ -114,6 +120,7 @@ struct RawToken {
     launchpad: Option<String>,
     created_at: Option<String>,
     graduated_at: Option<String>,
+    dev: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
     twitter: Option<String>,
@@ -137,6 +144,9 @@ struct RawStats {
 struct RawAudit {
     top_holders_percentage: Option<f64>,
     freeze_authority_disabled: Option<bool>,
+    dev_balance_percentage: Option<f64>,
+    dev_mints: Option<u64>,
+    dev_migrations: Option<u64>,
 }
 
 fn volume(s: &Option<RawStats>) -> Option<f64> {
@@ -180,6 +190,10 @@ impl From<RawToken> for MarketToken {
             launchpad: r.launchpad,
             created_at: r.created_at,
             graduated_at: r.graduated_at,
+            dev: r.dev.filter(|d| crate::account::is_solana_address(d)),
+            dev_pct: round1(r.audit.as_ref().and_then(|a| a.dev_balance_percentage)),
+            dev_mints: r.audit.as_ref().and_then(|a| a.dev_mints),
+            dev_migrations: r.audit.as_ref().and_then(|a| a.dev_migrations),
             // Creator-supplied links: https only, like launch metadata.
             twitter: r.twitter.as_deref().and_then(metadata::twitter_url),
             telegram: r.telegram.as_deref().and_then(metadata::telegram_url),
