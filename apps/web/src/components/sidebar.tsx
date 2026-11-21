@@ -45,13 +45,13 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
   const unread = useSupportUnread();
   const news = useNews(false);
   return (
-    <nav className={`flex flex-col py-2.5 ${rail ? "gap-2 px-2" : "gap-3.5 px-2"}`} aria-label="Main">
+    <nav className={`flex flex-col py-2 ${rail ? "gap-2 px-1.5" : "gap-3 px-1.5"}`} aria-label="Main">
       {NAV_GROUPS.map((group, gi) => (
         <div key={group.label}>
           {rail ? (
             gi > 0 && <div className="mx-2 mb-2 h-px bg-border" aria-hidden="true" />
           ) : (
-            <div className="px-2.5 pb-1 text-[11px] text-muted">{group.label}</div>
+            <div className="px-2 pb-0.5 text-[10.5px] text-muted">{group.label}</div>
           )}
           <ul className="flex flex-col gap-0.5">
             {group.items.map((item) => {
@@ -75,7 +75,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                     aria-pressed={panel ? news.open : undefined}
                     title={rail ? `${item.label}${item.live ? "" : " (soon)"}` : undefined}
                     aria-current={active ? "page" : undefined}
-                    className={`relative flex h-8 items-center rounded-md text-[13px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "justify-center" : "gap-2 px-2.5"} ${
+                    className={`relative flex h-7 items-center rounded-md text-[12.5px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "justify-center" : "gap-2 px-2"} ${
                       active
                         ? "bg-surface-3 text-text"
                         : item.live
@@ -84,10 +84,10 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                     }`}
                   >
                     {/* The active page's marker: a short emerald rail on the left edge. */}
-                    {active && <span className="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-emerald" aria-hidden="true" />}
+                    {active && <span className="absolute top-1 bottom-1 left-0 w-0.5 rounded-full bg-emerald" aria-hidden="true" />}
                     {/* New support replies: a count on Support (a dot on the collapsed rail). */}
                     {item.slug === "support" && unread > 0 && rail && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald" aria-label={`${unread} new replies`} />}
-                    <Icon size={15} strokeWidth={1.5} className={active ? "text-emerald" : item.live ? "text-text-2" : "text-muted/70"} />
+                    <Icon size={14} strokeWidth={1.5} className={active ? "text-emerald" : item.live ? "text-text-2" : "text-muted/70"} />
                     {!rail && (
                       <>
                         <span className="flex-1 truncate">{item.label}</span>
@@ -111,8 +111,8 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/discover" aria-label="Kixo home" className="flex min-h-9 min-w-9 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-emerald">
-      <KixoMark size={20} />
-      {!compact && <span className="text-base font-semibold tracking-tight text-text">Kixo</span>}
+      <KixoMark size={compact ? 26 : 28} />
+      {!compact && <span className="text-xl font-semibold tracking-tight text-text">Kixo</span>}
     </Link>
   );
 }
@@ -137,23 +137,23 @@ export function Sidebar() {
   }, [where]);
 
   return (
-    <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex ${rail ? "w-14" : "w-52"}`}>
-      <div className={`flex h-11 shrink-0 items-center border-b border-border ${rail ? "justify-center" : "px-4"}`}>
+    <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex ${rail ? "w-14" : "w-44"}`}>
+      <div className={`flex h-11 shrink-0 items-center border-b border-border ${rail ? "justify-center" : "px-3"}`}>
         <Logo compact={rail} />
       </div>
       <div className="nav-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         <NavList rail={rail} />
       </div>
-      <div className={`shrink-0 border-t border-border p-2 ${rail ? "flex justify-center" : ""}`}>
+      <div className={`shrink-0 border-t border-border p-1.5 ${rail ? "flex justify-center" : ""}`}>
         <button
           type="button"
           onClick={() => setCollapsed(where, !rail)}
           title={rail ? "Expand sidebar  [" : "Collapse sidebar  ["}
           aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!rail}
-          className={`flex h-8 items-center rounded-md text-[13px] text-muted transition-colors hover:bg-surface-2 hover:text-text-2 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "w-8 justify-center" : "w-full gap-2 px-2.5"}`}
+          className={`flex h-7 items-center rounded-md text-[12.5px] text-muted transition-colors hover:bg-surface-2 hover:text-text-2 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "w-8 justify-center" : "w-full gap-2 px-2"}`}
         >
-          {rail ? <PanelLeftOpen size={16} strokeWidth={1.5} /> : <PanelLeftClose size={16} strokeWidth={1.5} />}
+          {rail ? <PanelLeftOpen size={14} strokeWidth={1.5} /> : <PanelLeftClose size={14} strokeWidth={1.5} />}
           {!rail && (
             <>
               <span className="flex-1 text-left">Collapse</span>

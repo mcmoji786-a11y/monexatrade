@@ -31,7 +31,7 @@ export function PortfolioBoard() {
   if (mine) return <Board key={mine} wallet={mine} viewing={false} top={<div className="flex flex-col gap-4"><KixoWalletCard /><AutoWalletCard /></div>} />;
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-medium text-text">Portfolio</h1>
+      <h1 className="text-xl font-medium text-text">Portfolio</h1>
       <KixoWalletCard />
       <AutoWalletCard />
     </div>
@@ -62,7 +62,7 @@ function Board({ wallet, viewing, top }: { wallet: string; viewing: boolean; top
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-medium text-text">{viewing ? "Wallet portfolio" : "Portfolio"}</h1>
+          <h1 className="text-xl font-medium text-text">{viewing ? "Wallet portfolio" : "Portfolio"}</h1>
           <div className="mt-1 flex items-center gap-2 text-sm text-text-2">
             <CopyAddress value={wallet} className="text-cyan text-xs" />
             {p && <span className="text-xs text-muted">Updated {new Date(p.updated * 1000).toLocaleTimeString()}</span>}
@@ -161,7 +161,7 @@ function Stat({ label, value, sub, big, tone }: { label: string; value: string |
       {value == null ? (
         <div className={`mt-2 animate-pulse rounded bg-surface-3 ${big ? "h-8 w-40" : "h-6 w-24"}`} />
       ) : (
-        <div className={`mt-1 font-medium tabular-nums ${big ? "text-3xl text-text" : `text-xl ${color}`}`}>{value}</div>
+        <div className={`mt-1 font-medium tabular-nums ${big ? "text-2xl text-text" : `text-xl ${color}`}`}>{value}</div>
       )}
       {sub && <div className="mt-1 text-xs text-muted tabular-nums">{sub}</div>}
     </div>

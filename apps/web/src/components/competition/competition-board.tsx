@@ -39,7 +39,7 @@ export function CompetitionBoard() {
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
-          <h1 className="text-2xl font-medium text-text">Weekly competition</h1>
+          <h1 className="text-xl font-medium text-text">Weekly competition</h1>
           <p className="mt-1 max-w-2xl text-sm text-text-2">
             Demo traders ranked by the profit they actually took this week. Everyone trades the live market with the same $10,000
           </p>
@@ -184,7 +184,7 @@ function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-1 font-mono text-xl text-text">{value}</dd>
+      <dd className="mt-1 font-mono text-lg text-text">{value}</dd>
     </div>
   );
 }

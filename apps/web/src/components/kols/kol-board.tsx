@@ -45,7 +45,7 @@ export function KolBoard() {
   return (
     <section className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-medium text-text">KOL Tracker</h1>
+        <h1 className="text-xl font-medium text-text">KOL Tracker</h1>
         <p className="mt-1 max-w-2xl text-sm text-text-2">Well-known traders, named with their X accounts, and every trade they make on new Solana coins, live. Coins they bought show a KOL badge across Kixo</p>
       </div>
 

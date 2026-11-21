@@ -55,7 +55,7 @@ export function XTracker() {
   return (
     <section className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-medium text-text">X Tracker</h1>
+        <h1 className="text-xl font-medium text-text">X Tracker</h1>
         <p className="mt-1 max-w-2xl text-sm text-text-2">Choose X accounts. When one posts a Solana contract address, it shows here with the coin one click away, and an alert reaches your Email, Telegram or Discord</p>
       </div>
 

@@ -47,7 +47,7 @@ export function SettingsBoard() {
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-medium text-text">Settings</h1>
+          <h1 className="text-xl font-medium text-text">Settings</h1>
           <p className="mt-1 text-sm text-text-2">Saved to your account, so they apply on every device you sign in on</p>
         </div>
         <SaveBadge state={save} loaded={loaded} />

@@ -366,7 +366,7 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
       <section className={`grid gap-3 ${compact ? "grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
         <div className={`rounded-xl border border-border bg-bg/40 p-4 ${compact ? "col-span-2" : ""}`}>
           <p className="text-xs text-text-2">Total value</p>
-          <p className="mt-1 font-mono text-3xl tabular-nums text-text">{loading ? <Loader2 size={20} strokeWidth={1.5} className="animate-spin text-muted" /> : usd(total)}</p>
+          <p className="mt-1 font-mono text-2xl tabular-nums text-text">{loading ? <Loader2 size={20} strokeWidth={1.5} className="animate-spin text-muted" /> : usd(total)}</p>
           <p className="mt-1 text-xs text-muted">{p ? `${tokens.length} coins · SOL at ${usd(solUsd)}` : "Reading the chain"}</p>
         </div>
         <Stat label="SOL balance" value={solFmt(p?.sol)} sub={usd(solValue)} />

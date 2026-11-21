@@ -122,13 +122,13 @@ function Hero({ data, failed }: { data: Overview | null; failed: boolean }) {
     <div className="flex flex-col gap-5">
       <div>
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-medium text-text">Kixo AI</h1>
+          <h1 className="text-xl font-medium text-text">Kixo AI</h1>
           <span className={`flex h-6 items-center gap-1.5 rounded-md border border-border px-2 font-mono text-xs ${live ? "text-emerald" : "text-muted"}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald" : failed ? "bg-negative" : "bg-muted"}`} />
             {live ? "Watching" : failed ? "Offline" : "Starting"}
           </span>
         </div>
-        <p className="mt-2 max-w-2xl text-base leading-7 text-text-2">
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-text-2">
           Kixo AI watches every new Solana coin for its first 2 minutes, then tells you in one word if it looks dangerous or promising
         </p>
       </div>

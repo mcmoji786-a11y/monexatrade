@@ -273,29 +273,26 @@ export function RadarBoard() {
   return (
     <section>
       {/* Header strip: title, live state, key numbers and the radar */}
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-        <div className="flex min-w-0 flex-1 basis-72 items-center gap-3">
-          <h1 className="text-xl font-medium text-text">Sol Radar</h1>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5" title="New Solana tokens as they launch, priced from on-chain trades">
+          <h1 className="text-lg font-medium text-text">Sol Radar</h1>
           <LiveBadge status={status} />
-          <p className="hidden truncate text-xs text-muted md:block">
-            New Solana tokens as they launch, priced from on-chain trades
-          </p>
         </div>
 
-        <dl className="grid w-full grid-cols-4 gap-x-3 sm:flex sm:w-auto sm:flex-wrap sm:gap-x-8 sm:gap-y-2">
-          <Stat label="Launches, last min" value={String(lastMinute)} accent />
+        <dl className="flex flex-wrap items-center gap-x-5 gap-y-1">
+          <Stat label="Launches/min" value={String(lastMinute)} accent />
           <Stat label="On the radar" value={String(tokens.length)} />
-          <Stat label="Volume, last hour" value={usd(volume1h)} />
+          <Stat label="Vol 1h" value={usd(volume1h)} />
           <Stat label="SOL" value={solUsd ? `$${solUsd.toFixed(2)}` : "—"} />
         </dl>
 
         <div className="hidden lg:block">
-          <RadarScope tokens={tokens} now={now} size={52} />
+          <RadarScope tokens={tokens} now={now} size={30} />
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-y border-border py-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2 border-y border-border py-1.5">
         <div className="no-scrollbar -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 sm:mx-0 sm:w-auto sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Filter">
           {(Object.keys(FILTERS) as FilterKey[]).map((k) => (
             <button
@@ -444,10 +441,10 @@ function Stat({
   accent?: boolean;
 }) {
   return (
-    <div>
+    <div className="flex items-baseline gap-1.5">
       <dt className="text-[11px] text-muted">{label}</dt>
       <dd
-        className={`font-mono text-sm sm:text-base ${accent ? "text-emerald" : "text-text"}`}
+        className={`font-mono text-[13px] ${accent ? "text-emerald" : "text-text"}`}
       >
         {value}
       </dd>

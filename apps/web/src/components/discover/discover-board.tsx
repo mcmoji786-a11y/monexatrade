@@ -364,7 +364,7 @@ function Spotlight({
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <Tick value={f.raw} className={`font-mono text-2xl ${f.tone}`}>
+            <Tick value={f.raw} className={`font-mono text-xl ${f.tone}`}>
               {f.value}
             </Tick>
             <span className="text-xs text-muted">{f.unit}</span>
@@ -464,7 +464,7 @@ function Stat({ label, value, raw }: { label: string; value: string; raw?: numbe
   return (
     <div>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-1 font-mono text-lg text-text md:text-xl">{raw !== undefined ? <Tick value={raw}>{value}</Tick> : value}</dd>
+      <dd className="mt-1 font-mono text-lg text-text md:text-lg">{raw !== undefined ? <Tick value={raw}>{value}</Tick> : value}</dd>
     </div>
   );
 }

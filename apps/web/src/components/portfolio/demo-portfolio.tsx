@@ -251,7 +251,7 @@ function openedAt(trades: DemoTrade[]) {
 function Title({ round }: { round?: number }) {
   return (
     <div>
-      <h1 className="flex items-center gap-2 text-2xl font-medium text-text">
+      <h1 className="flex items-center gap-2 text-xl font-medium text-text">
         Portfolio <span className="rounded-md border border-warning/30 px-2 py-0.5 text-xs font-normal text-warning">Demo</span>
       </h1>
       <p className="mt-1 text-sm text-text-2">Virtual money traded at live market prices{round ? ` · round ${round + 1}` : ""}</p>
@@ -264,7 +264,7 @@ function Stat({ label, value, sub, big, tone: t }: { label: string; value: strin
   return (
     <div className="bg-surface px-4 py-4">
       <div className="text-xs text-text-2">{label}</div>
-      <div data-private className={`mt-1 font-medium tabular-nums ${big ? "text-2xl text-text sm:text-3xl" : `text-xl ${color}`}`}>{value}</div>
+      <div data-private className={`mt-1 font-medium tabular-nums ${big ? "text-xl text-text sm:text-2xl" : `text-xl ${color}`}`}>{value}</div>
       {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
     </div>
   );

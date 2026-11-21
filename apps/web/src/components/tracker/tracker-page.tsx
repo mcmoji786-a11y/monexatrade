@@ -26,7 +26,7 @@ export function TrackerPage() {
   return (
     <div className="flex flex-col gap-6">
       <header>
-        <h1 className="text-2xl font-medium text-text">Wallet Tracker</h1>
+        <h1 className="text-xl font-medium text-text">Wallet Tracker</h1>
         <p className="mt-1 text-sm text-text-2">Any Solana wallet: its balance in SOL and dollars, every coin it holds, and what it bought and sold in the last hours</p>
       </header>
 

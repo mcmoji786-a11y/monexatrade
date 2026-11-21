@@ -34,7 +34,7 @@ export function MonitorBoard() {
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text">Wallet Monitor</h1>
+            <h1 className="text-xl font-medium text-text">Wallet Monitor</h1>
             <span className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-text-2">
               <span
                 className={`h-1.5 w-1.5 rounded-full ${live ? "live-ring bg-emerald" : "bg-muted"}`}
@@ -448,7 +448,7 @@ function HeadStat({
   return (
     <div>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`mt-1 font-mono text-xl ${tone}`}>
+      <dd className={`mt-1 font-mono text-lg ${tone}`}>
         <Tick value={raw}>{value}</Tick>
       </dd>
     </div>

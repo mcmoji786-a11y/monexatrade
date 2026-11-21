@@ -31,14 +31,14 @@ export function PausableGrid({ tokens, render }: { tokens: RadarToken[]; render:
       {/* Paused: said plainly at the top, with how many new coins wait, so a frozen list
           never reads as a slow feed. "Show now" lets them in without leaving the list. */}
       {frozen && (
-        <div className="sticky top-2 z-10 mb-3 flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-surface-2 px-3 text-xs text-warning shadow-lg shadow-black/30">
-          <Pause size={14} strokeWidth={1.5} />
-          <span>Paused while your pointer is on the list</span>
+        <div className="fixed bottom-4 left-1/2 z-30 flex h-8 -translate-x-1/2 items-center gap-2 rounded-full border border-warning/30 bg-surface-2 px-3 text-xs text-warning shadow-lg shadow-black/40">
+          <Pause size={12} strokeWidth={1.5} />
+          <span>Paused</span>
           {waiting > 0 && (
             <button
               type="button"
               onClick={() => setFrozen(tokens)}
-              className="ml-auto flex h-7 items-center rounded-md bg-warning/15 px-2.5 font-medium text-warning transition-colors hover:bg-warning/25"
+              className="flex h-6 items-center rounded-full bg-warning/15 px-2.5 font-medium text-warning transition-colors hover:bg-warning/25"
             >
               Show {waiting} new
             </button>

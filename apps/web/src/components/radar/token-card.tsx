@@ -139,7 +139,7 @@ function TokenCardView({
   return (
     <article
       onClick={open(token.mint)}
-      className={`group flex h-full cursor-pointer flex-col rounded-lg border bg-surface transition-colors duration-150 hover:bg-surface-2 ${token.arrived ? "row-in" : ""} ${
+      className={`group flex h-full cursor-pointer flex-col rounded-lg border bg-surface transition-colors duration-150 hover:bg-surface-2 ${token.arrived ? "coin-in" : ""} ${
         graduating || lowerRisk ? "border-emerald/40" : "border-border hover:border-[rgb(255_255_255/0.16)]"
       }`}
     >

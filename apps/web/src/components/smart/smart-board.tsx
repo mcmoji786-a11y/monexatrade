@@ -117,7 +117,7 @@ export function SmartMoneyBoard() {
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text">Smart Money</h1>
+            <h1 className="text-xl font-medium text-text">Smart Money</h1>
             <span className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-text-2">
               <span
                 className={`h-1.5 w-1.5 rounded-full ${failed ? "bg-warning" : "live-ring bg-emerald"}`}
@@ -364,7 +364,7 @@ function Podium({
       <div className="flex items-baseline gap-2">
         <Tick
           value={l.realized_sol}
-          className="font-mono text-3xl text-positive"
+          className="font-mono text-2xl text-positive"
         >
           +{sol(l.realized_sol)}
         </Tick>
@@ -502,7 +502,7 @@ function Stat({
   return (
     <div>
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`mt-1 font-mono text-2xl ${tone}`}>
+      <dd className={`mt-1 font-mono text-xl ${tone}`}>
         <Tick value={raw}>{value}</Tick>
       </dd>
     </div>

@@ -59,7 +59,7 @@ export function CashtagView() {
 
   return (
     <section className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-      <h1 className="text-2xl font-medium text-text">${q || "?"}</h1>
+      <h1 className="text-xl font-medium text-text">${q || "?"}</h1>
       {err ? (
         <p className="text-sm text-text-2">Could not search right now. Try again in a moment</p>
       ) : !hits ? (

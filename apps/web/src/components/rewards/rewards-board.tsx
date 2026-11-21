@@ -88,7 +88,7 @@ export function RewardsBoard() {
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text">Rewards</h1>
+            <h1 className="text-xl font-medium text-text">Rewards</h1>
             {cfg.draft && (
               <span className="rounded-md border border-warning/30 px-2 py-0.5 text-xs text-warning">
                 Draft rates
@@ -169,7 +169,7 @@ function Balance({ label }: { label: string }) {
   return (
     <div title="Starts when trading and accounts go live">
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className="mt-1 font-mono text-xl text-text-2">0 SOL</dd>
+      <dd className="mt-1 font-mono text-lg text-text-2">0 SOL</dd>
     </div>
   );
 }
@@ -825,7 +825,7 @@ function Result({
   return (
     <div className="rounded-xl border border-border bg-bg/40 p-3">
       <p className="text-[11px] text-muted">{k}</p>
-      <p className={`mt-1 font-mono text-xl ${tone}`}>{v}</p>
+      <p className={`mt-1 font-mono text-lg ${tone}`}>{v}</p>
       <p className="mt-0.5 text-[11px] text-text-2">{sub}</p>
     </div>
   );

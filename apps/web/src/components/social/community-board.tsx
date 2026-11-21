@@ -37,7 +37,7 @@ export function CommunityBoard() {
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-medium text-text">Community</h1>
+        <h1 className="text-xl font-medium text-text">Community</h1>
         <p className="mt-1 max-w-2xl text-sm text-text-2">Find Kixo users, follow them and copy the ones who win, or watch every trade across Solana live</p>
       </div>
 

@@ -46,7 +46,7 @@ export function SniperBoard() {
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text">Sniper</h1>
+            <h1 className="text-xl font-medium text-text">Sniper</h1>
             {where.account === "real" ? (
               <span className="rounded-md border border-emerald/40 px-2 py-0.5 text-xs text-emerald">Real SOL</span>
             ) : onDemo ? (
@@ -371,7 +371,7 @@ function Stat({ label, value, sub, raw, tone = "text-text" }: { label: string; v
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <dt className="text-xs text-muted">{label}</dt>
-      <dd className={`mt-1 font-mono text-lg whitespace-nowrap sm:text-2xl ${tone}`}>
+      <dd className={`mt-1 font-mono text-lg whitespace-nowrap sm:text-xl ${tone}`}>
         <Tick value={raw}>{value}</Tick>
       </dd>
       {sub && <p className="mt-1 text-[11px] text-muted">{sub}</p>}
