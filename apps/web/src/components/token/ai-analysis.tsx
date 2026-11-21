@@ -239,8 +239,8 @@ function Sources({ ai }: { ai: boolean }) {
 
 /** The first `n` sentences of a text. */
 function firstSentences(t: string, n: number) {
-  const parts = t.match(/[^.!?]+[.!?]+(\s|$)/g);
-  return parts ? parts.slice(0, n).join("").trim() : t;
+  // A sentence ends at . ! or ? followed by a space: decimals like 4.9 stay whole.
+  return t.split(/(?<=[.!?])\s+/).slice(0, n).join(" ").trim();
 }
 
 const SCAN_ICON: Record<Finding["tone"], { Icon: typeof Check; tone: string }> = {
