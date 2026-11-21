@@ -79,7 +79,10 @@ export function useTokenBook(mint: string): BookState {
           loadDex();
         } else if (msg.type === "book") {
           const b = msg.book;
-          set(() => ({ status: "live", source: b.source, pool: b.pool, trades: b.trades, whales: b.whales ?? b.trades.filter((t) => t.whale), candles: b.candles, candleSecs: b.candle_secs, supply: b.supply }));
+          const live: BookState = { status: "live", source: b.source, pool: b.pool, trades: b.trades, whales: b.whales ?? b.trades.filter((t) => t.whale), candles: b.candles, candleSecs: b.candle_secs, supply: b.supply };
+          // A book without candles yet (its history is still loading on the gateway) does
+          // not replace a pool chart already on screen; the next book, with candles, does.
+          set((prev) => (b.candles.length === 0 && prev.status === "dex" && prev.history.candles?.length ? prev : live));
         } else {
           set((b) =>
             b.status !== "live"
@@ -100,18 +103,18 @@ export function useTokenBook(mint: string): BookState {
       };
     };
     connect();
-    // A coin whose pool is still being set up answers after a few seconds. Show its
-    // pool history meanwhile, so the chart is never empty on open; the live book
-    // replaces it as soon as it arrives.
+    // Ask for the pool history at once, next to the live book: whichever comes first
+    // fills the chart, so it is never empty on open; the live book takes over once it
+    // has candles.
     const early = setTimeout(async () => {
       try {
         const res = await fetch(`${GATEWAY_HTTP}/token/${encodeURIComponent(mint)}/dex`);
         const history = res.ok ? ((await res.json()) as DexHistory | null) : null;
-        if (!closed && history?.candles?.length) set((b) => (b.status === "loading" ? { status: "dex", history } : b));
+        if (!closed && history?.candles?.length) set((b) => (b.status === "loading" || (b.status === "live" && b.candles.length === 0) ? { status: "dex", history } : b));
       } catch {
         // the live book will come
       }
-    }, 400);
+    }, 0);
     return () => {
       closed = true;
       clearTimeout(early);

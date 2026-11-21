@@ -1225,27 +1225,28 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
         .is_some_and(|t| t.market.as_ref().is_some_and(|m| m.complete));
     let known = state.books.lock().expect("books lock").contains(&mint);
     let needs_pool = graduated || !known;
-    // The pool's 1 minute history loads while the pool is being set up, so the first
-    // snapshot already has a chart instead of an empty one that fills seconds later.
-    let (history, watching) = tokio::join!(
-        async {
-            if needs_pool {
-                tokio::time::timeout(Duration::from_secs(4), dex::history(&state.http, &state.dex, &mint)).await.ok().flatten()
-            } else {
-                None
+    // The pool's 1 minute history loads in the background: the first snapshot goes out
+    // as soon as the pool is set up, and the chart fills in the moment the history
+    // arrives (a refresh sends the book again). Waiting for it here kept the page blank
+    // for up to 4 seconds.
+    if needs_pool {
+        let (st, m) = (state.clone(), mint.clone());
+        tokio::spawn(async move {
+            if let Ok(Some(h)) = tokio::time::timeout(Duration::from_secs(10), dex::history(&st.http, &st.dex, &m)).await {
+                // The book is made while the pool is set up; the history can land first.
+                for _ in 0..40 {
+                    if st.books.lock().expect("books lock").contains(&m) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                if seed_candles(&st, &m, &h) {
+                    let _ = st.refresh.send(m);
+                }
             }
-        },
-        async {
-            if needs_pool && is_memecoin(&state, &mint).await {
-                watch_pool(&state, &mint).await
-            } else {
-                false
-            }
-        }
-    );
-    if let Some(h) = history {
-        seed_candles(&state, &mint, &h);
+        });
     }
+    let watching = needs_pool && is_memecoin(&state, &mint).await && watch_pool(&state, &mint).await;
     let _viewer = watching.then(|| Viewer::new(state.clone(), mint.clone()));
     let snapshot = state.books.lock().expect("books lock").snapshot(&mint);
     let msg = match snapshot {
