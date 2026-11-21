@@ -92,7 +92,7 @@ const fill = (p) => p.replace(/\{(\w+)\}/g, (_, k) => SAMPLE[k] ?? "x");
 const PUBLIC = [
   /^\/health$/, /^\/features$/, /^\/platform$/, /^\/marketing$/, /^\/rewards\/config$/, /^\/metrics\/public$/, /^\/stats$/, /^\/news$/,
   /^\/search$/, /^\/smart-money$/, /^\/token\//, /^\/wallet\/[^/]+\/(activity|balance|kixo-pnl|live|portfolio)$/, /^\/address\//, /^\/img$/,
-  /^\/price$/, /^\/competition\/onchain$/, /^\/ai\/(risk|overview|chat|similar)$/, /^\/social\/(feed|leaders|traders|trades\/|u\/)/, /^\/alerts\/status$/,
+  /^\/price$/, /^\/competition\/onchain$/, /^\/ai\/(risk|overview|chat|similar|market)$/, /^\/social\/(feed|leaders|traders|trades\/|u\/)/, /^\/alerts\/status$/,
   /^\/sniper\/backtest$/, /^\/demo\/leaderboard$/, /^\/trade\/(config|sender)$/, /^\/ops\/client-error$/, /^\/track\//, /^\/support\/(diagnose|live|presence|ws)$/,
   /^\/ws\//, /^\/promo$/, /^\/kols/, /^\/x-tracker\/status$/,
   // Card deposit partner (an affiliate id, shown in the widget URL anyway) and the published

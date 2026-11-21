@@ -542,6 +542,54 @@ pub struct RiskQuery {
 }
 
 #[derive(serde::Deserialize)]
+pub struct MarketQuery {
+    mint: String,
+}
+
+/// `GET /ai/market?mint=`: Kixo AI's next-hour chances for an established coin on the
+/// market board (ai/train_market.py, served by ai/serve.py /market): reaching +10% / +20%,
+/// falling to -10% / -20%, and ending the hour higher, with the model's test results.
+/// Built from the coin's market row and its last 30 minutes of prices; cached a minute.
+pub async fn market(State(ctx): State<AiCtx>, Query(q): Query<MarketQuery>) -> Json<Value> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (Instant, Value)>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if !ctx.admin.ai_risk() || !crate::account::is_solana_address(&q.mint) {
+        return Json(Value::Null);
+    }
+    if let Some((at, v)) = cache.lock().expect("market ai cache").get(&q.mint) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return Json(v.clone());
+        }
+    }
+    let body = {
+        let board = ctx.app.board.lock().expect("board lock");
+        let Some(m) = board.markets.get(&q.mint) else { return Json(Value::Null) };
+        let series: Vec<(i64, f64)> = board.sparks.get(&q.mint).map(|s| s.iter().copied().collect()).unwrap_or_default();
+        json!({ "market": m, "series": series })
+    };
+    let res = ctx.app.http.post(format!("{}/market", url())).timeout(Duration::from_secs(5)).json(&body).send().await;
+    let v = match res {
+        Ok(r) if r.status().is_success() => r.json::<Value>().await.unwrap_or(Value::Null),
+        _ => Value::Null,
+    };
+    if v.is_null() {
+        return Json(Value::Null);
+    }
+    let health = ctx.app.http.get(format!("{}/market/health", url())).timeout(Duration::from_secs(3)).send().await;
+    let tested = match health {
+        Ok(r) if r.status().is_success() => r.json::<Value>().await.ok().map(|h| json!({ "targets": h["targets"], "backtest": h["backtest"], "trained": h["trained"] })).unwrap_or(Value::Null),
+        _ => Value::Null,
+    };
+    let out = json!({ "chances": v, "tested": tested });
+    let mut c = cache.lock().expect("market ai cache");
+    if c.len() > 2_000 {
+        c.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
+    }
+    c.insert(q.mint.clone(), (Instant::now(), out.clone()));
+    Json(out)
+}
+
+#[derive(serde::Deserialize)]
 pub struct SimilarQuery {
     dump: f64,
     pump: f64,

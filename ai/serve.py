@@ -5,6 +5,9 @@ POST http://127.0.0.1:8090/predict
   {"trades": [{"ts", "slot", "sol_lamports", "v_sol", "v_tokens", "side", "wallet"}...],
    "creator": "...", "launchpad": "pump.fun", "card": {"meta": {...}, "dev_report": {...}}}
 -> {"dump": 0.12, "pump": 0.31, "trades": 57}
+POST http://127.0.0.1:8090/market
+  {"market": {a Discover market row}, "series": [[unix_s, price], ...the last 30 minutes]}
+-> {"up10": .., "up20": .., "down10": .., "down20": .., "green": ..}   (next hour, train_market.py)
 GET  /health -> the models in use and their test results.
 Listens on 127.0.0.1 only, so nothing outside this PC can reach it.
 """
@@ -21,6 +24,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from features import WINDOW, WalletBook, features, model_columns, prepare  # noqa: E402
+import numpy as np  # noqa: E402
+from train_market import FEATURES as MARKET_FEATURES, TARGETS as MARKET_TARGETS, market_features, series_features  # noqa: E402
 
 MODELS = os.environ.get("KIXO_AI", "E:/KixoAI/models")
 PORT = int(os.environ.get("KIXO_AI_PORT", "8090"))
@@ -54,15 +59,61 @@ def load_models():
         print(f"model reload skipped: {e}", flush=True)
 
 
+market_boosters = {}
+market_report = {}
+market_loaded_at = 0.0
+
+
+def load_market_models():
+    """The established-coin models (train_market.py), reloaded when retrained. Optional:
+    without them /market answers 503 and the rest keeps working."""
+    global market_boosters, market_report, market_loaded_at
+    try:
+        stamp = max(os.path.getmtime(f"{MODELS}/market_{t}_latest.txt") for t in MARKET_TARGETS)
+        if stamp <= market_loaded_at or time.time() - stamp < 10:
+            return
+        fresh = {t: lgb.Booster(model_file=f"{MODELS}/market_{t}_latest.txt") for t in MARKET_TARGETS}
+        try:
+            rep_ = json.load(open(f"{MODELS}/market_report_latest.json"))
+        except (OSError, ValueError):
+            rep_ = {}
+        market_boosters, market_report, market_loaded_at = fresh, rep_, stamp
+        print(f"market models loaded (trained {rep_.get('trained', '?')})", flush=True)
+    except Exception as e:
+        print(f"market models not loaded: {e}", flush=True)
+
+
+def predict_market(body):
+    """Next-hour chances for an established coin from its market row and its last 30
+    minutes of prices, built with the same code as training."""
+    m = body.get("market") or {}
+    pts = sorted((int(t), float(p)) for t, p in (body.get("series") or []) if p and p > 0)
+    if not m or not m.get("price_usd"):
+        return None
+    now = pts[-1][0] if pts else 0
+    pts.append((now + 1, float(m["price_usd"])))
+    # Training used one price a minute: keep the newest point per minute.
+    per_min = {}
+    for t, p in pts:
+        per_min[t // 60] = (t, p)
+    ts = np.array([v[0] for v in sorted(per_min.values())], dtype=np.int64)
+    ps = np.array([v[1] for v in sorted(per_min.values())], dtype=np.float64)
+    f = {**market_features(m), **series_features(ts, ps, len(ts) - 1)}
+    x = np.array([[f[k] for k in MARKET_FEATURES]])
+    return {k: round(float(b.predict(x)[0]), 4) for k, b in market_boosters.items()}
+
+
 def maybe_reload():
     global checked_at
     if time.time() - checked_at > 60:
         with lock:
             checked_at = time.time()
             load_models()
+            load_market_models()
 
 
 load_models()
+load_market_models()
 if not boosters:
     sys.exit(f"no models in {MODELS}: run ai\\train_rug.py first")
 
@@ -129,17 +180,28 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/backtest/status":
             return self._send(200, lab.status())
+        if self.path == "/market/health":
+            return self._send(200, {"ok": bool(market_boosters), "trained": market_report.get("trained"), "targets": market_report.get("targets"), "backtest": market_report.get("backtest")})
         if self.path == "/health":
             self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest"), "strategy": strategy_summary()})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path not in ("/predict", "/backtest"):
+        if self.path not in ("/predict", "/backtest", "/market"):
             return self._send(404, {"error": "not found"})
         n = int(self.headers.get("content-length") or 0)
         if n <= 0 or n > MAX_BODY:
             return self._send(400, {"error": "bad body"})
+        if self.path == "/market":
+            maybe_reload()
+            if not market_boosters:
+                return self._send(503, {"error": "market models not trained yet"})
+            try:
+                out = predict_market(json.loads(self.rfile.read(n)))
+            except Exception as e:
+                return self._send(400, {"error": str(e)[:200]})
+            return self._send(200, out) if out else self._send(422, {"error": "no market data"})
         if self.path == "/backtest":
             try:
                 return self._send(200, lab.run(json.loads(self.rfile.read(n))))

@@ -415,7 +415,7 @@ async fn main() -> Result<()> {
     tokio::spawn(news::run(news_ctx.clone()));
     let ai_ctx = ai_risk::AiCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(ai_risk::run(ai_ctx.clone()));
-    let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).route("/ai/overview", get(ai_risk::overview)).route("/ai/similar", get(ai_risk::similar)).route("/sniper/backtest", axum::routing::post(ai_risk::backtest)).with_state(ai_ctx);
+    let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).route("/ai/overview", get(ai_risk::overview)).route("/ai/similar", get(ai_risk::similar)).route("/ai/market", get(ai_risk::market)).route("/sniper/backtest", axum::routing::post(ai_risk::backtest)).with_state(ai_ctx);
     let chat_ctx = ai_chat::ChatCtx { app: state.clone(), admin: admin_state.clone(), http: state.http.clone() };
     let chat_routes: Router<Arc<AppState>> = Router::new().route("/ai/chat", axum::routing::post(ai_chat::chat)).with_state(chat_ctx);
     let news_routes: Router<Arc<AppState>> = Router::new()

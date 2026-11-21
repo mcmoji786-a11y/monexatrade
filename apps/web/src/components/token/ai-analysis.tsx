@@ -91,15 +91,16 @@ export function outlook(risk: AiRisk | null, safety: Safety | null | undefined, 
   return null;
 }
 
-function Outlook({ risk, safety, num, sim }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers; sim: Similar | undefined }) {
+function Outlook({ risk, safety, num, sim, market }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers; sim: Similar | undefined; market: MarketChances | null }) {
   const o = outlook(risk, safety, num?.ageSecs ?? null);
   if (!o) return null;
-  const p = plan(o.tone, risk, safety, num, freshScore(num) ? scoreOf(sim) : null);
+  const p = plan(o.tone, risk, safety, num, freshScore(num) ? scoreOf(sim) : null, market);
   const watching = !risk && num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + 60;
   const reasons = plainReasons(safety, num);
   // "Out of 10 coins like this": past coins with the same AI scores when known, else the AI's own chances.
-  const crash = sim?.similar.crashed ?? risk?.dump ?? null;
-  const double = sim?.similar.doubled ?? risk?.pump ?? null;
+  // Launch-time odds only while they apply: an established coin gets the market forecast instead.
+  const crash = market ? null : (sim?.similar.crashed ?? risk?.dump ?? null);
+  const double = market ? null : (sim?.similar.doubled ?? risk?.pump ?? null);
   return (
     <div className="mb-4 flex flex-col gap-3">
       <div className={`rounded-xl border-2 px-4 py-4 ${TONE[p.tone]}`}>
@@ -383,6 +384,88 @@ function BuyScore({ risk, sim, watching, fresh, ageSecs }: { risk: AiRisk | null
   );
 }
 
+/** Kixo AI's next-hour chances for an established coin (gateway /ai/market, trained by
+ *  ai/train_market.py on the market board's minute-by-minute history). */
+type MarketChances = { up10: number; up20: number; down10: number; down20: number; green: number };
+type MarketForecastData = { chances: MarketChances; tested: { targets?: Record<string, { base_rate: number; auc: number }>; backtest?: Record<string, { trades: number; avg: number; win_rate: number }> } | null } | null;
+
+function useMarketForecast(mint: string, enabled: boolean) {
+  const [state, setState] = useState<{ mint: string; v: MarketForecastData; done: boolean }>({ mint: "", v: null, done: false });
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    fetch(`${GATEWAY_HTTP}/ai/market?mint=${encodeURIComponent(mint)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<MarketForecastData>) : null))
+      .then((v) => alive && setState({ mint, v, done: true }))
+      .catch(() => alive && setState({ mint, v: null, done: true }));
+    return () => {
+      alive = false;
+    };
+  }, [mint, enabled]);
+  if (!enabled) return { v: null, done: true };
+  return state.mint === mint ? { v: state.v, done: state.done } : { v: null, done: false };
+}
+
+/** When the established-coin forecast leans up or says avoid. Checked on 3 unseen days with
+ *  every coin, including the 7 in 10 that left the board within the hour (ai/market_check.py,
+ *  2026-11-21): "avoid" (down10 50%+) really lost 5.4% a trade on 6,926 coins, solid; the
+ *  "leans up" signal made only +0.6% a trade on 6,988 (+4.6% on coins that stayed on the
+ *  board), a small edge, so it is never called a buy. */
+const MARKET_BUY = { up10: 0.5, down10: 0.15 };
+const MARKET_AVOID_DOWN10 = 0.5;
+
+function marketCall(c: MarketChances) {
+  if (c.up10 >= MARKET_BUY.up10 && c.down10 <= MARKET_BUY.down10) return "lean" as const;
+  if (c.down10 >= MARKET_AVOID_DOWN10) return "avoid" as const;
+  return "neutral" as const;
+}
+
+/** The forecast card for an established coin: the chances, against a typical coin. */
+/** "about 3", or "almost none" under one in ten. */
+function howMany(x: number) {
+  return x < 0.05 ? "almost none" : `about ${Math.max(1, Math.round(x * 10))}`;
+}
+
+function MarketForecast({ data, loading }: { data: MarketForecastData; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-bg/60 px-4 py-3 text-sm text-text-2">
+        <Loader2 size={14} strokeWidth={1.5} className="animate-spin text-cyan" />
+        Kixo AI is working out the next hour for this coin
+      </div>
+    );
+  }
+  if (!data) {
+    return <div className="mb-3 rounded-xl border border-border bg-bg/60 px-4 py-3 text-sm text-text-2">Kixo AI&apos;s next-hour forecast is not available for this coin right now (it needs the coin on the live market board).</div>;
+  }
+  const c = data.chances;
+  const call = marketCall(c);
+  const base = (k: string) => data.tested?.targets?.[k]?.base_rate ?? null;
+  const tone = call === "lean" ? "border-positive/40" : call === "avoid" ? "border-negative/40" : "border-border";
+  const line = call === "lean" ? "Leans up for the next hour (small edge)" : call === "avoid" ? "Likely to fall in the next hour" : "No clear direction for the next hour";
+  return (
+    <div className={`mb-3 rounded-xl border-2 bg-bg/60 p-4 ${tone}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted">Kixo AI forecast · next hour</span>
+        <span className={`text-sm font-medium ${call === "lean" ? "text-positive" : call === "avoid" ? "text-negative" : "text-warning"}`}>{line}</span>
+      </div>
+      <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+        <Chance label="Goes up 10%+" value={c.up10} avg={base("up10")} bar="bg-positive" />
+        <Chance label="Falls 10%+" value={c.down10} avg={base("down10")} bar="bg-negative" />
+        <Chance label="Goes up 20%+" value={c.up20} avg={base("up20")} bar="bg-positive" />
+        <Chance label="Falls 20%+" value={c.down20} avg={base("down20")} bar="bg-negative" />
+      </div>
+      <p className="mt-3 text-sm text-text">
+        In simple words: out of 10 hours like this one, <span className="font-semibold text-positive">{howMany(c.up10)}</span> see it rise 10%+ at some point and{" "}
+        <span className="font-semibold text-negative">{howMany(c.down10)}</span> see it drop 10%+.
+      </p>
+      <p className="mt-1 text-[11px] text-muted">
+        From the coin&apos;s live market figures and its last 30 minutes, by a model tested on days it never saw. On those days its &quot;likely to fall&quot; calls lost 5.4% a trade on average; its &quot;leans up&quot; calls made only about +0.6%. A forecast, not a promise
+      </p>
+    </div>
+  );
+}
+
 type Similar = {
   similar: { coins: number; crashed: number; doubled: number; good_buy?: number; trade?: number; low_x: number; high_x: number; high_x_p75: number; low_x_p25: number };
   all: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number };
@@ -500,7 +583,7 @@ function Countdown({ launchedAt, ageSecs }: { launchedAt: number | null; ageSecs
 /** Kixo's plan for the coin in plain words, worked out in code from the same data as the
  *  outlook so it never contradicts it: buy or not, how much, where to get out, and what
  *  would change the picture. Market cap levels are the real numbers for this coin. */
-function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers, buy: number | null = null) {
+function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers, buy: number | null = null, market: MarketChances | null = null) {
   const mc = n?.mcUsd ?? null;
   const at = (x: number) => (mc ? ` (market cap ${usd(mc * x)})` : "");
   const young = n?.ageSecs != null && n.ageSecs < 120;
@@ -515,6 +598,13 @@ function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined
     `If it reaches ${take}x, sell at least half${at(take)}`,
   ];
 
+  // Established coins: the next-hour forecast, tested on unseen days, decides when clear.
+  if (market && marketCall(market) === "lean" && !n?.devSoldAll && tone !== "bad") {
+    return { tone: "muted" as Tone, title: "Leans up, but only a small edge", sub: `Kixo AI sees a ${pct(market.up10)} chance it rises 10%+ within the hour and ${pct(market.down10)} that it drops 10%+. On past days such calls made only about +0.6% a trade`, stepsTitle: "If you buy", steps: ifBuy("a small amount (1 to 3% of your balance)", 0.9, 1.1).map((x) => x.replace("If it reaches 1.1x, sell at least half", "If it rises 10%, take your profit")), watch };
+  }
+  if (market && marketCall(market) === "avoid") {
+    return { tone: "bad" as Tone, title: "Don't buy now", sub: `Kixo AI sees a ${pct(market.down10)} chance it drops 10%+ within the hour`, stepsTitle: "If you already own it", steps: ["Think about selling or setting a stop loss now", "Open this again later: the forecast updates every minute"], watch };
+  }
   // The Kixo Buy Score, tested on thousands of past coins, decides when it is clear.
   if (buy != null && buy >= BUY_AT && !n?.devSoldAll) {
     return { tone: "good" as Tone, title: "Kixo recommends a small buy", sub: "Past coins like this one made money on average. Still a memecoin: only money you can lose", stepsTitle: "How to buy it", steps: ifBuy("a small amount (1 to 3% of your balance)", 0.6, 1.5), watch };
@@ -560,7 +650,7 @@ function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined
     };
   }
   if (tone === "good") {
-    return { tone: "good" as Tone, title: "OK to try, with a small amount", sub: "Fewer warning signs than most new coins. Still risky, like every memecoin", stepsTitle: "If you buy", steps: ifBuy("a small amount (1 to 3% of your balance)", 0.75, 2), watch };
+    return { tone: "good" as Tone, title: "OK to try, with a small amount", sub: "Fewer warning signs than most coins. Still risky, like every memecoin", stepsTitle: "If you buy", steps: ifBuy("a small amount (1 to 3% of your balance)", 0.75, 2), watch };
   }
   if (tone === "warn") {
     return { tone: "warn" as Tone, title: "Risky: a very small amount, or skip", sub: "Some warning signs. Real chance of losing money", stepsTitle: "If you buy anyway", steps: ifBuy("a very small amount (about 1% of your balance)", 0.8, 1.5), watch };
@@ -569,9 +659,9 @@ function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined
 }
 
 /** The question sent to the model: the coin's live facts only, and the shape of the answer. */
-function prompt(input: AnalysisInput, risk: AiRisk | null, scan: Finding[] = [], buy: number | null = null) {
+function prompt(input: AnalysisInput, risk: AiRisk | null, scan: Finding[] = [], buy: number | null = null, market: MarketChances | null = null) {
   const o = outlook(risk, input.safety, input.num?.ageSecs ?? null);
-  const decision = o ? plan(o.tone, risk, input.safety, input.num, buy).title : null;
+  const decision = o ? plan(o.tone, risk, input.safety, input.num, buy, market).title : null;
   const facts = input.facts.map((f) => `${f.label}: ${f.value}`).join("; ");
   const s = input.safety;
   const flags = s ? s.factors.filter((f) => f.points < 0).slice(0, 6).map((f) => (f.detail ? `${f.label} (${f.detail})` : f.label)).join("; ") : "";
@@ -582,6 +672,7 @@ function prompt(input: AnalysisInput, risk: AiRisk | null, scan: Finding[] = [],
     s ? `Kixo safety score ${s.score}/100.${flags ? ` Flags: ${flags}.` : " No red flags."}` : "",
     v && risk ? `Kixo AI word: ${v.label} (crash chance ${pct(risk.dump)}, double chance ${pct(risk.pump)}, from its first 2 minutes).` : "",
     decision ? `Kixo's decision for this coin is: "${decision}". Your read must agree with it: never suggest buying, aping or a stop loss when it says not to buy or to wait.` : "",
+    market ? `Kixo AI's next-hour forecast for this coin: ${pct(market.up10)} chance it rises 10%+, ${pct(market.up20)} that it rises 20%+, ${pct(market.down10)} that it falls 10%+, ${pct(market.down20)} that it falls 20%+. Use these exact chances.` : "",
     scan.length ? `Kixo's live scan of this coin's holders and wallets, just now: ${scan.map((f) => f.text).join("; ")}. This is the newest and most specific information: build the quick take on it.` : "",
     `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a friendly guide to someone buying their first memecoin: simple everyday English, short sentences, no trading jargon (if you must use a word like liquidity or bundle, explain it in a few words). Write chances as whole percentages only (like 17%), never as decimals.`,
     `Answer in plain text, one item per line, every line starting with its label:`,
@@ -602,6 +693,9 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
   const scan = useLiveScan(input.mint);
   const sim = useSimilar(risk);
   const watching = !risk && input.num?.ageSecs != null && input.num.ageSecs < AI_WINDOW_S + 60;
+  // Established coins (no launch score, or one too old to apply): the market forecast.
+  const established = !watching && (!risk || !freshScore(input.num));
+  const market = useMarketForecast(input.mint, established);
   const [rules, setRules] = useState<AnalysisResult | null>(null);
   const [read, setRead] = useState<string[] | null | "loading">("loading");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -627,10 +721,10 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
   // The model's read, once, after the live scan so it can build on it. The AI word is
   // included when it is already known.
   useEffect(() => {
-    if (asked.current || scan.status === "scanning" || (risk && sim === undefined)) return;
+    if (asked.current || scan.status === "scanning" || (risk && sim === undefined) || !market.done) return;
     asked.current = true;
-    askModel(prompt(input, risk, scan.findings, freshScore(input.num) ? scoreOf(sim) : null), []).then((r) => setRead(r && "reply" in r ? plain(r.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean) : null));
-  }, [input, risk, scan, sim]);
+    askModel(prompt(input, risk, scan.findings, freshScore(input.num) ? scoreOf(sim) : null, established ? market.v?.chances ?? null : null), []).then((r) => setRead(r && "reply" in r ? plain(r.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean) : null));
+  }, [input, risk, scan, sim, market, established]);
 
   const follow = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -690,8 +784,8 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {/* Kixo's outlook and call, from the AI model or the safety checks */}
-          <BuyScore risk={risk} sim={sim} watching={watching} fresh={freshScore(input.num)} ageSecs={input.num?.ageSecs ?? null} />
-          <Outlook risk={risk} safety={input.safety} num={input.num} sim={sim} />
+          {established ? <MarketForecast data={market.v} loading={!market.done} /> : <BuyScore risk={risk} sim={sim} watching={watching} fresh={freshScore(input.num)} ageSecs={input.num?.ageSecs ?? null} />}
+          <Outlook risk={risk} safety={input.safety} num={input.num} sim={sim} market={established ? market.v?.chances ?? null : null} />
 
           {/* What Kixo AI found when it checked this coin just now, and its short read */}
           <ScanCard scan={scan} take={read === "loading" ? "loading" : Array.isArray(read) ? firstSentences(parseRead(read).take.join(" "), 2) : null} />
