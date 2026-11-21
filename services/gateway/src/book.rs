@@ -496,6 +496,14 @@ impl Books {
 
     /// Adds indexed history that arrived late (the indexer was rate limited when the
     /// pool was first watched): candles older than the book's first one go in front.
+    /// The coin's first candle and the seconds of chart its book covers, if it has one.
+    pub fn candle_span(&self, mint: &str) -> Option<(i64, i64)> {
+        self.books.get(mint).and_then(|b| {
+            let first = b.candles.front()?.t;
+            Some((first, b.candles.back()?.t - first))
+        })
+    }
+
     pub fn backfill_candles(&mut self, mint: &str, older: Vec<Candle>) {
         let Some(b) = self.books.get_mut(mint) else {
             return;

@@ -148,14 +148,20 @@ export function PriceChart({
   // DEX history comes in 1 minute candles, so shorter intervals are not offered.
   const minSecs = dex ? book.history.candle_secs : 1;
   const tf = Math.max(interval, minSecs);
-  // Pick the starting interval once per coin from how much history it has.
-  const picked = useRef("");
+  // Pick the interval from how much history the coin has: 1 minute once it covers more
+  // than half an hour, else 15 seconds. The history often lands a moment after the first
+  // live candles, so this follows it until the user picks an interval themselves.
+  const userPicked = useRef("");
+  const span = live && book.candles.length >= 2 ? book.candles[book.candles.length - 1].t - book.candles[0].t : 0;
+  const auto = span > 30 * 60 ? 60 : 15;
   useEffect(() => {
-    if (picked.current === mint || !live || book.candles.length < 2) return;
-    picked.current = mint;
-    const span = book.candles[book.candles.length - 1].t - book.candles[0].t;
-    setInterval_(span > 30 * 60 ? 60 : 15);
-  }, [mint, live, book]);
+    if (userPicked.current === mint || !live || span === 0) return;
+    setInterval_(auto);
+  }, [mint, live, span, auto]);
+  const pickInterval = (secs: number) => {
+    userPicked.current = mint;
+    setInterval_(secs);
+  };
 
   // Fallback sampling when the gateway has no trade book for this token.
   const mcRef = useRef(mcUsd);
@@ -398,7 +404,7 @@ export function PriceChart({
       {/* Top toolbar */}
       <div className="no-scrollbar flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1.5 text-xs">
         {INTERVALS.filter((i) => i.secs >= minSecs).map((i) => (
-          <Toggle key={i.secs} on={tf === i.secs} onClick={() => setInterval_(i.secs)}>
+          <Toggle key={i.secs} on={tf === i.secs} onClick={() => pickInterval(i.secs)}>
             {i.label}
           </Toggle>
         ))}

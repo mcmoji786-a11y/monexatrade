@@ -1277,14 +1277,32 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
         fresh_curve = true;
     }
     let needs_pool = graduated || !known;
+    // A book made from live trades alone (after a restart, or by another page) holds only
+    // the last minutes: its earlier chart is fetched too, so the chart is never just a
+    // few candles.
+    // (A coin Kixo watched from launch already has its whole chart.)
+    let launched = state.board.lock().expect("board lock").tokens.get(&mint).map(|t| t.token.timestamp);
+    let thin = known
+        && match state.books.lock().expect("books lock").candle_span(&mint) {
+            Some((first, span)) => span < 30 * 60 && launched.is_none_or(|ts| first - ts > 120),
+            None => true,
+        };
     // The pool's 1 minute history loads in the background: the first snapshot goes out
     // as soon as the pool is set up, and the chart fills in the moment the history
     // arrives (a refresh sends the book again). Waiting for it here kept the page blank
     // for up to 4 seconds.
-    if needs_pool || fresh_curve {
+    if needs_pool || fresh_curve || thin {
         let (st, m) = (state.clone(), mint.clone());
         tokio::spawn(async move {
-            if let Ok(Some(h)) = tokio::time::timeout(Duration::from_secs(10), dex::history(&st.http, &st.dex, &m)).await {
+            // The history provider pauses Kixo for a minute when its limit is hit: try again
+            // a few times instead of leaving the chart with only its newest candles.
+            for attempt in 0..4 {
+                if attempt > 0 {
+                    tokio::time::sleep(Duration::from_secs(20)).await;
+                }
+                let Ok(Some(h)) = tokio::time::timeout(Duration::from_secs(10), dex::history(&st.http, &st.dex, &m)).await else {
+                    continue;
+                };
                 // The book is made while the pool is set up; the history can land first.
                 for _ in 0..40 {
                     if st.books.lock().expect("books lock").contains(&m) {
@@ -1295,6 +1313,7 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
                 if seed_candles(&st, &m, &h) {
                     let _ = st.refresh.send(m);
                 }
+                break;
             }
         });
     }
