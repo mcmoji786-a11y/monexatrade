@@ -32,8 +32,6 @@ import { startTradeTour, TradeTour } from "@/components/tour/trade-tour";
 import { CircleHelp } from "lucide-react";
 import { money, signed } from "./trade-panel";
 import { DockableTrade } from "./floating-trade";
-import { OrdersCard } from "./orders-card";
-import { GridCard } from "./grid-card";
 import { useDemo } from "@/lib/demo";
 
 /** Concentration above these levels is flagged. Facts, not advice. */
@@ -123,10 +121,6 @@ export function TokenView() {
           </div>
           <MyPosition mint={mint} livePrice={row.priceUsd} />
           <CoinProfile row={row} launch={launch} market={market} now={now} />
-          <div data-tour="trade-orders">
-            <OrdersCard mint={mint} symbol={row.symbol} />
-          </div>
-          <GridCard mint={mint} symbol={row.symbol} />
           <TokenInfo row={row} launch={launch} />
         </aside>
       </div>

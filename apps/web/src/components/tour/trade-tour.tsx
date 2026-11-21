@@ -1,7 +1,7 @@
 "use client";
 /* The trade page's own tour: the first time a user opens a coin (after the site tour),
    a walk through the parts of the page. The "Page tour" button replays it. */
-import { ArrowLeftRight, CandlestickChart, Check, Gauge, History, ListOrdered, ShieldCheck, Target } from "lucide-react";
+import { ArrowLeftRight, CandlestickChart, Check, Gauge, History, ListOrdered, ShieldCheck } from "lucide-react";
 import { Tour, tourDone, type Step } from "./product-tour";
 
 const EVENT = "kixo:trade-tour";
@@ -18,7 +18,6 @@ const STEPS: Step[] = [
   { anchor: "trade-chart", icon: CandlestickChart, title: "The chart", body: "Market cap or price, any time frame, drawing tools and indicators. Letters mark the trades that matter", extra: "marks" },
   { anchor: "trade-activity", icon: ListOrdered, title: "Every trade, live", body: "Trades, holders, top traders, and what the creator and early buyers did. Filter by whale, smart wallet or creator" },
   { anchor: "trade-box", icon: ArrowLeftRight, title: "Buy and sell", body: "Pick an amount and press Buy. In Demo it spends your virtual $10,000 at the real price, with the fees shown before you trade" },
-  { anchor: "trade-orders", icon: Target, title: "Exit plans", body: "Take profit, stop loss, limit orders and a trailing stop sell for you, even while you look at another coin" },
   { anchor: null, icon: Check, title: "Ready to trade", body: "Try a small demo buy. If you want a guard rail, Settings, Safety sets a daily loss limit" },
 ];
 

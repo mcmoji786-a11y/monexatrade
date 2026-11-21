@@ -27,7 +27,8 @@ export function Toaster() {
 }
 
 const usdFmt = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2 });
-const priceFmt = (v: number) => (v >= 0.01 ? `$${v.toPrecision(4)}` : `$${v.toExponential(2)}`);
+/** $0.08150, $0.00000580: plain digits, never 1.72e-3. */
+const priceFmt = (v: number) => (v >= 1 ? `$${v.toFixed(4)}` : `$${v.toFixed(Math.min(12, Math.ceil(-Math.log10(v)) + 3))}`);
 
 /** A filled trade in two slim lines: side, coin and the amount (a sell's profit in its
  *  colour), then the fill price and fee with Open coin and View card. */
