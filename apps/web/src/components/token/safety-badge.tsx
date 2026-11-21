@@ -1,22 +1,29 @@
 "use client";
 
+import { useState } from "react";
 import { useFeatures } from "@/lib/features";
 import type { Safety } from "@/lib/safety";
 
 const TONE = { higher: "text-positive", medium: "text-warning", low: "text-negative" } as const;
 const WORD = { higher: "Fewer red flags", medium: "Some red flags", low: "Many red flags" } as const;
 
-/** Safety score as a small ring with the number; hover or focus lists every factor and
+/** Safety score as a small ring with the number; a click lists every factor and
  *  the points it moved. `size`: "sm" for tables and cards, "md" for spotlights. */
 function SafetyBadgeInner({ safety, size = "sm", align = "left" }: { safety: Safety; size?: "sm" | "md"; align?: "left" | "right" }) {
   const r = size === "md" ? 15 : 11;
   const box = (r + 3) * 2;
   const c = 2 * Math.PI * r;
   const tone = TONE[safety.level];
+  // Opens on a click on the score only; closes on a click anywhere else or Escape.
+  const [open, setOpen] = useState(false);
   return (
-    <span className="group relative inline-flex" onClick={(e) => e.stopPropagation()}>
+    <span className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
         aria-label={`Safety score ${safety.score} of 100: ${WORD[safety.level]}`}
         className={`inline-flex items-center gap-1.5 rounded-full focus-visible:outline-2 focus-visible:outline-emerald ${tone}`}
       >
@@ -39,7 +46,7 @@ function SafetyBadgeInner({ safety, size = "sm", align = "left" }: { safety: Saf
       </button>
       <span
         role="tooltip"
-        className={`pointer-events-none invisible absolute bottom-full ${align === "right" ? "right-0" : "left-0"} z-30 mb-2 block w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-2 p-3 text-left opacity-0 shadow-lg transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-hover:delay-300 group-has-[:focus-visible]:visible group-has-[:focus-visible]:opacity-100`}
+        className={`pointer-events-none absolute bottom-full ${align === "right" ? "right-0" : "left-0"} z-30 mb-2 block w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-2 p-3 text-left shadow-lg transition-[opacity,visibility] duration-150 ${open ? "visible opacity-100" : "invisible opacity-0"}`}
       >
         <span className="flex items-baseline justify-between">
           <span className="text-xs font-medium text-text">Safety {safety.score}/100</span>

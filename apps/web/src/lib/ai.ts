@@ -19,6 +19,18 @@ export type AnalysisInput = {
   facts: Fact[];
   /** The coin's safety score and its reasons (safety.ts), the same as on its card. */
   safety?: Safety | null;
+  /** The raw numbers the trading plan is worked out from (null when unknown). */
+  num?: Numbers;
+};
+
+export type Numbers = {
+  mcUsd: number | null;
+  holders: number | null;
+  ageSecs: number | null;
+  change5m: number | null;
+  buys1h: number | null;
+  sells1h: number | null;
+  devSoldAll: boolean | null;
 };
 
 export type AnalysisResult =
@@ -88,6 +100,15 @@ export function inputFromRow(r: DiscoverRow): AnalysisInput {
       { label: "Early buyers hold", value: p1(r.sniperPct) },
       { label: "Socials", value: [r.twitter && "X", r.telegram && "Telegram", r.website && "Website"].filter(Boolean).join(", ") || "None" },
     ],
+    num: {
+      mcUsd: r.mcUsd,
+      holders: r.holders,
+      ageSecs: r.createdAt != null ? Date.now() / 1000 - r.createdAt : null,
+      change5m: r.change5m,
+      buys1h: r.buys1h,
+      sells1h: r.sells1h,
+      devSoldAll: null,
+    },
   };
 }
 
@@ -113,5 +134,14 @@ export function inputFromLaunch(t: FeedToken): AnalysisInput {
       { label: "Whale buys 1h", value: n(m?.whale_buys_1h) },
       { label: "Socials", value: [t.meta?.twitter && "X", t.meta?.telegram && "Telegram", t.meta?.website && "Website"].filter(Boolean).join(", ") || "None" },
     ],
+    num: {
+      mcUsd: m?.sol_quoted ? m.mc_usd : null,
+      holders: m ? m.holders : null,
+      ageSecs: Date.now() / 1000 - t.timestamp,
+      change5m: m?.change_5m_pct ?? null,
+      buys1h: m ? m.buys_1h : null,
+      sells1h: m ? m.sells_1h : null,
+      devSoldAll: m ? m.dev_sold_all : null,
+    },
   };
 }

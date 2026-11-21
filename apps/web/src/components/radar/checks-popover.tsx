@@ -1,19 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import { Check, ShieldCheck, X } from "lucide-react";
 import { NEW_LAUNCH, type Check as RiskCheck } from "@/lib/risk";
 
-/** "n/15 checks" chip; hover or focus shows every check. `listed` is true while the
+/** "n/15 checks" chip; a click shows every check. `listed` is true while the
  *  coin is on the lower-risk list (safety score 80+, or its first 3 minutes there). */
 export function ChecksChip({ checks, listed, score, align = "left" }: { checks: RiskCheck[]; listed: boolean; score: number; align?: "left" | "right" }) {
   const required = checks;
   const passed = checks.filter((c) => c.ok).length;
   const all = listed;
   const holding = listed && score < NEW_LAUNCH.minSafety;
+  // Opens on a click on the chip only; closes on a click anywhere else or Escape.
+  const [open, setOpen] = useState(false);
   return (
-    <span className="group relative" onClick={(e) => e.stopPropagation()}>
+    <span className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
         className={`flex h-6 items-center gap-1 rounded-full border px-2 text-[11px] focus-visible:outline-2 focus-visible:outline-emerald ${
           all ? "border-emerald/30 text-emerald" : "border-border text-text-2"
         }`}
@@ -24,7 +31,7 @@ export function ChecksChip({ checks, listed, score, align = "left" }: { checks: 
       </button>
       <span
         role="tooltip"
-        className={`pointer-events-none invisible absolute bottom-full ${align === "right" ? "right-0" : "left-0"} z-30 mb-2 w-72 rounded-lg border border-border bg-surface-2 p-3 opacity-0 shadow-lg transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-hover:delay-300 group-has-[:focus-visible]:visible group-has-[:focus-visible]:opacity-100`}
+        className={`pointer-events-none absolute bottom-full ${align === "right" ? "right-0" : "left-0"} z-30 mb-2 w-72 rounded-lg border border-border bg-surface-2 p-3 shadow-lg transition-[opacity,visibility] duration-150 ${open ? "visible opacity-100" : "invisible opacity-0"}`}
       >
         <span className="block text-xs font-medium text-text">
           {passed} of {required.length} checks passed

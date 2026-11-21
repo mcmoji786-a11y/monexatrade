@@ -7,7 +7,8 @@ import { useFeatures } from "@/lib/features";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, Check, Loader2, Sparkle, X } from "lucide-react";
-import { analyze, type AnalysisInput, type AnalysisResult } from "@/lib/ai";
+import { analyze, type AnalysisInput, type AnalysisResult, type Numbers } from "@/lib/ai";
+import { usd } from "@/lib/gateway";
 import { askModel, looksSecret, plain, SECRET_REPLY } from "@/lib/ai-chat";
 import { pct, useAiRisk, verdict, type AiRisk } from "@/lib/ai-risk";
 import { tokenHref } from "@/lib/open-token";
@@ -49,7 +50,7 @@ const TONE: Record<Tone, string> = {
 /** Kixo's own outlook and call for a coin, worked out in code so they are always clear and
  *  never contradict the data: the AI model's chances for a new launch, otherwise the
  *  safety score from Kixo's checks. */
-export function outlook(risk: AiRisk | null, safety: Safety | null | undefined) {
+export function outlook(risk: AiRisk | null, safety: Safety | null | undefined, ageSecs: number | null = null) {
   if (risk) {
     const v = verdict(risk);
     const call: [Tone, string] =
@@ -78,16 +79,20 @@ export function outlook(risk: AiRisk | null, safety: Safety | null | undefined) 
       tone,
       word: level,
       headline: worst.length ? `Safety score ${safety.score}/100. Biggest risks: ${worst.join("; ")}` : `Safety score ${safety.score}/100, no red flags in Kixo's checks`,
-      source: "Kixo's safety checks. Kixo AI scores coins in their first 2 minutes; this one is older",
+      source:
+        ageSecs != null && ageSecs < 180
+          ? "Kixo's safety checks. Kixo AI adds its own score once the coin has 2 minutes of trades"
+          : "Kixo's safety checks. Kixo AI scores coins in their first 2 minutes; this one is older",
       call,
     };
   }
   return null;
 }
 
-function Outlook({ risk, safety }: { risk: AiRisk | null; safety: Safety | null | undefined }) {
-  const o = outlook(risk, safety);
+function Outlook({ risk, safety, num }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers }) {
+  const o = outlook(risk, safety, num?.ageSecs ?? null);
   if (!o) return null;
+  const p = plan(o.tone, risk, safety, num);
   return (
     <div className="mb-5 flex flex-col gap-3">
       <div className="rounded-lg border border-border bg-bg/60 px-4 py-3">
@@ -98,12 +103,126 @@ function Outlook({ risk, safety }: { risk: AiRisk | null; safety: Safety | null 
         <p className="mt-2 text-sm leading-6 text-text">{o.headline}</p>
         <p className="mt-1 text-xs text-muted">{o.source}</p>
       </div>
-      <div className={`rounded-lg border px-4 py-3 ${TONE[o.call[0]]}`}>
-        <p className="text-xs text-muted">Kixo&apos;s call</p>
-        <p className="mt-1 text-sm">{o.call[1]}</p>
+      <div className={`rounded-lg border px-4 py-3 ${TONE[p.tone]}`}>
+        <p className="text-xs text-muted">What to do</p>
+        <p className="mt-1 text-base font-medium">{p.title}</p>
+        <ul className="mt-2 flex flex-col gap-1.5 text-sm leading-6 text-text">
+          {p.steps.map((s) => (
+            <li key={s} className="flex gap-2">
+              <span className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" aria-hidden="true" />
+              {s}
+            </li>
+          ))}
+        </ul>
+        {p.watch.length > 0 && (
+          <>
+            <p className="mt-3 text-xs text-muted">Watch for</p>
+            <ul className="mt-1 flex flex-col gap-1 text-[13px] leading-5 text-text-2">
+              {p.watch.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+/** Kixo's plan for the coin in plain words, worked out in code from the same data as the
+ *  outlook so it never contradicts it: buy or not, how much, where to get out, and what
+ *  would change the picture. Market cap levels are the real numbers for this coin. */
+function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers) {
+  const mc = n?.mcUsd ?? null;
+  const at = (x: number) => (mc ? ` (market cap about ${usd(mc * x)})` : "");
+  const young = n?.ageSecs != null && n.ageSecs < 120;
+  const fewHolders = n?.holders != null && n.holders < 20;
+  const falling = n?.change5m != null && n.change5m <= -30;
+  const pumped = n?.change5m != null && n.change5m >= 100;
+  const sellers = n?.buys1h != null && n?.sells1h != null && n.sells1h > n.buys1h * 1.5 && n.sells1h >= 10;
+  const v = risk ? verdict(risk).key : null;
+  const watch: string[] = [];
+  if (n?.devSoldAll) watch.push("The dev already sold everything: nobody behind it is holding");
+  else watch.push("Get out at once if the dev starts selling");
+  if (fewHolders) watch.push("Holders climbing past 20 is the first sign real buyers are coming");
+  if (sellers) watch.push(`More sellers than buyers in the last hour (${n?.sells1h} sells, ${n?.buys1h} buys)`);
+
+  const avoid = tone === "bad" || v === "danger" || n?.devSoldAll;
+  if (avoid) {
+    return {
+      tone: "bad" as Tone,
+      title: "Avoid. Don't buy this one",
+      steps: [
+        v === "danger"
+          ? `Kixo AI gives it a ${pct(risk!.dump)} chance of crashing 70% or more within the hour`
+          : `Safety score ${safety?.score ?? "low"}/100: too many red flags`,
+        "If you already hold it, sell into the next green candle instead of hoping",
+        "There are new coins every minute. Skipping this one costs you nothing",
+      ],
+      watch,
+    };
+  }
+  if (young || fewHolders) {
+    return {
+      tone: "warn" as Tone,
+      title: "Wait. Too early to tell",
+      steps: [
+        young ? "It is under 2 minutes old: most of the risk shows in the first minutes" : `Only ${n?.holders} holders so far: a few wallets can move the price anywhere`,
+        "Come back when it has 20+ holders and the dev still holds",
+        "If you buy anyway, use a small test amount you are fine losing",
+      ],
+      watch,
+    };
+  }
+  if (falling) {
+    return {
+      tone: "warn" as Tone,
+      title: "Wait. It is dropping fast",
+      steps: [
+        `Down ${Math.abs(n!.change5m!).toFixed(0)}% in 5 minutes. Don't catch a falling knife`,
+        "Wait for 2 or 3 candles that stop going lower before you think about buying",
+      ],
+      watch,
+    };
+  }
+  if (pumped) {
+    return {
+      tone: "warn" as Tone,
+      title: "Don't chase. It already pumped",
+      steps: [
+        `Up ${n!.change5m!.toFixed(0)}% in 5 minutes. Buying now often means buying the top`,
+        "Wait for a pullback of 20 to 30% that holds, then a small buy",
+        `If you already hold it, take some profit now`,
+      ],
+      watch,
+    };
+  }
+  if (tone === "good") {
+    return {
+      tone: "good" as Tone,
+      title: "OK for a small buy, with a plan",
+      steps: [
+        "Use a small size: 1 to 3% of your balance",
+        `Stop loss at -25%${at(0.75)}`,
+        `Sell half at 2x${at(2)}, then let the rest run with a 20% trailing stop`,
+      ],
+      watch,
+    };
+  }
+  if (tone === "warn") {
+    return {
+      tone: "warn" as Tone,
+      title: "Only a small test buy, or skip",
+      steps: ["Real crash risk. Keep it to 1% of your balance", `Tight stop loss at -20%${at(0.8)}`, `Take profit early, around +50%${at(1.5)}`],
+      watch,
+    };
+  }
+  return {
+    tone: "muted" as Tone,
+    title: "Nothing special. Skip unless you have a reason",
+    steps: ["No strong signal either way from Kixo AI", `If you trade it, stop loss at -20%${at(0.8)} and keep it small`],
+    watch,
+  };
 }
 
 /** The question sent to the model: the coin's live facts only, and the shape of the answer. */
@@ -122,7 +241,7 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
     `Good: one strength per line, up to 3 lines, each with the real number.`,
     `Bad: one risk per line, up to 3 lines, each with the real number (dev selling, bundlers or snipers holding, top 10 share, dev's past rugs).`,
-    `Rules for you, never repeat them: top 10 holders under 20% is healthy (Good), over 30% is a risk (Bad). Liquidity under $10K is thin (Bad), over $50K is decent (Good). Bundles or snipers still holding over 10% is a risk. Kixo's safety score: 75 or more is good, under 50 is a risk (a low score is never a strength). A fact goes in Good or in Bad, never both, and never contradict yourself. The live facts above come first: if LIVE DATA disagrees or is missing, trust the live facts. Never list missing or unknown data as a strength or a risk; just leave it out.`,
+    `Rules for you, never repeat them: top 10 holders under 20% is healthy (Good), over 30% is a risk (Bad). Liquidity under $10K is thin (Bad), over $50K is decent (Good). Bundles or snipers still holding over 10% is a risk. Kixo's safety score: 75 or more is good, under 50 is a risk (a low score is never a strength). A fact goes in Good or in Bad, never both, and never contradict yourself. The live facts above come first: if LIVE DATA disagrees or is missing, trust the live facts. Never list missing or unknown data as a strength or a risk; just leave it out. With fewer than 10 holders, holder shares (top 10, dev, early buyers) mean nothing yet: never list them as Good.`,
     `Do not write a prediction or a call: Kixo adds those itself.`,
   ]
     .filter(Boolean)
@@ -189,7 +308,7 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16 font-sans"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
@@ -220,7 +339,7 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {/* Kixo's outlook and call, from the AI model or the safety checks */}
-          <Outlook risk={risk} safety={input.safety} />
+          <Outlook risk={risk} safety={input.safety} num={input.num} />
 
           {/* The written read */}
           {read === "loading" ? (
