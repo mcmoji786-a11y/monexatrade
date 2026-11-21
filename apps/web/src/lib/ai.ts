@@ -27,6 +27,8 @@ export type Numbers = {
   mcUsd: number | null;
   holders: number | null;
   ageSecs: number | null;
+  /** Launch time, unix seconds. */
+  launchedAt: number | null;
   change5m: number | null;
   buys1h: number | null;
   sells1h: number | null;
@@ -104,6 +106,7 @@ export function inputFromRow(r: DiscoverRow): AnalysisInput {
       mcUsd: r.mcUsd,
       holders: r.holders,
       ageSecs: r.createdAt != null ? Date.now() / 1000 - r.createdAt : null,
+      launchedAt: r.createdAt,
       change5m: r.change5m,
       buys1h: r.buys1h,
       sells1h: r.sells1h,
@@ -138,6 +141,7 @@ export function inputFromLaunch(t: FeedToken): AnalysisInput {
       mcUsd: m?.sol_quoted ? m.mc_usd : null,
       holders: m ? m.holders : null,
       ageSecs: Date.now() / 1000 - t.timestamp,
+      launchedAt: t.timestamp,
       change5m: m?.change_5m_pct ?? null,
       buys1h: m ? m.buys_1h : null,
       sells1h: m ? m.sells_1h : null,

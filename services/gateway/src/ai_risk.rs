@@ -541,6 +541,59 @@ pub struct RiskQuery {
     mints: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+pub struct SimilarQuery {
+    dump: f64,
+    pump: f64,
+}
+
+/// Past coins compared with a coin's AI scores.
+const SIMILAR_N: usize = 150;
+
+/// What happened to the past coins whose AI scores were closest to `dump` and `pump`: how
+/// many, the share that crashed 70%+ or doubled within the hour, and their typical lowest
+/// and highest price in that hour as multiples of the price when scored. Also the same for
+/// every coin, to compare. `None` when too few outcomes are known yet.
+fn similar_stats(outcomes: &[&Outcome], dump: f64, pump: f64) -> Option<Value> {
+    let known: Vec<&&Outcome> = outcomes.iter().filter(|o| o.low_x > 0.0 && o.high_x > 0.0).collect();
+    if known.len() < SIMILAR_N {
+        return None;
+    }
+    // Distance on square roots: small chances (1% vs 3%) stay apart, large ones close.
+    let d = |o: &Outcome| (o.dump.sqrt() - dump.sqrt()).powi(2) + (o.pump.sqrt() - pump.sqrt()).powi(2);
+    let mut near: Vec<&&Outcome> = known.clone();
+    near.sort_by(|a, b| d(a).total_cmp(&d(b)));
+    near.truncate(SIMILAR_N);
+    let stats = |set: &[&&Outcome]| {
+        let n = set.len() as f64;
+        let mut low: Vec<f64> = set.iter().map(|o| o.low_x).collect();
+        let mut high: Vec<f64> = set.iter().map(|o| o.high_x).collect();
+        low.sort_by(f64::total_cmp);
+        high.sort_by(f64::total_cmp);
+        let q = |v: &[f64], p: f64| (v[((v.len() - 1) as f64 * p).round() as usize] * 1000.0).round() / 1000.0;
+        json!({
+            "coins": set.len(),
+            "crashed": ((set.iter().filter(|o| o.dumped).count() as f64 / n) * 1000.0).round() / 1000.0,
+            "doubled": ((set.iter().filter(|o| o.doubled).count() as f64 / n) * 1000.0).round() / 1000.0,
+            "low_x": q(&low, 0.5),
+            "high_x": q(&high, 0.5),
+            "high_x_p75": q(&high, 0.75),
+            "low_x_p25": q(&low, 0.25),
+        })
+    };
+    Some(json!({ "similar": stats(&near), "all": stats(&known) }))
+}
+
+/// `GET /ai/similar?dump=&pump=`: `similar_stats` over the last two days.
+pub async fn similar(State(ctx): State<AiCtx>, Query(q): Query<SimilarQuery>) -> Json<Value> {
+    if !ctx.admin.ai_risk() || !q.dump.is_finite() || !q.pump.is_finite() {
+        return Json(Value::Null);
+    }
+    let s = store().lock().expect("ai store lock");
+    let o: Vec<&Outcome> = s.outcomes.iter().collect();
+    Json(similar_stats(&o, q.dump.clamp(0.0, 1.0), q.pump.clamp(0.0, 1.0)).unwrap_or(Value::Null))
+}
+
 /// `GET /ai/risk?mints=a,b` -> `{ on, service, risk: { mint: {dump, pump, trades, at} } }`.
 pub async fn get_risk(State(ctx): State<AiCtx>, Query(q): Query<RiskQuery>) -> Json<Value> {
     if !ctx.admin.ai_risk() {
@@ -559,6 +612,28 @@ pub async fn get_risk(State(ctx): State<AiCtx>, Query(q): Query<RiskQuery>) -> J
         .collect();
     let waiting = q.mints.as_deref().unwrap_or("").split(',').map(str::trim).filter(|m| s.pending.contains_key(*m)).count();
     Json(json!({ "on": true, "service": s.service_up, "window_s": WINDOW, "risk": risk, "waiting": waiting }))
+}
+
+#[cfg(test)]
+mod similar_tests {
+    use super::*;
+
+    fn o(dump: f64, pump: f64, dumped: bool, low_x: f64, high_x: f64) -> Outcome {
+        Outcome { at: 0, dump, pump, dumped, doubled: high_x >= 2.0, mint: String::new(), symbol: String::new(), low_x, high_x }
+    }
+
+    #[test]
+    fn neighbours_of_a_danger_score_are_the_danger_coins() {
+        let mut v: Vec<Outcome> = (0..300).map(|_| o(0.02, 0.01, false, 0.9, 1.1)).collect();
+        v.extend((0..200).map(|_| o(0.8, 0.3, true, 0.2, 1.5)));
+        let refs: Vec<&Outcome> = v.iter().collect();
+        let r = similar_stats(&refs, 0.75, 0.3).unwrap();
+        assert_eq!(r["similar"]["coins"], 150);
+        assert_eq!(r["similar"]["crashed"], 1.0);
+        assert_eq!(r["similar"]["low_x"], 0.2);
+        assert_eq!(r["all"]["coins"], 500);
+        assert!(similar_stats(&refs[..100], 0.5, 0.5).is_none(), "too few outcomes");
+    }
 }
 
 #[cfg(test)]

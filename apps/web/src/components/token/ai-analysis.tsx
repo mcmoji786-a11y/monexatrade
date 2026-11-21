@@ -8,11 +8,12 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUp, Check, Loader2, Sparkle, X } from "lucide-react";
 import { analyze, type AnalysisInput, type AnalysisResult, type Numbers } from "@/lib/ai";
-import { usd } from "@/lib/gateway";
+import { GATEWAY_HTTP, usd } from "@/lib/gateway";
 import { askModel, looksSecret, plain, SECRET_REPLY } from "@/lib/ai-chat";
-import { pct, useAiRisk, verdict, type AiRisk } from "@/lib/ai-risk";
+import { AI_WINDOW_S, pct, useAiRisk, verdict, type AiRisk } from "@/lib/ai-risk";
 import { tokenHref } from "@/lib/open-token";
 import { TokenLogo } from "./token-bits";
+import { useNow } from "@/components/radar/use-radar-feed";
 import type { Safety } from "@/lib/safety";
 
 /** "AI" button on a coin. `compact` is the small table version. */
@@ -93,9 +94,15 @@ function Outlook({ risk, safety, num }: { risk: AiRisk | null; safety: Safety | 
   const o = outlook(risk, safety, num?.ageSecs ?? null);
   if (!o) return null;
   const p = plan(o.tone, risk, safety, num);
+  const watching = !risk && num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + 60;
   return (
     <div className="mb-5 flex flex-col gap-3">
-      <div className="rounded-lg border border-border bg-bg/60 px-4 py-3">
+      {risk ? (
+        <Prediction risk={risk} num={num} />
+      ) : watching ? (
+        <Countdown launchedAt={num?.launchedAt ?? null} ageSecs={num!.ageSecs!} />
+      ) : null}
+      <div className={`rounded-lg border border-border bg-bg/60 px-4 py-3 ${risk ? "hidden" : ""}`}>
         <div className="flex flex-wrap items-center gap-3">
           <span className={`inline-flex h-7 items-center rounded-full border px-3 text-sm font-medium ${TONE[o.tone]}`}>{o.word}</span>
           <span className="text-xs text-muted">Next hour</span>
@@ -125,6 +132,119 @@ function Outlook({ risk, safety, num }: { risk: AiRisk | null; safety: Safety | 
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+type Similar = {
+  similar: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number; high_x_p75: number; low_x_p25: number };
+  all: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number };
+} | null;
+
+/** What happened to past coins with the same AI scores (gateway /ai/similar). */
+function useSimilar(risk: AiRisk | null) {
+  const key = risk ? `${risk.dump.toFixed(3)}|${risk.pump.toFixed(3)}` : "";
+  const [state, setState] = useState<{ key: string; v: Similar }>({ key: "", v: null });
+  useEffect(() => {
+    if (!key) return;
+    const [dump, pump] = key.split("|");
+    let alive = true;
+    fetch(`${GATEWAY_HTTP}/ai/similar?dump=${dump}&pump=${pump}`)
+      .then((r) => (r.ok ? (r.json() as Promise<Similar>) : null))
+      .then((v) => alive && setState({ key, v }))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  return state.key === key ? state.v : null;
+}
+
+const change = (x: number) => `${x >= 1 ? "+" : "−"}${Math.abs((x - 1) * 100).toFixed(0)}%`;
+
+/** Kixo AI's own prediction for the next hour: its word, the crash and double chances
+ *  against an average coin, what happened to past coins with the same scores, and the
+ *  market cap range that follows from them. */
+function Prediction({ risk, num }: { risk: AiRisk; num?: Numbers }) {
+  const v = verdict(risk);
+  const sim = useSimilar(risk);
+  const tone = v.key === "danger" ? "border-negative/40" : v.key === "careful" ? "border-warning/40" : v.key === "good" ? "border-positive/40" : "border-border";
+  // The past coins' moves start from the price when they were scored: the range in market
+  // cap only holds while this coin is still near that moment.
+  const mc = num?.mcUsd ?? null;
+  const fresh = num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + 6 * 60;
+  return (
+    <div className={`rounded-lg border bg-bg/60 p-4 ${tone}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted">Kixo AI prediction · next hour</span>
+        <span className={`inline-flex h-7 items-center rounded-full border px-3 text-sm font-medium ${v.className}`}>{v.label}</span>
+      </div>
+      <p className="mt-2 text-sm font-medium text-text">{v.sentence}</p>
+
+      <div className="mt-3 flex flex-col gap-2.5">
+        <Chance label="Crashes 70% or more" value={risk.dump} avg={sim?.all.crashed ?? null} bar="bg-negative" />
+        <Chance label="Doubles (2x)" value={risk.pump} avg={sim?.all.doubled ?? null} bar="bg-positive" />
+      </div>
+
+      {sim && (
+        <div className="mt-3 rounded-md border border-border bg-surface px-3 py-2.5 text-xs leading-5 text-text-2">
+          <p>
+            The {sim.similar.coins} past coins with the closest scores (last 2 days):{" "}
+            <span className="font-mono text-negative">{pct(sim.similar.crashed)}</span> crashed,{" "}
+            <span className="font-mono text-positive">{pct(sim.similar.doubled)}</span> doubled. Typical hour: low{" "}
+            <span className="font-mono text-text">{change(sim.similar.low_x)}</span>, high <span className="font-mono text-text">{change(sim.similar.high_x)}</span>.
+          </p>
+          {mc != null && fresh && (
+            <p className="mt-1.5">
+              Likely market cap within the hour: <span className="font-mono text-text">{usd(mc * sim.similar.low_x)}</span> to{" "}
+              <span className="font-mono text-text">{usd(mc * sim.similar.high_x)}</span>; 1 in 4 went above{" "}
+              <span className="font-mono text-text">{usd(mc * sim.similar.high_x_p75)}</span>.
+            </p>
+          )}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-muted">From this coin&apos;s first 2 minutes ({risk.trades} trades). A prediction, not a promise</p>
+    </div>
+  );
+}
+
+function Chance({ label, value, avg, bar }: { label: string; value: number; avg: number | null; bar: string }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-text-2">{label}</span>
+        <span className="font-mono text-text">
+          {pct(value)}
+          {avg != null && <span className="ml-1.5 text-[11px] text-muted">avg coin {pct(avg)}</span>}
+        </span>
+      </div>
+      <div className="relative mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3">
+        <span className={`block h-full rounded-full ${bar}`} style={{ width: `${Math.max(2, Math.min(100, value * 100))}%` }} />
+        {avg != null && <span className="absolute top-0 h-full w-0.5 bg-text/70" style={{ left: `${Math.min(99, avg * 100)}%` }} title="Average coin" />}
+      </div>
+    </div>
+  );
+}
+
+/** While Kixo AI is still watching the coin's first 2 minutes. */
+function Countdown({ launchedAt, ageSecs }: { launchedAt: number | null; ageSecs: number }) {
+  const now = useNow();
+  const age = launchedAt != null && now ? now / 1000 - launchedAt : ageSecs;
+  const left = Math.max(0, Math.ceil(AI_WINDOW_S - age));
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-cyan/30 bg-bg/60 px-4 py-3">
+      <Loader2 size={16} strokeWidth={1.5} className="shrink-0 animate-spin text-cyan" />
+      <p className="text-sm text-text">
+        Kixo AI is watching this coin&apos;s first 2 minutes.{" "}
+        {left > 0 ? (
+          <>
+            Prediction in about <span className="font-mono text-cyan">{left}s</span>
+          </>
+        ) : (
+          "Prediction any moment now"
+        )}
+        <span className="block text-xs text-muted">This page updates by itself when it lands</span>
+      </p>
     </div>
   );
 }
