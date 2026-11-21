@@ -37,8 +37,12 @@ export const FAQ: { q: string; a: string }[] = [
     a: "Early access, the Kixo AI agent free for one year, and a discount on Kixo's trading fee: 25% for everyone, up to 50% when friends join with your invite link.",
   },
   {
+    q: "Why do I sign in instead of leaving an email?",
+    a: "Joining makes your Kixo account now, with Google or an email code. On launch day you sign in to Kixo the same way and everything is already there: your place, your invite link, the friends who joined with it and the offer you unlocked.",
+  },
+  {
     q: "When does Kixo launch?",
-    a: "Kixo opens when the AI agent is ready. The waitlist gets in first and hears about it by email.",
+    a: "Kixo opens when the AI agent is ready. Everyone on the waitlist gets in first and hears about it by email.",
   },
 ];
 

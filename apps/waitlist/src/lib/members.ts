@@ -1,0 +1,133 @@
+/* The waitlist on the server: people join with their Kixo account (Supabase auth, the
+   same project as the app). Read and written only here, with the service role.
+
+   - Their place: public.waitlist_members (migration 0019), numbered in joining order.
+   - Their invite code and who invited them: public.profiles.ref_code / referred_by, the
+     app's own referral fields, so links and counts carry over to the app at launch.
+   Every friend who joins with someone's link moves them up REF_BOOST places. */
+
+import { createHash } from "crypto";
+
+const URL_ = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+export const REF_BOOST = 3;
+/** A referral link counts only for an account opened within this time (as in the app). */
+const CLAIM_WINDOW_MS = 24 * 3600 * 1000;
+
+export const configured = () => !!URL_ && !!KEY;
+
+async function rest(path: string, init: RequestInit & { prefer?: string } = {}) {
+  return fetch(`${URL_}/rest/v1/${path}`, {
+    ...init,
+    headers: { apikey: KEY, authorization: `Bearer ${KEY}`, "content-type": "application/json", ...(init.prefer ? { prefer: init.prefer } : {}) },
+    cache: "no-store",
+  });
+}
+
+async function rows<T>(path: string): Promise<T[]> {
+  const res = await rest(path);
+  return res.ok ? ((await res.json()) as T[]) : [];
+}
+
+async function count(table: string, filter = ""): Promise<number> {
+  const res = await rest(`${table}?select=${table === "profiles" ? "id" : "user_id"}${filter ? `&${filter}` : ""}`, { method: "HEAD", prefer: "count=exact" });
+  return Number((res.headers.get("content-range") ?? "").split("/")[1] ?? 0) || 0;
+}
+
+/** People on the list. */
+export const total = () => count("waitlist_members");
+
+export type User = { id: string; email: string | null; createdAt: number; method: "google" | "email"; name: string | null; avatar: string | null };
+
+/** The account behind a browser's access token, checked with Supabase. */
+export async function userFrom(token: string): Promise<User | null> {
+  if (!token) return null;
+  const res = await fetch(`${URL_}/auth/v1/user`, { headers: { apikey: KEY, authorization: `Bearer ${token}` }, cache: "no-store" });
+  if (!res.ok) return null;
+  const u = (await res.json()) as { id?: string; email?: string; created_at?: string; app_metadata?: { provider?: string }; user_metadata?: { full_name?: string; name?: string; avatar_url?: string; picture?: string } };
+  if (!u.id) return null;
+  const meta = u.user_metadata ?? {};
+  return {
+    id: u.id,
+    email: u.email ?? null,
+    createdAt: Date.parse(u.created_at ?? "") || 0,
+    method: u.app_metadata?.provider === "google" ? "google" : "email",
+    name: meta.full_name ?? meta.name ?? null,
+    avatar: meta.avatar_url ?? meta.picture ?? null,
+  };
+}
+
+const ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+/** The app's referral code for an account (gateway growth.rs make_code, same output). */
+export function makeCode(user: string, salt: number): string {
+  const h = createHash("sha256").update(`monexa-ref:${user}:${salt}`).digest();
+  return Array.from(h.subarray(0, 7), (b) => ALPHABET[b % ALPHABET.length]).join("");
+}
+export const validCode = (c: string) => /^[a-z0-9]{6,12}$/.test(c);
+
+type Profile = { id: string; ref_code: string | null; referred_by: string | null };
+
+/** The account's profile with its invite code, made on first visit. */
+async function ensureProfile(u: User): Promise<Profile> {
+  const found = (await rows<Profile>(`profiles?id=eq.${u.id}&select=id,ref_code,referred_by`))[0];
+  if (found?.ref_code) return found;
+  for (let salt = 0; salt < 5; salt++) {
+    const code = makeCode(u.id, salt);
+    const res = found
+      ? await rest(`profiles?id=eq.${u.id}`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ ref_code: code }) })
+      : await rest("profiles?on_conflict=id", { method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: JSON.stringify({ id: u.id, login_method: u.method, ref_code: code }) });
+    if (res.ok) return { id: u.id, ref_code: code, referred_by: found?.referred_by ?? null };
+    if (res.status !== 409) throw new Error(`profile not saved (${res.status})`);
+  }
+  throw new Error("could not make an invite code");
+}
+
+/** Records who invited a new account: once, only within a day of opening it, never itself. */
+async function claim(u: User, p: Profile, ref: string | null) {
+  if (!ref || !validCode(ref) || p.referred_by || ref === p.ref_code) return;
+  if (Date.now() - u.createdAt > CLAIM_WINDOW_MS) return;
+  const owner = (await rows<{ id: string }>(`profiles?ref_code=eq.${ref}&select=id`))[0];
+  if (!owner || owner.id === u.id) return;
+  await rest(`profiles?id=eq.${u.id}&referred_by=is.null`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ referred_by: owner.id, referred_at: new Date().toISOString() }) });
+}
+
+export type Status = {
+  code: string;
+  /** Joining order, 1 = first (for the early offers). */
+  rank: number;
+  /** Place on the list after invites moved them up. */
+  position: number;
+  total: number;
+  referrals: number;
+  joinedAt: string;
+  name: string | null;
+  avatar: string | null;
+  email: string | null;
+};
+
+async function placeOf(userId: string, code: string): Promise<Omit<Status, "name" | "avatar" | "email"> | null> {
+  const me = (await rows<{ number: number; joined_at: string }>(`waitlist_members?user_id=eq.${userId}&select=number,joined_at`))[0];
+  if (!me) return null;
+  const [rank, all, referrals] = await Promise.all([count("waitlist_members", `number=lte.${me.number}`), total(), count("profiles", `referred_by=eq.${userId}`)]);
+  return { code, rank, position: Math.max(1, rank - REF_BOOST * referrals), total: all, referrals, joinedAt: me.joined_at };
+}
+
+/** Puts the account on the list (or finds it there) and returns its place, and whether it
+ *  just joined (the welcome email goes only then). */
+export async function join(u: User, ref: string | null, source: string | null): Promise<Status & { created: boolean }> {
+  const p = await ensureProfile(u);
+  await claim(u, p, ref);
+  const ins = await rest("waitlist_members?on_conflict=user_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=representation", body: JSON.stringify({ user_id: u.id, source }) });
+  if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status})`);
+  const created = ((await ins.json()) as unknown[]).length > 0;
+  const place = await placeOf(u.id, p.ref_code!);
+  if (!place) throw new Error("waitlist place missing");
+  return { ...place, name: u.name, avatar: u.avatar, email: u.email, created };
+}
+
+/** A person's public place by invite code, for their share card. */
+export async function byCode(code: string): Promise<Omit<Status, "name" | "avatar" | "email"> | null> {
+  if (!validCode(code)) return null;
+  const owner = (await rows<{ id: string }>(`profiles?ref_code=eq.${code}&select=id`))[0];
+  return owner ? placeOf(owner.id, code) : null;
+}

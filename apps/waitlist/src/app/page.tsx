@@ -1,62 +1,31 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { JoinForm } from "@/components/join-form";
+import { Access } from "@/components/access";
 import { ListCount } from "@/components/list-count";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 import { FAQ, jsonLd } from "@/lib/seo";
 
-const TAPE = ["AI agent that auto-trades", "100,000+ strategies", "3 years of market data", "Fast engine", "Every coin's risk in plain sight", "Dev · Sniper · Bundler labels", "$10,000 demo at live prices"];
+const TAPE = ["AI agent that auto-trades", "100,000+ strategies", "3 years of market data", "Every launch in a second", "Safety score on every coin", "Dev · sniper · bundler labels", "$10,000 demo at live prices"];
 
-const FEATURES: { n: string; title: string; body: string; icon: React.ReactNode; soon?: boolean }[] = [
-  {
-    n: "01",
-    title: "Every launch, the second it happens",
-    body: "pump.fun, letsbonk.fun, Bags, Moonshot, Meteora and more on one radar, priced from on-chain trades.",
-    icon: <path d="M12 12 19 5M21 12a9 9 0 1 1-9-9M16.5 12A4.5 4.5 0 1 1 12 7.5" />,
-  },
-  {
-    n: "02",
-    title: "A safety score on every coin",
-    body: "Mint and freeze authority, top holders, dev share, bundled wallets, snipers and the dev's past coins, in one number.",
-    icon: <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Zm-3 9 2 2 4-4" />,
-  },
-  {
-    n: "03",
-    title: "Know who is trading",
-    body: "Every wallet labelled: dev, sniper, bundler, whale, smart money. One tap tracks any of them.",
-    icon: <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8ZM7.5 7.5h.01" />,
-  },
-  {
-    n: "04",
-    title: "Copy trading that protects you",
-    body: "Backtest a wallet before you copy it, start on demo, and get warned about wallets that win while their copiers lose.",
-    icon: <path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v1" />,
-  },
-  {
-    n: "05",
-    title: "Practise with $10,000, free",
-    body: "A demo account at live prices with real fees and price impact, so your results are honest before you risk a single SOL.",
-    icon: <path d="M3 17l6-6 4 4 8-8M15 7h6v6" />,
-  },
-  {
-    n: "06",
-    title: "Kixo AI",
-    body: "An agent that reads every coin and wallet and auto-trades within your limits, choosing from 100,000+ strategies.",
-    icon: <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M9 9h6v6H9z" />,
-    soon: true,
-  },
+const FEATURES: { title: string; body: string; icon: React.ReactNode; soon?: boolean }[] = [
+  { title: "Every launch, the second it happens", body: "pump.fun, letsbonk.fun, Bags, Moonshot, Meteora and more on one radar, priced from on-chain trades.", icon: <path d="M12 12 19 5M21 12a9 9 0 1 1-9-9M16.5 12A4.5 4.5 0 1 1 12 7.5" /> },
+  { title: "A safety score on every coin", body: "Mint and freeze authority, top holders, dev share, bundled wallets, snipers and the dev's past coins, in one number.", icon: <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Zm-3 9 2 2 4-4" /> },
+  { title: "Know who is trading", body: "Every wallet labelled: dev, sniper, bundler, whale, smart money. One tap tracks any of them.", icon: <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8ZM7.5 7.5h.01" /> },
+  { title: "Copy trading that protects you", body: "Backtest a wallet before you copy it, start on demo, and get warned about wallets that win while their copiers lose.", icon: <path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v1" /> },
+  { title: "Practise with $10,000, free", body: "A demo account at live prices with real fees and price impact, so your results are honest before you risk a single SOL.", icon: <path d="M3 17l6-6 4 4 8-8M15 7h6v6" /> },
+  { title: "Kixo AI", body: "An agent that reads every coin and wallet and auto-trades within your limits, choosing from 100,000+ strategies.", icon: <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M9 9h6v6H9z" />, soon: true },
 ];
 
 const STEPS = [
   ["Spot it", "A new coin launches. Kixo has it on the radar in a second."],
   ["Check it", "Safety score, dev history, bundlers and snipers, before you click buy."],
   ["Practise it", "Try the trade on your free demo account at the live price."],
-  ["Trade it", "When you are ready, with orders, stop losses and a trailing stop."],
+  ["Trade it", "When you are ready, or let the AI agent trade within your rules."],
 ];
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {children}
     </svg>
   );
@@ -77,63 +46,33 @@ export default function Page() {
   return (
     <main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd()).replace(/</g, "\\u003c") }} />
-      <div className="grid-bg" aria-hidden="true" />
       <header className="nav">
         <a href="#top" className="brand">
-          <Image src="/kixo-mark.png" alt="" width={34} height={34} priority />
+          <Image src="/kixo-mark.png" alt="" width={28} height={28} priority />
           Kixo
         </a>
+        <nav className="nav-links" aria-label="Sections">
+          <a href="#inside">Inside</a>
+          <a href="#offers">Offers</a>
+          <a href="#faq">FAQ</a>
+        </nav>
         <a href="#join" className="nav-cta">
-          Get early access
+          Get your pass
         </a>
       </header>
 
       <section className="hero" id="top">
-        <div className="hero-text">
+        <div className="hero-head">
           <p className="eyebrow">
-            <span className="dot" /> Launching soon · Kixo AI for Solana
+            <span className="live" aria-hidden="true" /> Launching soon · Solana
           </p>
           <h1>
-            The AI that trades
-            <br />
-            <span className="accent">memecoins for you.</span>
+            The AI that trades <span className="accent">memecoins for you</span>
           </h1>
-          <p className="lead">
-            Kixo's AI agent auto-trades Solana memecoins within your rules, choosing from 100,000+ strategies trained on 3 years of market data. On a fast engine, with every coin's risk in plain sight.
-          </p>
-          <div className="hero-stats">
-            <div>
-              <b>100,000+</b>
-              <span>AI strategies</span>
-            </div>
-            <div>
-              <b>3 years</b>
-              <span>of market data</span>
-            </div>
-            <div>
-              <b>Every coin</b>
-              <span>risk-checked</span>
-            </div>
-          </div>
-          <a href="#offers" className="offer-hint">
-            <b>Early access:</b> the AI agent free for 1 year + up to 50% off trading fees
-          </a>
-          <JoinForm id="join" />
+          <p className="lead">Kixo&apos;s AI agent auto-trades Solana memecoins within your rules, choosing from 100,000+ strategies trained on 3 years of market data. On a fast engine, with every coin&apos;s risk in plain sight.</p>
           <ListCount />
         </div>
-        <div className="hero-visual" aria-hidden="true">
-          <div className="radar">
-            <div className="sweep" />
-            <i className="ring r1" />
-            <i className="ring r2" />
-            <i className="ring r3" />
-            <b className="blip b1" />
-            <b className="blip b2" />
-            <b className="blip b3" />
-            <b className="blip b4" />
-          </div>
-          <Image src="/hero.png" alt="" width={900} height={760} className="hero-shot" priority />
-        </div>
+        <Access />
       </section>
 
       <div className="tape" aria-hidden="true">
@@ -142,7 +81,8 @@ export default function Page() {
             <span key={k}>
               {TAPE.map((t) => (
                 <span key={t}>
-                  {t} <i>●</i>{" "}
+                  {t}
+                  <i />
                 </span>
               ))}
             </span>
@@ -150,34 +90,41 @@ export default function Page() {
         </div>
       </div>
 
+      <section className="inside" id="inside">
+        <div className="section-head">
+          <p className="eyebrow">Inside Kixo</p>
+          <h2>A terminal built for the trenches</h2>
+          <p className="lead">The chart, the safety read and copy trading, as they look in Kixo today.</p>
+        </div>
+        <div className="shot">
+          <Image src="/hero.png" alt="The Kixo terminal: a live chart, a safety read of a coin, copy-trading settings and a new launch card" width={1800} height={1520} sizes="(max-width: 900px) 100vw, 1100px" />
+        </div>
+      </section>
+
       <section className="pillars" id="ai">
-        <p className="eyebrow">
-          <span className="dot" /> What is coming
-        </p>
-        <h2>
-          Three things Kixo is built on.
-          <br />
-          <span className="muted">One of them trades for you.</span>
-        </h2>
+        <div className="section-head">
+          <p className="eyebrow">What is coming</p>
+          <h2>Three things Kixo is built on. One of them trades for you</h2>
+        </div>
         <div className="pillar-grid">
           <article className="pillar big">
             <span className="p-n">01 · The AI agent</span>
             <h3>An AI agent that auto-trades for you</h3>
-            <p>It watches every new coin and every wallet, picks the strategy that fits the moment and trades within the limits you set: how much per trade, your daily loss limit, the minimum safety score. Every trade comes with its reason. You stay in control and can stop it with one click.</p>
-            <div className="p-stats">
+            <p>It watches every new coin and every wallet, picks the strategy that fits the moment and trades within the limits you set: how much per trade, your daily loss limit, the minimum safety score. Every trade comes with its reason, and one click stops it.</p>
+            <dl className="p-stats">
               <div>
-                <b>100,000+</b>
-                <span>strategies</span>
+                <dt>Strategies</dt>
+                <dd>100,000+</dd>
               </div>
               <div>
-                <b>3 years</b>
-                <span>of market data</span>
+                <dt>Market data</dt>
+                <dd>3 years</dd>
               </div>
               <div>
-                <b>24/7</b>
-                <span>watching the chain</span>
+                <dt>Watching the chain</dt>
+                <dd>24/7</dd>
               </div>
-            </div>
+            </dl>
           </article>
           <article className="pillar">
             <span className="p-n">02 · Fast engine</span>
@@ -187,58 +134,48 @@ export default function Page() {
           <article className="pillar">
             <span className="p-n">03 · See the risk</span>
             <h3>The rug, before you buy</h3>
-            <p>A safety score on every coin, plus the dev's past coins, bundled wallets, snipers and whales, labelled where you trade.</p>
+            <p>A safety score on every coin, plus the dev&apos;s past coins, bundled wallets, snipers and whales, labelled where you trade.</p>
           </article>
         </div>
       </section>
 
       <section className="offers" id="offers">
-        <p className="eyebrow">
-          <span className="dot" /> Early access offer
-        </p>
-        <h2>
-          Join early. <span className="accent">Get the AI free for a year.</span>
-        </h2>
-        <div className="ai-free">
-          <span className="ai-free-badge">For everyone on the list</span>
-          <p className="ai-free-title">
-            <b>1 year free</b> · Kixo AI Agent
-          </p>
-          <p className="ai-free-body">{AI_FREE.body} Plus a discount on every trade below: invite friends to unlock more.</p>
+        <div className="section-head">
+          <p className="eyebrow">Early access</p>
+          <h2>Join early. Get the AI free for a year</h2>
+          <p className="lead">{AI_FREE.body} On top of that, a discount on every trade: invite friends to unlock more.</p>
         </div>
-        <ol className="offer-grid">
+        <ol className="ladder">
           {OFFERS.map((o, i) => (
             <li key={o.key} className={i === 2 ? "top" : ""}>
-              <span className="o-step">{String(i + 1).padStart(2, "0")} · {o.how}</span>
+              <span className="l-step">{o.how}</span>
               <h3>{o.name}</h3>
-              <p className="o-off">
-                <b>{o.off}%</b> off
+              <p className="l-off">
+                {o.off}% <span>off fees</span>
               </p>
-              <p className="o-detail">
-                Trading fee {feeAfter(o)}% instead of {BASE_FEE_PCT}%, for {o.months} months{o.extra ? ` + ${o.extra}` : ""}
+              <p className="l-detail">
+                {feeAfter(o)}% instead of {BASE_FEE_PCT}% for {o.months} months{o.extra ? `, plus the ${o.extra}` : ""}
               </p>
             </li>
           ))}
         </ol>
-        <p className="o-terms">The discount is on Kixo&apos;s own trading fee, not Solana network fees. It starts when real trading opens on your Kixo account, using the email you join with. One fee offer per person: the best one you reach. The free year of the AI agent starts the day it opens on your account.</p>
+        <p className="terms">The discount is on Kixo&apos;s own trading fee, not Solana network fees, and starts when real trading opens on your Kixo account. One fee offer per person: the best one you reach. The free year of the AI agent starts the day it opens on your account.</p>
       </section>
 
       <section className="features">
-        <h2>
-          Built for the trenches.
-          <br />
-          <span className="muted">Made to keep you out of the traps.</span>
-        </h2>
+        <div className="section-head">
+          <h2>Made to keep you out of the traps</h2>
+        </div>
         <ul>
           {FEATURES.map((f) => (
-            <li key={f.n} className={f.soon ? "soon" : ""}>
-              <div className="f-top">
-                <span className="f-icon">
-                  <Icon>{f.icon}</Icon>
-                </span>
-                <span className="f-n">{f.n}</span>
-              </div>
-              <h3>{f.title}</h3>
+            <li key={f.title}>
+              <span className="f-icon">
+                <Icon>{f.icon}</Icon>
+              </span>
+              <h3>
+                {f.title}
+                {f.soon && <span className="soon">Training now</span>}
+              </h3>
               <p>{f.body}</p>
             </li>
           ))}
@@ -246,7 +183,9 @@ export default function Page() {
       </section>
 
       <section className="steps">
-        <h2>From launch to trade in four moves</h2>
+        <div className="section-head">
+          <h2>From launch to trade in four moves</h2>
+        </div>
         <ol>
           {STEPS.map(([t, b], i) => (
             <li key={t}>
@@ -258,20 +197,10 @@ export default function Page() {
         </ol>
       </section>
 
-      <section className="ai">
-        <p className="eyebrow">
-          <span className="dot" /> Training now
-        </p>
-        <h2>
-          Kixo AI is <span className="accent">learning the trenches.</span>
-        </h2>
-        <p className="lead">
-          Every launch, every trade and how every coin ended is going into it right now. Kixo opens when the AI is ready, and the waitlist gets in first.
-        </p>
-      </section>
-
       <section className="faq" id="faq">
-        <h2>Questions</h2>
+        <div className="section-head">
+          <h2>Questions</h2>
+        </div>
         <div className="faq-list">
           {FAQ.map((f) => (
             <details key={f.q}>
@@ -283,9 +212,11 @@ export default function Page() {
       </section>
 
       <section className="final">
-        <h2>Be first in.</h2>
-        <p className="lead">Join the waitlist. Invite friends to move up.</p>
-        <JoinForm id="join-2" />
+        <h2>Be first in</h2>
+        <p className="lead">Claim your pass, share your link, move up the list.</p>
+        <a href="#join" className="btn-primary big">
+          Get your pass
+        </a>
       </section>
 
       <footer className="foot">

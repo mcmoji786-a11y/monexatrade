@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-/** "1,240 traders are waiting", shown once the list has 100 people (a real count). */
+/** "1,240 traders already have a pass": the real count, shown once the list has 100. */
 export function ListCount() {
   const [n, setN] = useState(0);
   useEffect(() => {
@@ -14,7 +14,10 @@ export function ListCount() {
   if (n < 100) return null;
   return (
     <p className="count">
-      <span className="dot" /> {n.toLocaleString("en-US")} traders are already waiting
+      <span className="live" aria-hidden="true" />
+      <span>
+        <b>{n.toLocaleString("en-US")}</b> traders already have a pass
+      </span>
     </p>
   );
 }

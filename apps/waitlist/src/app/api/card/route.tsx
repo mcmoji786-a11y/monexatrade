@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { readFile } from "fs/promises";
 import path from "path";
-import { byCode } from "@/lib/waitlist";
+import { byCode } from "@/lib/members";
 import { offerFor } from "@/lib/offers";
 
 /* `GET /api/card?code=` : a person's share card (1200x630), used as the preview image of

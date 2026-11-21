@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import type { Status } from "./waitlist";
+import type { Status } from "./members";
 import { AI_FREE, feeAfter, nextStep, offerFor } from "./offers";
 
 /* The welcome email after someone joins: their place, their offer and their invite link.
@@ -27,7 +27,7 @@ export async function sendWelcome(email: string, s: Status): Promise<void> {
   const o = offerFor(s.referrals, s.rank);
   const next = nextStep(s.referrals, s.rank);
   const place = `#${s.position.toLocaleString("en-US")}`;
-  const x = `https://x.com/intent/post?text=${encodeURIComponent(`I'm ${place} on the Kixo waitlist: the AI that trades Solana memecoins for you. Early list gets the AI free for 1 year 👇`)}&url=${encodeURIComponent(link)}`;
+  const x = `https://x.com/intent/post?text=${encodeURIComponent(`I'm ${place} on the Kixo waitlist: the AI that trades Solana memecoins for you. Early list gets the AI free for 1 year`)}&url=${encodeURIComponent(link)}`;
   const text = [
     `You're on the Kixo waitlist: ${place}`,
     "",
@@ -38,7 +38,7 @@ export async function sendWelcome(email: string, s: Status): Promise<void> {
     "Every friend who joins with it moves you up 3 places.",
     "",
     "We'll email you when Kixo opens. Not financial advice.",
-    "You get this because you joined at kixo.trade.",
+    "You get this because you joined the Kixo waitlist.",
   ].join("\n");
   const html = `<!doctype html><html><body style="margin:0;background:#050506;font-family:Inter,Arial,sans-serif;color:#ededef">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#050506"><tr><td align="center" style="padding:32px 16px">
@@ -55,7 +55,7 @@ ${next ? `<div style="font-size:14px;color:#a1a1aa;margin-top:6px">${next.invite
 <tr><td style="padding-top:20px;font-size:14px;color:#a1a1aa">Your invite link. Every friend who joins with it moves you up 3 places:</td></tr>
 <tr><td style="padding-top:8px;font-family:monospace;font-size:14px"><a href="${link}" style="color:#22d3ee">${esc(link)}</a></td></tr>
 <tr><td style="padding-top:20px"><a href="${x}" style="display:inline-block;background:#2fd38a;color:#04130c;font-weight:700;text-decoration:none;padding:12px 20px;border-radius:10px">Share on X</a></td></tr>
-<tr><td style="padding-top:32px;font-size:12px;color:#6b6b74;line-height:1.6">We'll email you when Kixo opens. Not financial advice: memecoins are very risky.<br>You get this because you joined the waitlist at kixo.trade.</td></tr>
+<tr><td style="padding-top:32px;font-size:12px;color:#6b6b74;line-height:1.6">We'll email you when Kixo opens. Not financial advice: memecoins are very risky.<br>You get this because you joined the Kixo waitlist.</td></tr>
 </table></td></tr></table></body></html>`;
   await Promise.race([
     t.sendMail({ from, to: email, subject: `You're ${place} on the Kixo waitlist`, text, html }).catch((e) => console.error("welcome email failed", e instanceof Error ? e.message : e)),

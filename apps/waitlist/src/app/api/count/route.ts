@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { configured, total } from "@/lib/waitlist";
+import { configured, total } from "@/lib/members";
 
 /** `GET /api/count` : how many people are on the list (the page shows it from 100). */
 export async function GET() {
