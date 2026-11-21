@@ -9,6 +9,7 @@ mod demo;
 mod rug_exit;
 mod presence;
 mod book;
+mod candle_store;
 mod funders;
 mod devs;
 mod dex;
@@ -284,6 +285,9 @@ async fn main() -> Result<()> {
         stats,
         cmd_rx,
     ));
+    // Charts survive restarts (data/candles.json.gz), saved every two minutes.
+    candle_store::load();
+    tokio::spawn(save_charts(state.clone()));
     tokio::spawn(expire_watches(state.clone()));
     tokio::spawn(fetch_pool_txs(state.clone(), tx_queue_rx));
     tokio::spawn(process_events(state.clone(), ingest_rx));
@@ -1255,6 +1259,34 @@ async fn track_curve(state: &Arc<AppState>, mint: &str) -> bool {
     true
 }
 
+/// Saves the charts that changed since the last round, every two minutes.
+async fn save_charts(state: Arc<AppState>) {
+    const EVERY: Duration = Duration::from_secs(120);
+    loop {
+        tokio::time::sleep(EVERY).await;
+        let now = chrono_now();
+        let current = state.books.lock().expect("books lock").export_candles(now - EVERY.as_secs() as i64 - 60);
+        candle_store::save(current, now).await;
+    }
+}
+
+fn chrono_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// The chart saved before a restart, laid under the book's own candles.
+fn restore_chart(state: &AppState, mint: &str) -> bool {
+    let Some(saved) = candle_store::get(mint) else {
+        return false;
+    };
+    let mut books = state.books.lock().expect("books lock");
+    if !books.contains(mint) {
+        return false;
+    }
+    books.backfill_candles(mint, saved);
+    true
+}
+
 /// One token's trade book: a snapshot (recent trades and candles), then each new trade.
 /// Tokens we do not decode get `{"type":"untracked"}` and the socket closes.
 async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String) {
@@ -1278,14 +1310,22 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
         fresh_curve = true;
     }
     let needs_pool = graduated || !known;
+    // The chart Kixo saved before its last restart comes back at once; only what is
+    // still missing is asked from the indexer.
+    if known {
+        restore_chart(&state, &mint);
+    }
     // A book made from live trades alone (after a restart, or by another page) holds only
     // the last minutes: its earlier chart is fetched too, so the chart is never just a
     // few candles.
     // (A coin Kixo watched from launch already has its whole chart.)
-    let launched = state.board.lock().expect("board lock").tokens.get(&mint).map(|t| t.token.timestamp);
+    // A book that starts after the launch is missing its beginning, however long it is
+    // (a restart, or the page opened hours after launch). With no launch time known, a
+    // book under half a day is filled in. The provider keeps about 17 hours of minutes.
+    let launched = state.board.lock().expect("board lock").tokens.get(&mint).map(|t| t.token.timestamp).filter(|ts| *ts > 0);
     let thin = known
         && match state.books.lock().expect("books lock").candle_span(&mint) {
-            Some((first, span)) => span < 30 * 60 && launched.is_none_or(|ts| first - ts > 120),
+            Some((first, span)) => span < 12 * 3600 && launched.is_none_or(|ts| first - ts > 120),
             None => true,
         };
     // The pool's 1 minute history loads in the background: the first snapshot goes out
@@ -1295,11 +1335,24 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
     if needs_pool || fresh_curve || thin {
         let (st, m) = (state.clone(), mint.clone());
         tokio::spawn(async move {
+            // A pool book is made while the pool is set up: its saved chart goes in then.
+            if !known {
+                for _ in 0..40 {
+                    if st.books.lock().expect("books lock").contains(&m) {
+                        if restore_chart(&st, &m) {
+                            let _ = st.refresh.send(m.clone());
+                        }
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
             // The history provider pauses Kixo for a minute when its limit is hit: try again
             // a few times instead of leaving the chart with only its newest candles.
-            for attempt in 0..4 {
+            // Every 15 s for 90 s: past the provider's one minute pause.
+            for attempt in 0..7 {
                 if attempt > 0 {
-                    tokio::time::sleep(Duration::from_secs(20)).await;
+                    tokio::time::sleep(Duration::from_secs(15)).await;
                 }
                 let Ok(Some(h)) = tokio::time::timeout(Duration::from_secs(10), dex::history(&st.http, &st.dex, &m)).await else {
                     continue;
@@ -1311,10 +1364,12 @@ async fn stream_token(mut socket: WebSocket, state: Arc<AppState>, mint: String)
                     }
                     tokio::time::sleep(Duration::from_millis(250)).await;
                 }
+                // Seeding needs the SOL price and the coin's supply: without them yet, the
+                // next attempt tries again rather than leaving the chart short.
                 if seed_candles(&st, &m, &h) {
                     let _ = st.refresh.send(m);
+                    break;
                 }
-                break;
             }
         });
     }
@@ -1937,7 +1992,10 @@ async fn market_trades_handler(State(state): State<Arc<AppState>>, Path(mint): P
         let board = state.board.lock().expect("board lock");
         board.tokens.get(&mint).map(|t| t.token.creator.clone()).filter(|c| !c.is_empty())
     };
-    let (token, big, recent) = tokio::join!(lookup_token(&state, &mint), dex::big_trades(&state.http, &state.dex, &mint, WHALE_USD), dex::recent_trades(&state.http, &state.dex, &mint));
+    // The whale list takes a call only when the provider has room to spare (the chart's
+    // history comes first); the creator's trades come from trades already loaded.
+    let (token, big) = tokio::join!(lookup_token(&state, &mint), dex::big_trades(&state.http, &state.dex, &mint, WHALE_USD));
+    let recent = Some(dex::recent_cached(&state.dex, &mint));
     let token = token.flatten();
     let dev = creator.or_else(|| token.as_ref().and_then(|t| t.dev.clone()));
     let mut dev_trades: Vec<dex::DexTrade> = Vec::new();

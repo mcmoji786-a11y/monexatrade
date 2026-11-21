@@ -3,7 +3,7 @@
 //! Everything is in memory and dropped when the token leaves the board.
 
 use monexa_ingest::pumpfun::{NewToken, Trade};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
@@ -51,7 +51,7 @@ pub struct TradeRow {
     pub bundler: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candle {
     pub t: i64,
     /// OHLC of market cap in SOL (price x supply), so the chart never needs tiny decimals.
@@ -496,6 +496,15 @@ impl Books {
 
     /// Adds indexed history that arrived late (the indexer was rate limited when the
     /// pool was first watched): candles older than the book's first one go in front.
+    /// Every chart with a recent candle (within `since`), to be saved to disk.
+    pub fn export_candles(&self, since: i64) -> HashMap<String, Vec<Candle>> {
+        self.books
+            .iter()
+            .filter(|(_, b)| b.candles.back().is_some_and(|c| c.t >= since))
+            .map(|(m, b)| (m.clone(), b.candles.iter().cloned().collect()))
+            .collect()
+    }
+
     /// The coin's first candle and the seconds of chart its book covers, if it has one.
     pub fn candle_span(&self, mint: &str) -> Option<(i64, i64)> {
         self.books.get(mint).and_then(|b| {
@@ -508,12 +517,22 @@ impl Books {
         let Some(b) = self.books.get_mut(mint) else {
             return;
         };
-        let first = b.candles.front().map_or(i64::MAX, |c| c.t);
-        for c in older.into_iter().rev().filter(|c| c.t < first) {
-            if b.candles.len() >= MAX_CANDLES {
-                break;
+        // History (1 minute candles) fills the start and any gap: a minute where the book
+        // already has a live candle keeps it, and the minute still forming is left alone.
+        let have: Vec<i64> = b.candles.iter().map(|c| c.t).collect();
+        let last = have.last().copied().unwrap_or(i64::MAX);
+        let covered = |t: i64, span: i64| {
+            let i = have.partition_point(|&x| x < t);
+            i < have.len() && have[i] < t + span
+        };
+        let span = older.windows(2).map(|w| (w[1].t - w[0].t).abs()).filter(|d| *d > 0).min().unwrap_or(60).clamp(CANDLE_SECS, 60);
+        let before = b.candles.len();
+        b.candles.extend(older.into_iter().filter(|c| c.t < last && !covered(c.t, span)));
+        if b.candles.len() > before {
+            b.candles.make_contiguous().sort_by_key(|c| c.t);
+            while b.candles.len() > MAX_CANDLES {
+                b.candles.pop_front();
             }
-            b.candles.push_front(c);
         }
     }
 
@@ -856,4 +875,24 @@ mod tests {
         assert!(p.copy_tokens.abs() < 1e-9);
     }
 
+    #[test]
+    fn history_fills_the_start_and_gaps_only() {
+        let mut books = Books::default();
+        books.add(&token());
+        // Live trades at 600s and from 1800s on: a gap between them.
+        for (i, ts) in [600, 1800, 1805, 1900].iter().enumerate() {
+            books.apply(&format!("t{i}"), &trade("W", true, 100_000_000, 1_000_000_000, *ts)).unwrap();
+        }
+        let c = |t: i64| Candle { t, o: 1.0, h: 1.0, l: 1.0, c: 1.0, v: 0.0 };
+        books.backfill_candles("M", (0..=32).map(|m| c(m * 60)).collect());
+        let ts: Vec<i64> = books.books["M"].candles.iter().map(|c| c.t).collect();
+        assert!(ts.windows(2).all(|w| w[0] < w[1]), "sorted, no duplicates: {ts:?}");
+        assert_eq!(ts.first(), Some(&0), "the start is filled");
+        assert!(ts.contains(&1200), "the gap is filled");
+        // Minutes with live candles keep them, and nothing is added after the newest.
+        let live = |t: i64| books.books["M"].candles.iter().any(|c| c.t == t && c.v > 0.0);
+        assert!(live(600) && live(1800) && live(1900));
+        assert!(!ts.contains(&1860) && !ts.contains(&1920));
+        assert_eq!(ts.last(), Some(&1900));
+    }
 }

@@ -72,20 +72,32 @@ pub struct DexCache {
     /// After a 429 no call goes out until this time: retrying while blocked only
     /// extends the block.
     paused_until: Mutex<Option<Instant>>,
+    /// When the last call went out: calls are spaced, since a burst in one second is
+    /// what the indexer answers with 429 even inside the minute's budget.
+    gate: tokio::sync::Mutex<Option<Instant>>,
+    /// One history load per coin at a time: the page and the gateway ask together when
+    /// a coin opens, and the second one is served from the first one's cache.
+    flights: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
+
+/// Shortest time between two calls.
+const MIN_GAP: Duration = Duration::from_millis(700);
+/// Calls that can wait (whale lists) use at most this share of the minute, so a chart's
+/// history always finds room.
+const LOW_CALLS_PER_MINUTE: usize = 12;
 
 /// Quiet period after the indexer answers 429.
 const RATE_LIMIT_PAUSE: Duration = Duration::from_secs(60);
 
 impl DexCache {
+    fn paused(&self) -> bool {
+        self.paused_until.lock().expect("dex pause lock").is_some_and(|t| Instant::now() < t)
+    }
+
     /// Takes one call from the per-minute budget; false when it is spent or paused.
-    fn take_call(&self) -> bool {
-        if self
-            .paused_until
-            .lock()
-            .expect("dex pause lock")
-            .is_some_and(|t| Instant::now() < t)
-        {
+    /// `low`: a call that can wait, held to a smaller share of the budget.
+    fn take_call(&self, low: bool) -> bool {
+        if self.paused() {
             return false;
         }
         let mut calls = self.calls.lock().expect("dex calls lock");
@@ -95,7 +107,7 @@ impl DexCache {
         {
             calls.pop_front();
         }
-        if calls.len() >= CALLS_PER_MINUTE {
+        if calls.len() >= if low { LOW_CALLS_PER_MINUTE } else { CALLS_PER_MINUTE } {
             return false;
         }
         calls.push_back(Instant::now());
@@ -129,7 +141,22 @@ fn store<T>(slot: &Slot<T>, key: &str, v: T, ttl: Duration) {
 }
 
 async fn get_json(http: &reqwest::Client, cache: &DexCache, url: &str) -> Option<Value> {
-    if !cache.take_call() {
+    get_json_as(http, cache, url, false).await
+}
+
+async fn get_json_as(http: &reqwest::Client, cache: &DexCache, url: &str, low: bool) -> Option<Value> {
+    if !cache.take_call(low) {
+        return None;
+    }
+    {
+        let mut last = cache.gate.lock().await;
+        if let Some(wait) = last.map(|t| MIN_GAP.saturating_sub(t.elapsed())).filter(|w| !w.is_zero()) {
+            tokio::time::sleep(wait).await;
+        }
+        *last = Some(Instant::now());
+    }
+    // A 429 while this call waited its turn: going out now would only extend the block.
+    if cache.paused() {
         return None;
     }
     let res = http
@@ -334,7 +361,7 @@ pub async fn big_trades(http: &reqwest::Client, cache: &Arc<DexCache>, mint: &st
     if let Some(t) = cached(&cache.big, &key, Duration::from_secs(120)) {
         return Some((pool, t));
     }
-    let Some(v) = get_json(http, cache, &format!("{BASE}/pools/{}/trades?trade_volume_in_usd_greater_than={min_usd}", pool.address)).await else {
+    let Some(v) = get_json_as(http, cache, &format!("{BASE}/pools/{}/trades?trade_volume_in_usd_greater_than={min_usd}", pool.address), true).await else {
         return stale(&cache.big, &key).map(|t| (pool, t));
     };
     let list: Vec<DexTrade> = v["data"].as_array().map(|rows| rows.iter().filter_map(|r| trade_of(&r["attributes"], mint)).collect()).unwrap_or_default();
@@ -342,10 +369,12 @@ pub async fn big_trades(http: &reqwest::Client, cache: &Arc<DexCache>, mint: &st
     Some((pool, list))
 }
 
-/// The coin's latest trades on its main pool (cached ten seconds), for wallet filters.
-pub async fn recent_trades(http: &reqwest::Client, cache: &Arc<DexCache>, mint: &str) -> Option<Vec<DexTrade>> {
-    let pool = pool(http, cache, mint).await?;
-    Some(trades(http, cache, &pool.address, mint).await)
+/// The coin's latest pool trades already loaded for its chart, without a new call.
+pub fn recent_cached(cache: &DexCache, mint: &str) -> Vec<DexTrade> {
+    let Some(Some(p)) = stale(&cache.pools, mint) else {
+        return Vec::new();
+    };
+    stale(&cache.trades, &format!("{}:{mint}", p.address)).unwrap_or_default()
 }
 
 pub async fn history(
@@ -353,6 +382,14 @@ pub async fn history(
     cache: &Arc<DexCache>,
     mint: &str,
 ) -> Option<DexHistory> {
+    let flight = {
+        let mut f = cache.flights.lock().expect("dex flights lock");
+        if f.len() > 1_000 {
+            f.retain(|_, l| Arc::strong_count(l) > 1);
+        }
+        f.entry(mint.to_string()).or_default().clone()
+    };
+    let _one = flight.lock().await;
     let pool = pool(http, cache, mint).await?;
     let (candles, trades) = tokio::join!(
         candles(http, cache, &pool.address, mint),

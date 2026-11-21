@@ -62,7 +62,7 @@ type MarketTrades = {
 } | null;
 
 /** The coin's whale and creator trades from the whole market (gateway market-trades),
- *  refreshed every minute: the live book only has what Kixo saw since it started watching. */
+ *  refreshed every two minutes: the live book only has what Kixo saw since it started watching. */
 function useMarketTrades(mint: string) {
   const [state, setState] = useState<{ mint: string; v: MarketTrades }>({ mint, v: null });
   useEffect(() => {
@@ -72,10 +72,12 @@ function useMarketTrades(mint: string) {
         .then((r) => (r.ok ? (r.json() as Promise<MarketTrades>) : null))
         .then((v) => alive && v && setState({ mint, v }))
         .catch(() => {});
-    load();
-    const id = setInterval(load, 60_000);
+    // A few seconds after the page opens, so the chart's history goes first.
+    const first = setTimeout(load, 5_000);
+    const id = setInterval(load, 120_000);
     return () => {
       alive = false;
+      clearTimeout(first);
       clearInterval(id);
     };
   }, [mint]);

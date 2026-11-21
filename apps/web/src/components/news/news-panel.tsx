@@ -395,8 +395,42 @@ function savedRect(): Rect {
   return fit({ x: window.innerWidth - 420, y: 64, w: 400, h: window.innerHeight - 96 });
 }
 
+type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+// Grab strips along every side and square handles on every corner.
+const EDGES: { edge: Edge; cls: string }[] = [
+  { edge: "n", cls: "top-0 left-3 right-3 h-1.5 cursor-ns-resize" },
+  { edge: "s", cls: "bottom-0 left-3 right-3 h-1.5 cursor-ns-resize" },
+  { edge: "w", cls: "left-0 top-3 bottom-3 w-1.5 cursor-ew-resize" },
+  { edge: "e", cls: "right-0 top-3 bottom-3 w-1.5 cursor-ew-resize" },
+  { edge: "nw", cls: "top-0 left-0 h-3 w-3 cursor-nwse-resize" },
+  { edge: "se", cls: "bottom-0 right-0 h-3 w-3 cursor-nwse-resize" },
+  { edge: "ne", cls: "top-0 right-0 h-3 w-3 cursor-nesw-resize" },
+  { edge: "sw", cls: "bottom-0 left-0 h-3 w-3 cursor-nesw-resize" },
+];
+
+/** The window after dragging one of its sides or corners by (dx, dy): the opposite side
+ *  stays put, and it never goes under its minimum size or off the screen. */
+function resize(f: Rect, edge: Edge, dx: number, dy: number): Rect {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  let { x, y, w, h } = f;
+  if (edge.includes("e")) w = Math.min(Math.max(MIN_W, f.w + dx), W - 8 - f.x);
+  if (edge.includes("s")) h = Math.min(Math.max(MIN_H, f.h + dy), H - 8 - f.y);
+  if (edge.includes("w")) {
+    const right = f.x + f.w;
+    x = Math.min(Math.max(8, f.x + dx), right - MIN_W);
+    w = right - x;
+  }
+  if (edge.includes("n")) {
+    const bottom = f.y + f.h;
+    y = Math.min(Math.max(8, f.y + dy), bottom - MIN_H);
+    h = bottom - y;
+  }
+  return { x, y, w, h };
+}
+
 /** The news panel. On a desktop it floats by default: drag it by its top bar anywhere on
- *  the screen and resize it from its corner, so the chart and buy box stay in view; its
+ *  the screen and resize it from any side or corner, so the chart and buy box stay in view; its
  *  place and size are remembered. "Dock" pins it to the right edge instead (the page
  *  narrows beside it, or on a trade page it lies over the edge). Phones: full screen. */
 function NewsWindow({ pathname }: { pathname: string }) {
@@ -409,7 +443,7 @@ function NewsWindow({ pathname }: { pathname: string }) {
   });
   const [rect, setRect] = useState<Rect | null>(() => (typeof window !== "undefined" ? savedRect() : null));
   const [desktop, setDesktop] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches);
-  const drag = useRef<{ kind: "move" | "size"; px: number; py: number; from: Rect } | null>(null);
+  const drag = useRef<{ kind: "move" | Edge; px: number; py: number; from: Rect } | null>(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -429,7 +463,7 @@ function NewsWindow({ pathname }: { pathname: string }) {
       localStorage.setItem(MODE_KEY, m);
     } catch {}
   };
-  const begin = (kind: "move" | "size", e: React.PointerEvent) => {
+  const begin = (kind: "move" | Edge, e: React.PointerEvent) => {
     if (!rect || (e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -440,7 +474,7 @@ function NewsWindow({ pathname }: { pathname: string }) {
     if (!d) return;
     const dx = e.clientX - d.px;
     const dy = e.clientY - d.py;
-    setRect(fit(d.kind === "move" ? { ...d.from, x: d.from.x + dx, y: d.from.y + dy } : { ...d.from, w: d.from.w + dx, h: d.from.h + dy }));
+    setRect(d.kind === "move" ? fit({ ...d.from, x: d.from.x + dx, y: d.from.y + dy }) : resize(d.from, d.kind, dx, dy));
   };
   const end = (e: React.PointerEvent) => {
     if (!drag.current) return;
@@ -480,7 +514,7 @@ function NewsWindow({ pathname }: { pathname: string }) {
       {/* Drag bar */}
       <div onPointerDown={(e) => begin("move", e)} onPointerMove={move} onPointerUp={end} className="flex h-7 shrink-0 cursor-move touch-none items-center gap-2 border-b border-border bg-surface-2 px-2 select-none">
         <GripHorizontal size={14} strokeWidth={1.5} className="text-muted" />
-        <span className="text-[11px] text-muted">Drag to move · corner to resize</span>
+        <span className="text-[11px] text-muted">Drag to move · any edge or corner to resize</span>
         <button type="button" onClick={() => pick("dock")} title="Pin the news to the right edge" className="ml-auto flex h-5 items-center gap-1 rounded px-1.5 text-[11px] text-text-2 hover:bg-surface-3 hover:text-text">
           <PanelRight size={12} strokeWidth={1.5} /> Dock
         </button>
@@ -488,16 +522,11 @@ function NewsWindow({ pathname }: { pathname: string }) {
       <div className="min-h-0 flex-1">
         <NewsFeed onClose={() => setNewsOpen(false)} />
       </div>
-      {/* Resize handle */}
-      <div
-        onPointerDown={(e) => begin("size", e)}
-        onPointerMove={move}
-        onPointerUp={end}
-        aria-label="Resize the news window"
-        className="absolute right-0 bottom-0 z-10 h-4 w-4 cursor-nwse-resize touch-none"
-      >
-        <span className="absolute right-1 bottom-1 h-2 w-2 border-r-2 border-b-2 border-text-2/60" />
-      </div>
+      {/* Resize from every side and corner */}
+      {EDGES.map(({ edge, cls }) => (
+        <div key={edge} onPointerDown={(e) => begin(edge, e)} onPointerMove={move} onPointerUp={end} aria-hidden className={`absolute z-10 touch-none ${cls}`} />
+      ))}
+      <span className="pointer-events-none absolute right-1 bottom-1 h-2 w-2 border-r-2 border-b-2 border-text-2/60" />
     </aside>
   );
 }
