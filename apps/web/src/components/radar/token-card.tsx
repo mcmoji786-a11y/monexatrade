@@ -1,12 +1,11 @@
 "use client";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { useCoinKols } from "@/lib/kols";
 import { useFeatures } from "@/lib/features";
-import { TradeLink } from "@/components/token/trade-link";
 import { QuickBuy } from "@/components/trade/quick-buy";
 
 import { useRadarFilters } from "@/lib/prefs";
-import { ArrowUpRight, BadgeCheck, EyeOff, Brain, History, Fish, Globe, Send, TrendingDown, Users, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Boxes, Check as CheckIcon, Copy, Crosshair, EyeOff, Brain, History, Fish, Globe, Search, Send, TrendingDown, UserCog, Users, type LucideIcon } from "lucide-react";
 import { StarButton } from "@/components/token/star-button";
 import type { Check } from "@/lib/risk";
 import { launchSignals, safetyScore } from "@/lib/safety";
@@ -14,7 +13,7 @@ import { SafetyBadge } from "@/components/token/safety-badge";
 import { ChecksChip } from "./checks-popover";
 import type { Original } from "./radar-board";
 import { usd, type DevReport, type MarketToken } from "@/lib/gateway";
-import { CopyAddress, CopyMint, TokenLogo } from "@/components/token/token-bits";
+import { TokenLogo } from "@/components/token/token-bits";
 import { tokenHref, useOpenToken } from "@/lib/open-token";
 import Link from "next/link";
 import { AiButton } from "@/components/token/ai-analysis";
@@ -127,152 +126,176 @@ function TokenCardView({
   if (d && d.rugged === 0 && d.graduated > 0) flags.push({ key: "grad", tone: "good", icon: History, text: `Dev graduated ${d.graduated}/${d.coins}`, title: devTitle(d) });
   if (xShare?.kind === "post") flags.push({ key: "trend", tone: "muted", glyph: true, text: `Trend · ${xShare.others + 1} coins`, title: `${xShare.others + 1} new coins link this same X post: one trend. Not a red flag by itself` });
   if (d && d.coins === 0) flags.push({ key: "new-dev", tone: "muted", icon: History, text: "New dev", title: devTitle(d) });
-  const shown = flags.slice(0, 2);
-  const folded = flags.slice(2);
+  const shown = flags.slice(0, 1);
+
+  const pctTone = (v: number | null, warn: number) => (v == null ? "text-muted" : v >= warn ? "text-negative" : "text-positive");
+  const pctText = (v: number | null) => (v == null ? "—" : `${v.toFixed(0)}%`);
+  const devPct = ownWallets ? m.dev_pct : null;
+  const earlyPct = ownWallets ? m.sniper_pct : null;
+  const bundlePct = ownWallets ? m.bundle_pct : null;
 
   return (
     <article
       onClick={open(token.mint)}
-      className={`flex h-full cursor-pointer flex-col gap-2.5 rounded-xl border bg-surface p-3 transition-colors duration-150 hover:bg-surface-2 ${
-        token.arrived ? "row-in" : ""
-      } ${graduating || lowerRisk ? "border-emerald/40" : "border-border hover:border-[rgb(237_237_237/0.16)]"}`}
+      className={`group flex h-full cursor-pointer gap-3 rounded-lg border bg-surface p-2.5 transition-colors duration-150 hover:bg-surface-2 ${token.arrived ? "row-in" : ""} ${
+        graduating || lowerRisk ? "border-emerald/40" : "border-border hover:border-[rgb(237_237_237/0.16)]"
+      }`}
     >
-      {/* Identity and the two numbers people read first */}
-      <div className="flex gap-3">
-        <TokenLogo src={meta?.image ?? null} symbol={token.symbol} size={56} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="flex min-w-0 items-baseline gap-1.5">
-              <span className="max-w-[60%] shrink-0 truncate text-base font-medium text-text" title={token.symbol}>
-                {token.symbol || "—"}
-              </span>
-              <span className="min-w-0 truncate text-sm text-muted" title={token.name}>
-                {token.name}
-              </span>
+      {/* Logo with the bonding curve under it */}
+      <div className="flex shrink-0 flex-col gap-1" title={m && curve ? `${m.complete ? "Graduated" : "Bonding curve"} ${m.curve_progress.toFixed(1)}%` : undefined}>
+        <TokenLogo src={meta?.image ?? null} symbol={token.symbol} size={68} />
+        <span className="h-1 w-[68px] overflow-hidden rounded-full bg-surface-3">
+          {curve && m && <span className={`block h-full ${graduating || m.complete ? "bg-emerald" : "bg-cyan"}`} style={{ width: `${Math.max(2, Math.min(100, m.curve_progress))}%` }} />}
+        </span>
+      </div>
+
+      {/* Middle: name, then age and links, then holder shares and flags */}
+      <div className="flex min-w-0 flex-1 flex-col justify-between gap-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="max-w-[55%] shrink-0 truncate text-sm font-medium text-text" title={token.symbol}>
+            {token.symbol || "—"}
+          </span>
+          <span className="min-w-0 truncate text-xs text-muted" title={token.name}>
+            {token.name}
+          </span>
+          <CopyIcon value={token.mint} />
+        </div>
+
+        <div className="flex min-w-0 items-center gap-2.5 text-xs">
+          <span className={`font-mono ${age < 60 ? "text-emerald" : age < 600 ? "text-text" : "text-warning"}`} title="Age">
+            {formatAge(age)}
+          </span>
+          <span className="flex items-center gap-1.5">
+            {meta?.twitter && <IconLink href={meta.twitter} label="X"><XGlyph /></IconLink>}
+            {meta?.telegram && <IconLink href={meta.telegram} label="Telegram"><Send size={13} strokeWidth={1.5} /></IconLink>}
+            {meta?.website && <IconLink href={meta.website} label="Website"><Globe size={13} strokeWidth={1.5} /></IconLink>}
+            <IconLink href={`https://x.com/search?q=${encodeURIComponent(token.mint)}`} label="Search this coin on X"><Search size={13} strokeWidth={1.5} /></IconLink>
+          </span>
+          <span className="flex items-center gap-1 font-mono text-text-2" title={ownWallets ? "Holders, counted from trades since launch" : "Holders"}>
+            <Users size={13} strokeWidth={1.5} className="text-muted" />
+            {holders != null ? holders.toLocaleString() : "—"}
+          </span>
+          {netBuy != null && Math.abs(netBuy) >= 1 && (
+            <span className={`hidden font-mono sm:inline ${netBuy >= 0 ? "text-positive" : "text-negative"}`} title="Net buying, last hour (bought minus sold)">
+              {netBuy >= 0 ? "+" : "−"}
+              {usd(Math.abs(netBuy))}
             </span>
-            <span className="flex shrink-0 items-center gap-2.5">
-              <SafetyBadge safety={safety} />
-              <span className="font-mono text-base text-cyan" title="Market cap">
-                {usd(mc)}
-              </span>
+          )}
+          <span className="flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                blockDev(token.creator);
+              }}
+              title="Hide every coin from this creator (undo in Filters)"
+              aria-label="Hide this creator's coins"
+              className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:bg-surface-3 hover:text-negative"
+            >
+              <EyeOff size={12} strokeWidth={1.5} />
+            </button>
+            <StarButton mint={token.mint} size={12} />
+          </span>
+        </div>
+
+        <div className="flex h-6 min-w-0 items-center gap-1 overflow-hidden">
+          <Pct icon={Users} tone={pctTone(top10, TOP10_WARN)} text={pctText(top10)} title="Top 10 holders' share" />
+          <Pct icon={UserCog} tone={pctTone(devPct, DEV_WARN)} text={pctText(devPct)} title="Creator's share" />
+          <Pct icon={Crosshair} tone={pctTone(earlyPct, EARLY_WARN)} text={pctText(earlyPct)} title={ownWallets ? `Early buyers: ${m.snipers} wallets bought in the first 3 seconds; share they still hold` : "Early buyers"} />
+          <Pct icon={Boxes} tone={pctTone(bundlePct, BUNDLE_WARN)} text={pctText(bundlePct)} title={ownWallets ? `Bundles: ${m.bundled} wallets bought together in one slot after launch; share they still hold` : "Bundles"} />
+          {shown.map((f) => (
+            <FlagChip key={f.key} flag={f} />
+          ))}
+          {flags.length > 1 && (
+            <span className="flex h-5 shrink-0 items-center rounded-full border border-border px-1.5 font-mono text-[10px] text-text-2" title={flags.slice(1).map((f) => f.text).join(" · ")}>
+              +{flags.length - 1}
             </span>
-          </div>
-          <div className="flex items-center justify-between gap-3 text-[11px]">
-            <span className="flex min-w-0 items-center gap-1">
-              <CopyAddress value={token.creator} prefix="dev" title={`Copy creator wallet ${token.creator}`} className="text-muted" />
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  blockDev(token.creator);
-                }}
-                title="Hide every coin from this creator (undo in Filters)"
-                aria-label="Hide this creator's coins"
-                className="flex h-5 w-5 items-center justify-center rounded text-muted transition-colors hover:bg-surface-3 hover:text-negative"
-              >
-                <EyeOff size={12} strokeWidth={1.5} />
-              </button>
-              <StarButton mint={token.mint} size={12} />
-            </span>
-            <span className="shrink-0 font-mono text-text-2" title="Volume, last hour">
-              <span className="text-muted">Vol </span>
-              {usd(vol1h)}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 font-mono text-xs">
-            <span className={age < 60 ? "text-emerald" : "text-text-2"} title="Age">
-              {formatAge(age)}
-            </span>
-            <span className="flex items-center gap-1 text-text-2" title={ownWallets ? "Holders, counted from trades since launch" : "Holders"}>
-              <Users size={12} strokeWidth={1.5} className="text-muted" />
-              {holders != null ? holders.toLocaleString() : "—"}
-              {ownWallets && m.holders_change_1h !== 0 && (
-                <span className={m.holders_change_1h > 0 ? "text-positive" : "text-negative"} title="Holder change, last hour">
-                  {m.holders_change_1h > 0 ? "+" : ""}
-                  {m.holders_change_1h}
-                </span>
+          )}
+          {flags.length === 0 && <AiRiskChip mint={token.mint} ageSecs={age} />}
+        </div>
+      </div>
+
+      {/* Right: volume and market cap, trades, actions */}
+      <div className="flex shrink-0 flex-col items-end justify-between gap-1">
+        <div className="flex items-baseline gap-2 font-mono">
+          <span className="text-xs text-text-2" title="Volume, last hour">
+            <span className="font-sans text-[10px] text-muted">V </span>
+            {usd(vol1h)}
+          </span>
+          <span className="text-[15px] leading-5 text-cyan" title="Market cap">
+            <span className="font-sans text-[10px] text-muted">MC </span>
+            {usd(mc)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 font-mono text-xs">
+          {checks.length > 0 && <ChecksChip checks={checks} listed={lowerRisk} score={safety.score} />}
+          <SafetyBadge safety={safety} />
+          <span className="flex items-center gap-1.5" title={buys != null ? `Last hour: ${buys} buys, ${sells ?? 0} sells` : "Trades"}>
+            <span className="font-sans text-[10px] text-muted">TX</span>
+            <span className="text-text">{m ? m.trades_total.toLocaleString() : flow ? flow.toLocaleString() : "—"}</span>
+            <span className="flex h-0.5 w-8 overflow-hidden rounded-full bg-surface-3">
+              {flow > 0 && (
+                <>
+                  <span className="h-full bg-positive" style={{ width: `${((buys ?? 0) / flow) * 100}%` }} />
+                  <span className="h-full bg-negative" style={{ width: `${((sells ?? 0) / flow) * 100}%` }} />
+                </>
               )}
             </span>
-            {netBuy != null && (
-              <span className={netBuy >= 0 ? "text-positive" : "text-negative"} title="Net buying, last hour (bought minus sold)">
-                <span className="text-muted">NB </span>
-                {netBuy >= 0 ? "+" : "−"}
-                {usd(Math.abs(netBuy))}
-              </span>
-            )}
-            <span className="ml-auto flex shrink-0 items-center gap-1.5" title={buys != null ? `Last hour: ${buys} buys, ${sells ?? 0} sells` : "Trades"}>
-              <span className="text-text">{m ? m.trades_total.toLocaleString() : flow ? flow.toLocaleString() : "—"}</span>
-              <span className="text-muted">tx</span>
-              <span className="flex h-1 w-10 overflow-hidden rounded-full bg-surface-3">
-                {flow > 0 && (
-                  <>
-                    <span className="h-full bg-positive" style={{ width: `${((buys ?? 0) / flow) * 100}%` }} />
-                    <span className="h-full bg-negative" style={{ width: `${((sells ?? 0) / flow) * 100}%` }} />
-                  </>
-                )}
-              </span>
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Holder shares and the curve: always the same five cells */}
-      <dl className="grid grid-cols-5 gap-1 rounded-lg border border-border bg-bg/40 px-2 py-1.5">
-        <Cell label="Top 10" value={top10} warn={TOP10_WARN} title="Share held by the 10 largest wallets" />
-        <Cell label="Dev" value={ownWallets ? m.dev_pct : null} warn={DEV_WARN} title="Share held by the creator wallet" />
-        <Cell label="Early" value={ownWallets ? m.sniper_pct : null} warn={EARLY_WARN} title={ownWallets ? `${m.snipers} wallets bought in the first 3 seconds; share they still hold` : "Early buyers"} />
-        <Cell label="Bundles" value={ownWallets ? m.bundle_pct : null} warn={BUNDLE_WARN} title={ownWallets ? `${m.bundled} wallets bought together in one slot after launch; share they still hold` : "Bundles"} />
-        <div className="min-w-0" title={m && curve ? `Bonding curve ${m.curve_progress.toFixed(1)}%` : "No curve"}>
-          <dt className="text-[10px] text-muted">{m?.complete ? "Graduated" : "Curve"}</dt>
-          <dd className={`flex items-center gap-1 font-mono text-[11px] ${graduating || m?.complete ? "text-emerald" : "text-text-2"}`}>
-            {curve && m ? (
-              <>
-                <span className="h-1 w-full max-w-8 overflow-hidden rounded-full bg-surface-3">
-                  <span className="block h-full bg-cyan" style={{ width: `${Math.max(2, m.curve_progress)}%` }} />
-                </span>
-                {m.curve_progress.toFixed(0)}%
-              </>
-            ) : (
-              "—"
-            )}
-          </dd>
-        </div>
-      </dl>
-
-      {/* Social links: always three slots, lit when the coin has the link */}
-      <div className="grid grid-cols-3 gap-1.5">
-        <SocialLink href={meta?.twitter} label="X" icon={<XGlyph />} />
-        <SocialLink href={meta?.telegram} label="Telegram" icon={<Send size={12} strokeWidth={1.5} />} />
-        <SocialLink href={meta?.website} label="Website" icon={<Globe size={12} strokeWidth={1.5} />} />
-      </div>
-
-      {/* Two flags at most, the rest folded */}
-      <div className="flex h-6 items-center gap-1.5 overflow-hidden">
-        <AiRiskChip mint={token.mint} ageSecs={age} />
-        {shown.map((f) => (
-          <FlagChip key={f.key} flag={f} />
-        ))}
-        {folded.length > 0 && (
-          <span className="flex h-6 shrink-0 items-center rounded-full border border-border px-2 font-mono text-[11px] text-text-2" title={folded.map((f) => f.text).join(" · ")}>
-            +{folded.length}
           </span>
-        )}
-        {flags.length === 0 && <span className="text-[11px] text-muted">No warning signs in the data so far</span>}
-      </div>
-
-      {/* Footer, pinned to the bottom of every card */}
-      <div className="mt-auto flex items-center gap-2 border-t border-border pt-2.5">
-        {checks.length > 0 && <ChecksChip checks={checks} listed={lowerRisk} score={safety.score} />}
-        <span className="text-[11px]">
-          <CopyMint mint={token.mint} />
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
+        </div>
+        <div className="flex items-center gap-1">
           <AiButton input={() => inputFromLaunch(token)} safety={safety} compact />
-          <QuickBuy mint={token.mint} symbol={token.symbol} />
-          <TradeLink mint={token.mint} />
-        </span>
+          <QuickBuy mint={token.mint} symbol={token.symbol} className="px-2.5 text-xs" />
+        </div>
       </div>
     </article>
+  );
+}
+
+/** One holder-share chip: green under its warning level, red over it, dim if unknown. */
+function Pct({ icon: Icon, tone, text, title }: { icon: LucideIcon; tone: string; text: string; title: string }) {
+  return (
+    <span title={title} className={`flex h-5 shrink-0 items-center gap-1 rounded-full border border-border bg-bg/40 px-1.5 font-mono text-[10px] ${tone}`}>
+      <Icon size={11} strokeWidth={1.5} />
+      {text}
+    </span>
+  );
+}
+
+function CopyIcon({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={`Copy contract address ${value}`}
+      aria-label="Copy contract address"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(value).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        });
+      }}
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-surface-3 hover:text-text"
+    >
+      {copied ? <CheckIcon size={12} strokeWidth={1.5} className="text-positive" /> : <Copy size={12} strokeWidth={1.5} />}
+    </button>
+  );
+}
+
+function IconLink({ href, label, children }: { href: string; label: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      onClick={(e) => e.stopPropagation()}
+      title={label === "Search this coin on X" ? label : `${label}: ${href}`}
+      aria-label={label}
+      className="text-muted transition-colors hover:text-cyan"
+    >
+      {children}
+    </a>
   );
 }
 
@@ -293,7 +316,7 @@ function FlagChip({ flag: f }: { flag: Flag }) {
       <span className="truncate">{f.text}</span>
     </>
   );
-  const cls = `flex h-6 min-w-0 shrink items-center gap-1 rounded-full border px-2 text-[11px] ${FLAG_TONE[f.tone]}`;
+  const cls = `flex h-5 max-w-44 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] whitespace-nowrap ${FLAG_TONE[f.tone]}`;
   return f.href ? (
     <Link href={f.href} onClick={(e) => e.stopPropagation()} title={f.title} className={`${cls} transition-colors hover:brightness-125`}>
       {body}
@@ -305,55 +328,12 @@ function FlagChip({ flag: f }: { flag: Flag }) {
   );
 }
 
-/** One holder-share cell: green under its warning level, red over it, dash if unknown. */
-function Cell({ label, value, warn, title }: { label: string; value: number | null; warn: number; title: string }) {
-  return (
-    <div className="min-w-0" title={title}>
-      <dt className="text-[10px] text-muted">{label}</dt>
-      <dd className={`font-mono text-[11px] ${value == null ? "text-muted" : value >= warn ? "text-negative" : "text-positive"}`}>{value == null ? "—" : `${value.toFixed(0)}%`}</dd>
-    </div>
-  );
-}
-
 function devTitle(r: DevReport) {
   return r.coins === 0
     ? "No earlier coins by this creator since Kixo started tracking"
     : `Creator's earlier coins: ${r.coins} launched, ${r.graduated} graduated, ${r.rugged} rugged (sold out, down 70%+), ${r.died_fast} died within 15 minutes${
         r.best_peak_mc_usd ? `, best peak ${usd(r.best_peak_mc_usd)}` : ""
       }`;
-}
-
-/** One social link slot. With a link it opens it in a new tab; without, it stays dim
- *  and says so, so a missing link is as visible as a present one. Metadata is still
- *  loading when `meta` has not arrived yet. */
-function SocialLink({ href, label, icon }: { href: string | null | undefined; label: string; icon: React.ReactNode }) {
-  if (!href) {
-    return (
-      <span className="flex h-7 items-center justify-center gap-1.5 rounded-md border border-dashed border-border text-[11px] text-muted/60" title={`No ${label} link`}>
-        {icon}
-        {label}
-      </span>
-    );
-  }
-  let host = "";
-  try {
-    host = new URL(href).hostname.replace(/^www\./, "");
-  } catch {
-    // Shown without the host.
-  }
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer nofollow"
-      onClick={(e) => e.stopPropagation()}
-      title={`${label}: ${href}`}
-      className="flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 text-[11px] text-text transition-colors hover:border-cyan/40 hover:text-cyan"
-    >
-      {icon}
-      <span className="truncate">{label === "Website" && host ? host : label}</span>
-    </a>
-  );
 }
 
 function XGlyph() {

@@ -273,18 +273,16 @@ export function RadarBoard() {
   return (
     <section>
       {/* Header strip: title, live state, key numbers and the radar */}
-      <div className="flex flex-wrap items-center gap-x-10 gap-y-6">
-        <div className="min-w-0 flex-1 basis-72">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-medium text-text">Sol Radar</h1>
-            <LiveBadge status={status} />
-          </div>
-          <p className="mt-1 text-sm text-text-2">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <div className="flex min-w-0 flex-1 basis-72 items-center gap-3">
+          <h1 className="text-xl font-medium text-text">Sol Radar</h1>
+          <LiveBadge status={status} />
+          <p className="hidden truncate text-xs text-muted md:block">
             New Solana tokens as they launch, priced from on-chain trades
           </p>
         </div>
 
-        <dl className="grid w-full grid-cols-4 gap-x-3 sm:flex sm:w-auto sm:flex-wrap sm:gap-x-10 sm:gap-y-4">
+        <dl className="grid w-full grid-cols-4 gap-x-3 sm:flex sm:w-auto sm:flex-wrap sm:gap-x-8 sm:gap-y-2">
           <Stat label="Launches, last min" value={String(lastMinute)} accent />
           <Stat label="On the radar" value={String(tokens.length)} />
           <Stat label="Volume, last hour" value={usd(volume1h)} />
@@ -292,12 +290,12 @@ export function RadarBoard() {
         </dl>
 
         <div className="hidden lg:block">
-          <RadarScope tokens={tokens} now={now} size={104} />
+          <RadarScope tokens={tokens} now={now} size={52} />
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="mt-6 flex flex-wrap items-center gap-3 border-y border-border py-3">
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-y border-border py-2">
         <div className="no-scrollbar -mx-4 flex w-[calc(100%+2rem)] gap-1 overflow-x-auto px-4 sm:mx-0 sm:w-auto sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Filter">
           {(Object.keys(FILTERS) as FilterKey[]).map((k) => (
             <button
@@ -305,7 +303,7 @@ export function RadarBoard() {
               type="button"
               onClick={() => setFilter(k)}
               aria-pressed={filter === k}
-              className={`h-8 shrink-0 rounded-lg px-3 text-sm whitespace-nowrap transition-colors duration-150 ${
+              className={`h-7 shrink-0 rounded-md px-2.5 text-xs whitespace-nowrap transition-colors duration-150 ${
                 filter === k
                   ? "bg-surface-3 text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                   : "text-text-2 hover:bg-surface-2 hover:text-text"
@@ -326,11 +324,11 @@ export function RadarBoard() {
           ))}
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center gap-2 [&_button]:h-7 [&_button]:text-xs">
           <SniperMenu />
           <FiltersMenu />
           <AlertsMenu />
-          <label className="flex h-8 w-64 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm focus-within:border-emerald/50">
+          <label className="flex h-7 w-56 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-xs focus-within:border-emerald/50">
             <Search
               size={14}
               strokeWidth={1.5}
@@ -355,12 +353,12 @@ export function RadarBoard() {
               </button>
             )}
           </label>
-          <label className="flex h-8 items-center gap-2 text-sm text-muted">
+          <label className="flex h-7 items-center gap-2 text-xs text-muted">
             Sort
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
-              className="h-8 rounded-lg border border-border bg-surface px-2 text-text outline-none focus:border-emerald/50"
+              className="h-7 rounded-md border border-border bg-surface px-2 text-text outline-none focus:border-emerald/50"
             >
               {(Object.keys(SORTS) as SortKey[]).map((k) => (
                 <option key={k} value={k}>
@@ -447,9 +445,9 @@ function Stat({
 }) {
   return (
     <div>
-      <dt className="text-xs text-muted">{label}</dt>
+      <dt className="text-[11px] text-muted">{label}</dt>
       <dd
-        className={`mt-1 font-mono text-base sm:text-xl ${accent ? "text-emerald" : "text-text"}`}
+        className={`font-mono text-sm sm:text-base ${accent ? "text-emerald" : "text-text"}`}
       >
         {value}
       </dd>
