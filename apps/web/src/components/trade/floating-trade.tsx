@@ -2,8 +2,58 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { GripHorizontal, PanelRightClose, PictureInPicture2 } from "lucide-react";
+import { GripHorizontal, PanelRightClose, PictureInPicture2, Zap } from "lucide-react";
 import { TradePanel } from "./trade-panel";
+import { InstantTrade } from "./instant-trade";
+
+const TAB_KEY = "mx.trade.tab";
+
+/** The two ways to trade a coin: the full ticket, or instant one-click buttons. The
+ *  choice is remembered in this browser. `action` sits at the end of the tab row. */
+function TradeBox({ symbol, mint, action }: { symbol: string; mint: string; action?: React.ReactNode }) {
+  const [tab, setTab] = useState<"trade" | "instant">(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(TAB_KEY) === "instant" ? "instant" : "trade";
+    } catch {
+      return "trade";
+    }
+  });
+  const pick = (t: "trade" | "instant") => {
+    setTab(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {}
+  };
+  return (
+    <>
+      <div className="flex items-center gap-2 px-3 pt-2.5">
+        <div className="grid flex-1 grid-cols-2 gap-0.5 rounded-lg bg-bg p-0.5" role="tablist" aria-label="How to trade">
+          {(
+            [
+              ["trade", "Trade"],
+              ["instant", "Instant"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => pick(k)}
+              title={k === "instant" ? "One click buys or sells at once" : "The full ticket: amount, take profit and stop loss"}
+              className={`flex h-7 items-center justify-center gap-1 rounded-md text-xs transition-colors ${tab === k ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}
+            >
+              {k === "instant" && <Zap size={12} strokeWidth={1.5} className={tab === k ? "text-emerald" : ""} />}
+              {label}
+            </button>
+          ))}
+        </div>
+        {action}
+      </div>
+      {tab === "instant" ? <InstantTrade symbol={symbol} mint={mint} /> : <TradePanel symbol={symbol} mint={mint} />}
+    </>
+  );
+}
 
 const POS_KEY = "kixo.trade.float.pos";
 const WIDTH = 360;
@@ -47,19 +97,21 @@ export function DockableTrade({ symbol, mint }: { symbol: string; mint: string }
   if (!pos) {
     return (
       <div>
-        <div className="flex items-center justify-between px-3 pt-2 text-[11px] text-text-2">
-          Buy and sell
-          <button
-            type="button"
-            onClick={popOut}
-            title="Pop out the buy and sell box and move it anywhere"
-            className="flex h-6 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
-          >
-            <PictureInPicture2 size={13} strokeWidth={1.5} />
-            Pop out
-          </button>
-        </div>
-        <TradePanel symbol={symbol} mint={mint} />
+        <TradeBox
+          symbol={symbol}
+          mint={mint}
+          action={
+            <button
+              type="button"
+              onClick={popOut}
+              title="Pop out the buy and sell box and move it anywhere"
+              aria-label="Pop out the buy and sell box"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
+            >
+              <PictureInPicture2 size={13} strokeWidth={1.5} />
+            </button>
+          }
+        />
       </div>
     );
   }
@@ -111,7 +163,7 @@ export function DockableTrade({ symbol, mint }: { symbol: string; mint: string }
             </button>
           </div>
           <div className="overflow-y-auto">
-            <TradePanel symbol={symbol} mint={mint} />
+            <TradeBox symbol={symbol} mint={mint} />
           </div>
         </div>,
         document.body,

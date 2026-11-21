@@ -1,7 +1,7 @@
 "use client";
 
 import { LiveTradesColumn } from "./live-trades-column";
-import { WalletLink } from "@/components/tracker/wallet-tracker";
+import { CoinProfile } from "./coin-profile";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
@@ -122,18 +122,12 @@ export function TokenView() {
             <DockableTrade symbol={row.symbol} mint={mint} />
           </div>
           <MyPosition mint={mint} livePrice={row.priceUsd} />
+          <CoinProfile row={row} launch={launch} market={market} now={now} />
           <div data-tour="trade-orders">
             <OrdersCard mint={mint} symbol={row.symbol} />
           </div>
           <GridCard mint={mint} symbol={row.symbol} />
           <TokenInfo row={row} launch={launch} />
-          <Safety row={row} launch={launch} market={market} />
-          {launch?.meta?.description && (
-            <section className="border-b border-border p-3">
-              <h2 className="text-xs font-medium text-text">About</h2>
-              <p className="mt-1.5 text-xs leading-5 break-words text-text-2">{launch.meta.description}</p>
-            </section>
-          )}
         </aside>
       </div>
       <MobileTradeBar symbol={row.symbol} />
@@ -447,38 +441,6 @@ function Cell({ k, v, title }: { k: string; v: React.ReactNode; title?: string }
   );
 }
 
-function Safety({ row: r, launch, market }: { row: DiscoverRow; launch: FeedToken | null; market: MarketToken | null }) {
-  const m = launch?.market;
-  return (
-    <section className="border-b border-border p-3">
-      <h2 className="text-xs font-medium text-text">Contract</h2>
-      <dl className="mt-2 flex flex-col gap-2 text-xs">
-        <Row k="Contract" v={<CopyMint mint={r.mint} />} />
-        <Row k="Mint authority" v={market ? (market.mint_authority_disabled ? "Revoked" : "Active") : "—"} warn={market ? !market.mint_authority_disabled : false} />
-        <Row
-          k="Freeze authority"
-          v={market?.freeze_authority_disabled == null ? "—" : market.freeze_authority_disabled ? "Revoked" : "Active"}
-          warn={market?.freeze_authority_disabled === false}
-        />
-        {launch && (
-          <Row k="Creator" v={<WalletLink address={launch.creator} extra={["dev"]} badges={false} />} />
-        )}
-      </dl>
-      {m && !m.complete && (
-        <div className="mt-4 border-t border-border pt-4">
-          <div className="flex justify-between text-xs text-muted">
-            <span>Bonding curve</span>
-            <span className="font-mono text-text-2">{m.curve_progress.toFixed(1)}%</span>
-          </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
-            <div className="h-full bg-emerald" style={{ width: `${Math.min(100, m.curve_progress)}%` }} />
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
 function Missing({ mint, loading }: { mint: string; loading: boolean }) {
   return (
     <section className="mx-auto mt-16 max-w-md rounded-xl border border-border bg-surface p-6 text-center">
@@ -496,15 +458,6 @@ function Missing({ mint, loading }: { mint: string; loading: boolean }) {
   );
 }
 
-
-function Row({ k, v, warn = false }: { k: string; v: React.ReactNode; warn?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-text-2">{k}</dt>
-      <dd className={`font-mono text-xs ${warn ? "text-warning" : "text-text"}`}>{v}</dd>
-    </div>
-  );
-}
 
 function Change({ v }: { v: number | null }) {
   return <span className={v == null ? "text-muted" : v > 0 ? "text-positive" : v < 0 ? "text-negative" : "text-text"}>{pct(v)}</span>;

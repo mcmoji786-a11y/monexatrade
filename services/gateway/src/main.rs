@@ -29,6 +29,7 @@ mod jupiter;
 mod metadata;
 mod news;
 mod pools;
+mod profile;
 mod portfolio;
 mod rpc;
 mod rpc_router;
@@ -543,6 +544,7 @@ async fn main() -> Result<()> {
         .route("/token/{mint}/labels", get(labels_handler))
         .route("/token/{mint}/groups", get(funders::groups_handler))
         .route("/token/{mint}/dex", get(dex_handler))
+        .route("/token/{mint}/profile", get(profile::handler))
         .route("/img", get(img_proxy))
         .route("/smart-money", get(smart_handler))
         .route("/competition/onchain", get(onchain_top_handler))
