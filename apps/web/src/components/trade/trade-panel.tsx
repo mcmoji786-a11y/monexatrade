@@ -167,7 +167,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
 
   return (
     <section className="border-b border-border p-3">
-      <div className="grid grid-cols-2 gap-1 rounded-lg bg-bg p-1">
+      <div className="grid grid-cols-2 gap-1 rounded-lg bg-bg p-0.5">
         {(["buy", "sell"] as const).map((s) => (
           <button
             key={s}
@@ -179,7 +179,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
               setPreview(null),
               setPreviewErr(null)
             )}
-            className={`h-8 rounded-md text-sm capitalize ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+            className={`h-7 rounded-md text-xs capitalize ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
               side === s
                 ? s === "buy"
                   ? "bg-[#22ab94]/15 font-medium text-[#22ab94] ring-[#22ab94]/40"
@@ -193,7 +193,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
       </div>
 
       {demo && (
-        <div className="mt-3 flex items-center justify-between text-xs">
+        <div className="mt-2.5 flex items-center justify-between text-[11px]">
           <span className="text-warning">Demo account</span>
           <span data-private className="font-mono tabular-nums text-text-2">
             {side === "buy"
@@ -209,7 +209,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
 
       {demo && (
         <>
-          <label className="mt-3 flex h-10 items-center gap-2 rounded-lg border border-border bg-bg px-3 focus-within:border-emerald/50">
+          <label className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 focus-within:border-emerald/50">
             <span className="text-xs text-muted">Amount</span>
             <input
               inputMode="decimal"
@@ -236,7 +236,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
                 type="button"
                 disabled={!demo}
                 onClick={() => setAmount(p)}
-                className="h-8 rounded-md border border-border font-mono text-xs text-text-2 transition-colors hover:bg-surface-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-7 rounded-md border border-border font-mono text-[11px] text-text-2 transition-colors hover:bg-surface-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {side === "buy" ? `$${p}` : `${p}%`}
               </button>
@@ -297,7 +297,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
                 !valid || busy || (side === "sell" && !held) || !!previewErr
               }
               onClick={submit}
-              className={`mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#22ab94] text-bg" : "bg-[#f23645] text-text"}`}
+              className={`mt-2.5 flex h-9 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#22ab94] text-bg" : "bg-[#f23645] text-text"}`}
             >
               {busy && (
                 <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />
@@ -308,7 +308,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
             </button>
           ) : null}
           {demo && (
-            <p className="mt-2 text-center text-[11px] text-muted">
+            <p className="mt-1.5 text-center text-[10px] leading-4 text-muted">
               Live price, {pctOf(platform.trade_fee_bps)} fee each way and real price impact, exactly as real trading would cost
             </p>
           )}
@@ -333,7 +333,7 @@ function ExitInput({
   tone: string;
 }) {
   return (
-    <label className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-bg px-2 focus-within:border-emerald/50">
+    <label className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-bg px-2 focus-within:border-emerald/50">
       <span className={`text-[11px] ${tone}`}>{label}</span>
       <span className="font-mono text-xs text-muted">{sign}</span>
       <input

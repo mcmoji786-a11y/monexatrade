@@ -28,7 +28,7 @@ export function NoteButton({ kind, target, label }: { kind: NoteKind; target: st
         className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-sm transition-colors hover:bg-surface-2 ${note ? "border-emerald/40 text-text" : "border-border text-text-2"}`}
       >
         <NotebookPen size={14} strokeWidth={1.5} className={note ? "text-emerald" : ""} />
-        Note
+        <span className="tool-label">Note</span>
       </button>
       {open && <Editor key={note?.updated_at ?? "new"} kind={kind} target={target} label={label} initial={note?.body ?? ""} error={error} count={notes?.length ?? 0} onClose={() => setOpen(false)} onAll={() => (setOpen(false), setAll(true))} />}
       {all && createPortal(<AllNotes onClose={() => setAll(false)} />, document.body)}

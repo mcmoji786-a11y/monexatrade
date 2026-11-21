@@ -9,7 +9,7 @@ import { usd } from "@/lib/gateway";
 import { WalletLink } from "@/components/tracker/wallet-tracker";
 import { useFeatures } from "@/lib/features";
 
-export function DevRecord({ report: d, creator }: { report: DevReport | null | undefined; creator: string }) {
+export function DevRecord({ report: d, creator, inline = false }: { report: DevReport | null | undefined; creator: string; inline?: boolean }) {
   const f = useFeatures();
   if (!d || !f.dev_record) return null;
   const bad = d.rugged > 0;
@@ -30,6 +30,22 @@ export function DevRecord({ report: d, creator }: { report: DevReport | null | u
             ? `This creator graduated ${d.graduated} of ${d.coins} earlier coin${d.coins === 1 ? "" : "s"}`
             : `This creator launched ${d.coins} earlier coin${d.coins === 1 ? "" : "s"}`;
 
+  if (inline) {
+    const text = bad ? "text-negative" : weak ? "text-warning" : good ? "text-positive" : "text-text-2";
+    return (
+      <p
+        data-tour="trade-dev"
+        aria-label="Creator record"
+        title={d.coins > 0 ? `Launched ${d.coins}, rugged ${d.rugged}, died fast ${d.died_fast}, graduated ${d.graduated}${d.best_peak_mc_usd != null ? `, best peak ${usd(d.best_peak_mc_usd)}` : ""}` : undefined}
+        className="flex shrink-0 items-center gap-1.5 border-l border-border py-1.5 pl-4 text-[11px] whitespace-nowrap"
+      >
+        <Icon size={13} strokeWidth={1.5} className={`shrink-0 ${iconTone}`} />
+        <span className={`hidden max-w-80 truncate xl:inline ${text}`}>{headline}</span>
+        <span className="text-muted">Dev</span>
+        <WalletLink address={creator} extra={["dev"]} badges={false} className="font-mono text-text-2 hover:text-text" />
+      </p>
+    );
+  }
   return (
     <section data-tour="trade-dev" className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5 ${tone}`} aria-label="Creator record">
       <p className="flex min-w-0 items-center gap-2 text-sm text-text">

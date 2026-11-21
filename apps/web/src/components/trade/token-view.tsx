@@ -65,7 +65,7 @@ export function TokenView() {
     return { ...baseRow, priceUsd: lastTrade.price_sol * feed.solUsd, mcUsd: lastTrade.mc_sol * feed.solUsd };
   }, [baseRow, lastTrade, feed.solUsd]);
   const [chartH, setChartH] = useStoredSize("mx.trade.chartH", 620, 320, 1100);
-  const [sideW, setSideW] = useStoredSize("mx.trade.sideW", 380, 320, 600);
+  const [sideW, setSideW] = useStoredSize("mx.trade.sideW", 340, 300, 600);
   // The same safety score as the coin's card on Radar and Discover: one number everywhere.
   const safety = useMemo(() => {
     if (!row || !now) return null;
@@ -84,7 +84,6 @@ export function TokenView() {
   return (
     <div className="terminal flex flex-col pb-16 lg:pb-0">
       <Header row={row} launch={launch} market={market} now={now} book={book} solUsd={feed.solUsd} safety={safety} />
-      {launch && <DevRecord report={launch.dev_report} creator={launch.creator} />}
 
       <div className="flex flex-col lg:flex-row">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -100,7 +99,7 @@ export function TokenView() {
               />
             </section>
             {/* The tape next to the chart on wide screens; the Trades tab has it everywhere. */}
-            <div className="hidden w-80 shrink-0 2xl:block">
+            <div className="hidden w-72 shrink-0 2xl:block">
               <LiveTradesColumn book={book} solUsd={feed.solUsd} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} now={now} />
             </div>
           </div>
@@ -122,9 +121,9 @@ export function TokenView() {
           <TokenInfo row={row} launch={launch} />
           <Safety row={row} launch={launch} market={market} />
           {launch?.meta?.description && (
-            <section className="border-b border-border p-4">
-              <h2 className="text-sm font-medium text-text">About</h2>
-              <p className="mt-2 text-sm leading-6 break-words text-text-2">{launch.meta.description}</p>
+            <section className="border-b border-border p-3">
+              <h2 className="text-xs font-medium text-text">About</h2>
+              <p className="mt-1.5 text-xs leading-5 break-words text-text-2">{launch.meta.description}</p>
             </section>
           )}
         </aside>
@@ -254,9 +253,10 @@ function ShareCoinButton({ row: r, book, solUsd, safety, ageSecs }: { row: Disco
         })
       }
       title="Share this coin as an image"
+      aria-label="Share this coin as an image"
       className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm text-text-2 transition-colors hover:bg-surface-2 hover:text-text focus-visible:outline-2 focus-visible:outline-emerald"
     >
-      <Share2 size={14} strokeWidth={1.5} /> <span className="hidden sm:inline">Share</span>
+      <Share2 size={14} strokeWidth={1.5} /> <span className="tool-label">Share</span>
     </button>
   );
 }
@@ -288,87 +288,105 @@ function Header({
 
   return (
     <section className="border-b border-border bg-surface">
-      {/* Identity, figures and actions on one line (figures wrap below on narrow screens) */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
+      {/* Row 1: identity, the market cap and price, tools */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-1.5">
         <Link
           href="/discover"
           aria-label="Back to Discover"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-3 hover:text-text"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-3 hover:text-text"
         >
-          <ArrowLeft size={16} strokeWidth={1.5} />
+          <ArrowLeft size={15} strokeWidth={1.5} />
         </Link>
 
-        <TokenLogo src={r.image} symbol={r.symbol} size={28} />
-        <div className="min-w-0 flex-1 xl:max-w-56 xl:flex-none">
-          <div className="flex items-baseline gap-2">
-            <h1 className="truncate text-base font-medium text-text">{r.symbol || "—"}</h1>
-            {r.verified && <BadgeCheck size={15} strokeWidth={1.5} className="shrink-0 self-center text-cyan" aria-label="Verified" />}
-            <span className="truncate text-sm text-muted">{r.name}</span>
-          </div>
-          <div className="mt-0.5 flex items-center gap-2.5 text-xs">
-            <CopyMint mint={r.mint} />
-            <span className="h-3 w-px bg-border" />
-            <span className="font-mono text-muted" title="Age">
-              {formatAge(ageSecs)}
-            </span>
-            <span className="h-3 w-px bg-border" />
-            <span className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <TokenLogo src={r.image} symbol={r.symbol} size={26} />
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <h1 className="max-w-40 truncate text-sm font-medium text-text">{r.symbol || "—"}</h1>
+              {r.verified && <BadgeCheck size={13} strokeWidth={1.5} className="shrink-0 self-center text-cyan" aria-label="Verified" />}
+              <span className="max-w-32 truncate text-xs text-muted">{r.name}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] leading-4">
+              <CopyMint mint={r.mint} />
+              <span className="font-mono text-muted" title="Age">
+                {formatAge(ageSecs)}
+              </span>
               {meta?.twitter && <IconLink href={meta.twitter} label="X / Twitter"><XGlyph /></IconLink>}
-              {meta?.telegram && <IconLink href={meta.telegram} label="Telegram"><Send size={13} strokeWidth={1.5} /></IconLink>}
-              {meta?.website && <IconLink href={meta.website} label="Website"><Globe size={13} strokeWidth={1.5} /></IconLink>}
-            </span>
+              {meta?.telegram && <IconLink href={meta.telegram} label="Telegram"><Send size={12} strokeWidth={1.5} /></IconLink>}
+              {meta?.website && <IconLink href={meta.website} label="Website"><Globe size={12} strokeWidth={1.5} /></IconLink>}
+            </div>
           </div>
         </div>
 
-        {/* Figures: one strip, the market cap leads */}
-        <dl data-tour="trade-figures" className="no-scrollbar order-last -mx-4 flex w-[calc(100%+2rem)] overflow-x-auto border-t border-border xl:order-none xl:mx-0 xl:w-auto xl:min-w-0 xl:flex-1 xl:border-t-0">
-          <div className="flex shrink-0 flex-col justify-center px-3 py-1.5">
-            <dt className="text-[11px] text-muted">Market cap</dt>
-            <dd>
-              <Tick value={r.mcUsd} className="font-mono text-base leading-5 text-emerald">
-                {usd(r.mcUsd)}
-              </Tick>
-            </dd>
-          </div>
-          <Cell k="Price" v={<Tick value={r.priceUsd}>{price(r.priceUsd)}</Tick>} />
-          <Cell k="5m" v={<Change v={r.change5m} />} />
+        <div className="flex items-baseline gap-3 font-mono tabular-nums">
+          <Tick value={r.mcUsd} className="text-[15px] leading-5 text-text">
+            {usd(r.mcUsd)}
+          </Tick>
+          <span className="text-xs text-text-2">
+            <Tick value={r.priceUsd}>{price(r.priceUsd)}</Tick>
+          </span>
+          <span className="text-xs">
+            <Change v={r.change5m} />
+            <span className="ml-1 font-sans text-[11px] text-muted">5m</span>
+          </span>
+        </div>
+
+        <div
+          data-tour="trade-tools"
+          className="ml-auto flex flex-wrap items-center gap-1 [&_a]:h-7 [&_a]:px-2 [&_a]:text-xs [&_button]:h-7 [&_button]:px-2 [&_button]:text-xs [&_.tool-label]:hidden min-[1800px]:[&_.tool-label]:inline"
+        >
+          {safety && <SafetyBadge safety={safety} size="sm" />}
+          <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
+          <KolBadge mint={r.mint} size="md" />
+          <span className="mx-1 h-4 w-px bg-border" />
+          <BigMovesButton book={book} solUsd={solUsd} now={now} />
+          <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
+          <NoteButton kind="coin" target={r.mint} label={r.symbol} />
+          <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />
+          <button type="button" onClick={startTradeTour} title="A walk through this page" aria-label="Page tour" className="flex w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text">
+            <CircleHelp size={14} strokeWidth={1.5} />
+          </button>
+          <AiButton input={() => inputFromRow(r)} safety={safety} />
+        </div>
+      </div>
+
+      {/* Row 2: every figure on one strip, the creator's record at its end */}
+      <div className="flex items-center gap-4 border-t border-border px-3">
+        <dl data-tour="trade-figures" className="no-scrollbar flex min-w-0 flex-1 items-center gap-x-4 overflow-x-auto py-1.5">
           <Cell k="1h" v={<Change v={r.change1h} />} />
-          <Cell k="Liquidity" v={usd(r.liquidityUsd)} />
-          <Cell k="Vol 1h" v={usd(r.vol1hUsd)} />
-          <Cell k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${r.holders.toLocaleString()}` : "—"} />
-          <Cell k="Supply" v={supply ? amount(supply) : "—"} />
-          {ath != null && <Cell k="ATH" v={usd(ath)} title="Highest market cap since tracking started" />}
           {market?.change_24h_pct != null && <Cell k="24h" v={<Change v={market.change_24h_pct} />} />}
+          <Cell k="Liq" title="Liquidity" v={usd(r.liquidityUsd)} />
+          <Cell k="Vol 1h" v={usd(r.vol1hUsd)} />
           {market?.volume_24h_usd != null && <Cell k="Vol 24h" v={usd(market.volume_24h_usd)} />}
           <Cell
-            k="Buys / sells 1h"
+            k="B/S 1h"
+            title="Buys and sells in the last hour"
             v={
               <span>
                 <span className="text-positive">{r.buys1h?.toLocaleString() ?? "—"}</span>
-                <span className="text-muted"> / </span>
+                <span className="text-muted">/</span>
                 <span className="text-negative">{r.sells1h?.toLocaleString() ?? "—"}</span>
               </span>
             }
           />
+          <Cell k="Holders" v={r.holders != null ? `${r.holdersApprox ? "~" : ""}${r.holders.toLocaleString()}` : "—"} />
           {market?.traders_1h != null && <Cell k="Traders 1h" v={market.traders_1h.toLocaleString()} title="Distinct wallets that traded in the last hour" />}
-          {r.top10Pct != null && (
-            <Cell k="Top 10" v={<span className={r.top10Pct > TOP10_WARN ? "text-negative" : "text-text"}>{r.top10Pct.toFixed(1)}%</span>} />
-          )}
+          {r.top10Pct != null && <Cell k="Top 10" v={<span className={r.top10Pct > TOP10_WARN ? "text-negative" : "text-text"}>{r.top10Pct.toFixed(1)}%</span>} />}
           {market?.organic_score != null && (
             <Cell
-              k="Organic score"
+              k="Organic"
               title="0-100 estimate of how much trading comes from real wallets, not bots"
               v={<span className={market.organic_score >= 60 ? "text-positive" : market.organic_score >= 30 ? "text-warning" : "text-negative"}>{market.organic_score.toFixed(0)}</span>}
             />
           )}
           {market && (
             <Cell
-              k="Mint / freeze"
+              k="Mint/Freeze"
               title="Whether more tokens can be minted, and whether wallets can be frozen"
               v={
                 <span>
                   <span className={market.mint_authority_disabled ? "text-positive" : "text-negative"}>{market.mint_authority_disabled ? "Off" : "On"}</span>
-                  <span className="text-muted"> / </span>
+                  <span className="text-muted">/</span>
                   <span className={market.freeze_authority_disabled === false ? "text-negative" : "text-positive"}>{market.freeze_authority_disabled === false ? "On" : "Off"}</span>
                 </span>
               }
@@ -376,33 +394,23 @@ function Header({
           )}
           {curve && (
             <Cell
-              k={curve.complete ? "Graduated" : "Bonding curve"}
+              k={curve.complete ? "Graduated" : "Curve"}
+              title="Bonding curve progress"
               v={
-                <span className="flex items-center gap-2">
-                  <span className="h-1 w-14 overflow-hidden rounded-full bg-surface-3">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1 w-10 overflow-hidden rounded-full bg-surface-3">
                     <span className="block h-full bg-emerald" style={{ width: `${Math.min(100, curve.curve_progress)}%` }} />
                   </span>
-                  {curve.curve_progress.toFixed(1)}%
+                  {curve.curve_progress.toFixed(0)}%
                 </span>
               }
             />
           )}
+          <Cell k="Supply" v={supply ? amount(supply) : "—"} />
+          {ath != null && <Cell k="ATH" v={usd(ath)} title="Highest market cap since tracking started" />}
         </dl>
-        <div data-tour="trade-tools" className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:shrink-0 [&_a]:h-7 [&_a]:text-xs [&_button]:h-7 [&_button]:text-xs">
-          {safety && <SafetyBadge safety={safety} size="md" />}
-          <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
-          <KolBadge mint={r.mint} size="md" />
-          <BigMovesButton book={book} solUsd={solUsd} now={now} />
-          <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
-          <NoteButton kind="coin" target={r.mint} label={r.symbol} />
-          <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />
-          <AiButton input={() => inputFromRow(r)} safety={safety} />
-          <button type="button" onClick={startTradeTour} title="A walk through this page" aria-label="Page tour" className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-2 transition-colors hover:bg-surface-2 hover:text-text">
-            <CircleHelp size={14} strokeWidth={1.5} />
-          </button>
-        </div>
+        {launch && <DevRecord report={launch.dev_report} creator={launch.creator} inline />}
       </div>
-
     </section>
   );
 }
@@ -410,9 +418,9 @@ function Header({
 /** One figure in the header strip, separated by a hairline. */
 function Cell({ k, v, title }: { k: string; v: React.ReactNode; title?: string }) {
   return (
-    <div title={title} className="flex shrink-0 flex-col justify-center border-l border-border px-3 py-1.5">
+    <div title={title} className="flex shrink-0 items-baseline gap-1.5 text-xs whitespace-nowrap">
       <dt className="text-[11px] text-muted">{k}</dt>
-      <dd className="mt-0.5 font-mono text-[13px] leading-5 text-text">{v}</dd>
+      <dd className="font-mono text-text tabular-nums">{v}</dd>
     </div>
   );
 }
@@ -420,9 +428,9 @@ function Cell({ k, v, title }: { k: string; v: React.ReactNode; title?: string }
 function Safety({ row: r, launch, market }: { row: DiscoverRow; launch: FeedToken | null; market: MarketToken | null }) {
   const m = launch?.market;
   return (
-    <section className="border-b border-border p-4">
-      <h2 className="text-sm font-medium text-text">Contract</h2>
-      <dl className="mt-3 flex flex-col gap-2.5 text-sm">
+    <section className="border-b border-border p-3">
+      <h2 className="text-xs font-medium text-text">Contract</h2>
+      <dl className="mt-2 flex flex-col gap-2 text-xs">
         <Row k="Contract" v={<CopyMint mint={r.mint} />} />
         <Row k="Mint authority" v={market ? (market.mint_authority_disabled ? "Revoked" : "Active") : "—"} warn={market ? !market.mint_authority_disabled : false} />
         <Row
@@ -527,13 +535,13 @@ function TokenInfo({ row: r, launch }: { row: DiscoverRow; launch: FeedToken | n
     },
   ];
   return (
-    <section className="border-b border-border p-4">
-      <h2 className="text-sm font-medium text-text">Token info</h2>
-      <dl className="mt-3 grid grid-cols-3 gap-2">
+    <section className="border-b border-border p-3">
+      <h2 className="text-xs font-medium text-text">Token info</h2>
+      <dl className="mt-2 grid grid-cols-3 gap-1.5">
         {tiles.map((t) => (
-          <div key={t.k} className="flex flex-col items-center gap-1 rounded-lg border border-border px-2 py-3 text-center">
-            <dd className={`flex items-center gap-1.5 font-mono text-sm ${t.tone}`}>
-              <t.icon size={14} strokeWidth={1.5} />
+          <div key={t.k} className="flex flex-col items-center gap-0.5 rounded-md border border-border px-2 py-2 text-center">
+            <dd className={`flex items-center gap-1.5 font-mono text-xs ${t.tone}`}>
+              <t.icon size={12} strokeWidth={1.5} />
               {t.v}
             </dd>
             <dt className="text-[11px] text-muted">{t.k}</dt>
@@ -589,7 +597,7 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
     <section className="border-b border-border">
       <div className="grid grid-cols-4 text-center">
         {cells.map(([k, v], i) => (
-          <div key={k} className={`py-3 ${i ? "border-l border-border" : ""}`}>
+          <div key={k} className={`py-2 ${i ? "border-l border-border" : ""}`}>
             <div className="text-[11px] text-muted">{k}</div>
             <div className="mt-1 font-mono text-xs tabular-nums">{v}</div>
           </div>
@@ -641,28 +649,28 @@ function FlowStrip({ row: r, book, solUsd, now }: { row: DiscoverRow; book: Book
   const share = total ? ((buys ?? 0) / total) * 100 : 50;
 
   return (
-    <section className="border-b border-border p-4">
+    <section className="border-b border-border px-3 py-2.5">
       <dl className="grid grid-cols-4 gap-2 font-mono text-xs">
         <div>
-          <dt className="text-[11px] text-muted">{label} vol</dt>
-          <dd className="mt-1 text-text">{usd(vol)}</dd>
+          <dt className="font-sans text-[11px] text-muted">{label} vol</dt>
+          <dd className="mt-0.5 text-text">{usd(vol)}</dd>
         </div>
         <div>
-          <dt className="text-[11px] text-muted">Buys</dt>
-          <dd className="mt-1 text-positive">{buys ?? "—"}</dd>
+          <dt className="font-sans text-[11px] text-muted">Buys</dt>
+          <dd className="mt-0.5 text-positive">{buys ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-[11px] text-muted">Sells</dt>
-          <dd className="mt-1 text-negative">{sells ?? "—"}</dd>
+          <dt className="font-sans text-[11px] text-muted">Sells</dt>
+          <dd className="mt-0.5 text-negative">{sells ?? "—"}</dd>
         </div>
         <div className="text-right">
-          <dt className="text-[11px] text-muted">Net vol</dt>
-          <dd className={`mt-1 ${net == null ? "text-muted" : net >= 0 ? "text-positive" : "text-negative"}`}>
+          <dt className="font-sans text-[11px] text-muted">Net vol</dt>
+          <dd className={`mt-0.5 ${net == null ? "text-muted" : net >= 0 ? "text-positive" : "text-negative"}`}>
             {net == null ? "—" : `${net >= 0 ? "+" : "−"}${usd(Math.abs(net))}`}
           </dd>
         </div>
       </dl>
-      <div className="mt-3 flex h-1 gap-0.5 overflow-hidden rounded-full">
+      <div className="mt-2 flex h-1 gap-0.5 overflow-hidden rounded-full">
         <div className="rounded-full bg-positive transition-[width] duration-500" style={{ width: `${share}%` }} />
         <div className="flex-1 rounded-full bg-negative" />
       </div>

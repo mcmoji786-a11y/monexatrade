@@ -29,10 +29,12 @@ function PriceAlertButtonInner({ mint, symbol, mcUsd }: { mint: string; symbol: 
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        title="Market cap alert"
+        aria-label="Market cap alert"
         className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-sm transition-colors hover:bg-surface-2 ${mine.length ? "border-emerald/40 text-text" : "border-border text-text-2"}`}
       >
         <BellPlus size={14} strokeWidth={1.5} />
-        Alert
+        <span className="tool-label">Alert</span>
         {mine.length > 0 && <span className="font-mono text-xs text-emerald">{mine.length}</span>}
       </button>
       {open && (

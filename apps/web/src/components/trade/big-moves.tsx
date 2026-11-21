@@ -36,13 +36,14 @@ export function BigMovesButton({ book, solUsd, now }: { book: BookState; solUsd:
         type="button"
         onClick={() => setOpen(true)}
         disabled={book.status !== "live"}
+        title="Big moves: the largest trades on this coin"
         className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-xs text-text-2 transition-colors hover:border-emerald/40 hover:text-text focus-visible:outline-2 focus-visible:outline-emerald disabled:opacity-50"
       >
         <span className="relative flex">
           <Activity size={14} strokeWidth={1.5} />
           {fresh && <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald" />}
         </span>
-        Big moves
+        <span className="tool-label">Big moves</span>
         <span className="font-mono text-muted">{moves.length}</span>
       </button>
       {open && book.status === "live" && <BigMovesDialog moves={moves} solUsd={solUsd} now={now} onClose={() => setOpen(false)} />}

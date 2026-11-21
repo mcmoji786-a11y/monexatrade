@@ -273,7 +273,7 @@ export function PriceChart({
     });
     if (!c) return;
     c.setOffsetRightDistance(48);
-    c.setBarSpace(7);
+    c.setBarSpace(6);
     c.subscribeAction("onCrosshairChange" as never, (d: unknown) => {
       setHover((d as { kLineData?: KLineData } | undefined)?.kLineData ?? null);
     });
@@ -306,7 +306,8 @@ export function PriceChart({
       // Spread a short history across most of the width instead of a thin sliver at
       // the right edge; long histories keep a readable minimum candle width.
       const width = box.current?.clientWidth ?? 800;
-      c.setBarSpace(Math.min(9, Math.max(5, (width * 0.6) / Math.max(1, data.length))));
+      // Thin candles always: a young coin's few candles must not turn into bars.
+      c.setBarSpace(Math.min(7, Math.max(4, (width * 0.5) / Math.max(1, data.length))));
       c.applyNewData(data);
       c.scrollToRealTime();
     } else {
@@ -395,7 +396,7 @@ export function PriceChart({
   return (
     <div ref={root} className="flex h-full flex-col bg-bg">
       {/* Top toolbar */}
-      <div className="no-scrollbar flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-2 text-[13px]">
+      <div className="no-scrollbar flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1.5 text-xs">
         {INTERVALS.filter((i) => i.secs >= minSecs).map((i) => (
           <Toggle key={i.secs} on={tf === i.secs} onClick={() => setInterval_(i.secs)}>
             {i.label}
@@ -407,7 +408,7 @@ export function PriceChart({
             type="button"
             onClick={() => setMenu((m) => !m)}
             aria-expanded={menu}
-            className="flex h-7 items-center gap-1 rounded-md px-2 text-text-2 transition-colors hover:bg-surface-3 hover:text-text"
+            className="flex h-6 items-center gap-1 rounded-md px-2 text-text-2 transition-colors hover:bg-surface-3 hover:text-text"
           >
             Indicators <ChevronDown size={12} strokeWidth={1.5} />
           </button>
@@ -443,10 +444,10 @@ export function PriceChart({
                     : "bonding curve · live"}
           </span>
           <IconButton label="Screenshot" onClick={screenshot}>
-            <Camera size={15} strokeWidth={1.5} />
+            <Camera size={14} strokeWidth={1.5} />
           </IconButton>
           <IconButton label="Full screen" onClick={() => (document.fullscreenElement ? document.exitFullscreen() : root.current?.requestFullscreen())}>
-            <Expand size={15} strokeWidth={1.5} />
+            <Expand size={14} strokeWidth={1.5} />
           </IconButton>
         </span>
       </div>
@@ -463,27 +464,26 @@ export function PriceChart({
 
       <div className="flex min-h-0 flex-1 bg-[#0b0c0e]">
         {/* Drawing tools */}
-        <div className="flex w-12 shrink-0 flex-col items-center gap-1.5 border-r border-border py-3">
+        <div className="hidden w-9 shrink-0 flex-col items-center gap-1 border-r border-border py-2 md:flex">
           {TOOLS.map((t) => (
             <IconButton key={t.label} label={t.label} on={tool === t.name} onClick={() => draw(t.name)}>
-              <t.icon size={18} strokeWidth={1.5} />
+              <t.icon size={15} strokeWidth={1.5} />
             </IconButton>
           ))}
-          <span className="my-1 h-px w-5 bg-border" />
+          <span className="my-1 h-px w-4 bg-border" />
           <IconButton label="Magnet" on={magnet} onClick={() => setMagnet((m) => !m)}>
-            <Magnet size={18} strokeWidth={1.5} />
+            <Magnet size={15} strokeWidth={1.5} />
           </IconButton>
           <IconButton label="Remove drawings" onClick={() => chart.current?.removeOverlay({ groupId: "drawings" })}>
-            <Trash2 size={18} strokeWidth={1.5} />
+            <Trash2 size={15} strokeWidth={1.5} />
           </IconButton>
         </div>
 
         <div className="relative min-w-0 flex-1">
           {shown && (
-            <div className="pointer-events-none absolute top-2.5 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
-              <span className="flex items-center gap-2 font-sans text-sm text-text">
+            <div className="pointer-events-none absolute top-2 left-2.5 z-10 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 font-mono text-[11px]">
+              <span className="flex items-center gap-1.5 font-sans text-xs text-text">
                 {symbol || "—"}
-                <span className="rounded border border-border px-1.5 font-mono text-[11px] text-text-2">Solana</span>
                 <span className="text-muted">·</span>
                 <span className="text-text-2">{INTERVALS.find((i) => i.secs === tf)?.label}</span>
                 <span className="text-muted">·</span>
@@ -531,7 +531,7 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
       type="button"
       onClick={onClick}
       aria-pressed={on}
-      className={`h-7 shrink-0 rounded-md px-2 font-mono transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+      className={`h-6 shrink-0 rounded-md px-1.5 font-mono transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
         on ? "bg-surface-3 text-text" : "text-muted hover:text-text-2"
       }`}
     >
@@ -544,11 +544,11 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
 function Pair({ a, b, on, onChange }: { a: string; b: string; on: 0 | 1; onChange: (i: 0 | 1) => void }) {
   return (
     <span className="flex shrink-0 items-center font-mono">
-      <button type="button" onClick={() => onChange(0)} className={`h-7 px-1.5 transition-colors ${on === 0 ? "text-emerald" : "text-muted hover:text-text-2"}`}>
+      <button type="button" onClick={() => onChange(0)} className={`h-6 px-1 transition-colors ${on === 0 ? "text-emerald" : "text-muted hover:text-text-2"}`}>
         {a}
       </button>
       <span className="text-muted">/</span>
-      <button type="button" onClick={() => onChange(1)} className={`h-7 px-1.5 transition-colors ${on === 1 ? "text-emerald" : "text-muted hover:text-text-2"}`}>
+      <button type="button" onClick={() => onChange(1)} className={`h-6 px-1 transition-colors ${on === 1 ? "text-emerald" : "text-muted hover:text-text-2"}`}>
         {b}
       </button>
     </span>
@@ -563,7 +563,7 @@ function IconButton({ label, on = false, onClick, children }: { label: string; o
       aria-label={label}
       aria-pressed={on}
       onClick={onClick}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
         on ? "bg-surface-3 text-emerald" : "text-muted hover:bg-surface-3 hover:text-text"
       }`}
     >

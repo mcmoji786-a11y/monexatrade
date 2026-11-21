@@ -45,7 +45,7 @@ export function LiveTradesColumn({ book, solUsd, supply, now }: { book: BookStat
   const list = rows(book, solUsd, supply);
   return (
     <section aria-label="Live trades" className="flex h-full min-h-0 flex-col border-l border-border bg-surface">
-      <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 border-b border-border px-3 py-2 text-xs text-muted">
+      <div className="grid h-8 grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 border-b border-border px-3 text-[11px] text-muted">
         <span>Value</span>
         <span>MC</span>
         <span>Wallet</span>
@@ -54,7 +54,7 @@ export function LiveTradesColumn({ book, solUsd, supply, now }: { book: BookStat
       <ol className="min-h-0 flex-1 overflow-y-auto">
         {list.length === 0 && <li className="px-3 py-6 text-center text-xs text-muted">{book.status === "loading" ? "Loading trades" : "No trades yet"}</li>}
         {list.map((r) => (
-          <li key={r.key} className="row-in grid h-7 grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 px-3 font-mono text-xs tabular-nums hover:bg-surface-2">
+          <li key={r.key} className="row-in grid h-6 grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 px-3 font-mono text-[11px] tabular-nums hover:bg-surface-2">
             <span className={r.buy ? "text-positive" : "text-negative"}>{r.usd == null ? "—" : usd(r.usd)}</span>
             <span className="text-text-2">{r.mcUsd == null ? "—" : usd(r.mcUsd)}</span>
             <span className="flex min-w-0 items-center gap-1">

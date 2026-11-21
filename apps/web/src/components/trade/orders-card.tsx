@@ -96,18 +96,18 @@ export function OrdersCard({ mint, symbol }: { mint: string; symbol: string }) {
   }
 
   return (
-    <section className="border-b border-border p-4">
+    <section className="border-b border-border p-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-text">Orders</h2>
+        <h2 className="text-xs font-medium text-text">Orders</h2>
         <span className="font-mono text-[11px] text-muted">{price ? `Now ${tinyPrice(price)}` : "Pricing…"}</span>
       </div>
 
       {open.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1">
+        <ul className="mt-2 flex flex-col gap-1">
           {open.map((o) => {
             const away = price ? (o.trigger / price - 1) * 100 : null;
             return (
-              <li key={o.id} className="grid h-9 grid-cols-[1fr_auto_auto_24px] items-center gap-2 rounded-lg border border-border px-3 text-xs">
+              <li key={o.id} className="grid h-8 grid-cols-[1fr_auto_auto_24px] items-center gap-2 rounded-lg border border-border px-3 text-xs">
                 <span className={`truncate ${ORDER_TEXT[o.kind].tone === "good" ? "text-positive" : "text-negative"}`}>
                   {ORDER_TEXT[o.kind].label}
                   <span className="ml-1.5 text-muted">{o.size}</span>
@@ -123,14 +123,14 @@ export function OrdersCard({ mint, symbol }: { mint: string; symbol: string }) {
         </ul>
       )}
 
-      <div role="group" aria-label="Order type" className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-bg p-1">
+      <div role="group" aria-label="Order type" className="mt-2 grid grid-cols-4 gap-1 rounded-lg bg-bg p-0.5">
         {KINDS.map((k) => (
           <button
             key={k}
             type="button"
             aria-pressed={kind === k}
             onClick={() => (setKind(k), setLevel(""))}
-            className={`h-8 rounded-md text-[11px] transition-colors ${kind === k ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}
+            className={`h-7 rounded-md text-[11px] transition-colors ${kind === k ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}
           >
             {ORDER_TEXT[k].label.replace("Trailing stop", "Trailing")}
           </button>
@@ -145,20 +145,20 @@ export function OrdersCard({ mint, symbol }: { mint: string; symbol: string }) {
               type="button"
               aria-pressed={pct === Math.abs(p) && level !== ""}
               onClick={() => setLevel(String(Math.abs(p)))}
-              className={`h-8 rounded-md border font-mono text-xs transition-colors hover:bg-surface-3 ${pct === Math.abs(p) && level !== "" ? "border-text/30 text-text" : "border-border"} ${trail || p < 0 ? "text-negative" : "text-positive"}`}
+              className={`h-7 rounded-md border font-mono text-[11px] transition-colors hover:bg-surface-3 ${pct === Math.abs(p) && level !== "" ? "border-text/30 text-text" : "border-border"} ${trail || p < 0 ? "text-negative" : "text-positive"}`}
             >
               {trail ? `−${p}%` : `${p > 0 ? "+" : "−"}${Math.abs(p)}%`}
             </button>
           ))}
         </div>
-        <label className="flex h-8 w-24 items-center gap-1 rounded-md border border-border bg-bg px-2 focus-within:border-emerald/50">
+        <label className="flex h-7 w-24 items-center gap-1 rounded-md border border-border bg-bg px-2 focus-within:border-emerald/50">
           <span className="font-mono text-xs text-muted">{kind === "limit_sell" ? "+" : "−"}</span>
           <input inputMode="decimal" value={level} onChange={(e) => setLevel(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="%" aria-label="Percent from the current price" className="min-w-0 flex-1 bg-transparent font-mono text-xs text-text outline-none placeholder:text-muted" />
         </label>
       </div>
 
       {kind === "limit_buy" ? (
-        <label className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-3 focus-within:border-emerald/50">
+        <label className="mt-2 flex h-8 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 focus-within:border-emerald/50">
           <span className="text-xs text-muted">Spend</span>
           <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0" className="min-w-0 flex-1 bg-transparent text-right font-mono text-xs text-text outline-none placeholder:text-muted" />
           <span className="font-mono text-xs text-text-2">{demo ? "USD" : "SOL"}</span>

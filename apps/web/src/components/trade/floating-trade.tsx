@@ -47,13 +47,13 @@ export function DockableTrade({ symbol, mint }: { symbol: string; mint: string }
   if (!pos) {
     return (
       <div>
-        <div className="flex items-center justify-between px-4 pt-3 text-xs text-text-2">
+        <div className="flex items-center justify-between px-3 pt-2 text-[11px] text-text-2">
           Buy and sell
           <button
             type="button"
             onClick={popOut}
             title="Pop out the buy and sell box and move it anywhere"
-            className="flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
+            className="flex h-6 items-center gap-1.5 rounded-md border border-border px-2 text-[11px] text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
           >
             <PictureInPicture2 size={13} strokeWidth={1.5} />
             Pop out
