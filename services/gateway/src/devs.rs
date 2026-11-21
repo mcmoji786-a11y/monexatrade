@@ -5,7 +5,7 @@
 //! founder's approval to add tables).
 
 use crate::book::Position;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A creator's earlier coin, as we saw it.
@@ -405,7 +405,7 @@ impl SmartMoney {
 }
 
 /// One smart wallet on the leaderboard.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Leader {
     pub wallet: String,
     /// Coins it has sold (closed or partly closed), wins among them, win rate in %.

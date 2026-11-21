@@ -262,7 +262,9 @@ async fn dev_wallet(ctx: &ChatCtx, address: &str) -> Value {
 async fn live_data(ctx: &ChatCtx, msg: &str, history: &[Turn]) -> Value {
     let (mut data, dev) = {
         let board = ctx.app.board.lock().expect("board lock");
-        let mint = coin_in(&board, msg).or_else(|| history.iter().rev().filter(|t| t.role != "assistant").find_map(|t| coin_in(&board, &t.content)));
+        let mint = coin_in(&board, msg)
+            .or_else(|| history.iter().rev().filter(|t| t.role != "assistant").find_map(|t| coin_in(&board, &t.content)))
+            .or_else(|| asks_newest(msg).then(|| newest(&board, 1).into_iter().next()).flatten());
         let dev = mint.as_deref().and_then(|m| board.tokens.get(m)).map(|t| t.token.creator.clone()).filter(|c| !c.is_empty());
         (board_data(&board, mint), dev)
     };
@@ -280,6 +282,19 @@ async fn live_data(ctx: &ChatCtx, msg: &str, history: &[Turn]) -> Value {
         data["coin_asked_about"]["dev_wallet_now"] = dev_wallet(ctx, &d).await;
     }
     data
+}
+
+/// "the newest coin", "latest launch", "just launched": the question is about the newest launch.
+fn asks_newest(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    ["newest", "latest", "just launched", "last launch", "most recent", "new coin"].iter().any(|k| m.contains(k))
+}
+
+/// The `n` newest launches on the board, newest first.
+fn newest(board: &crate::Board, n: usize) -> Vec<String> {
+    let mut v: Vec<(&String, i64)> = board.tokens.iter().map(|(m, t)| (m, t.token.timestamp)).collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.into_iter().take(n).map(|(m, _)| m.clone()).collect()
 }
 
 fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
@@ -324,6 +339,18 @@ fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
     danger.sort_by(|a, b| b.1.dump.total_cmp(&a.1.dump));
     json!({
         "coin_asked_about": coin,
+        "newest_launches": newest(board, 5)
+            .iter()
+            .filter_map(|m| board.tokens.get(m).map(|t| (m, t)))
+            .map(|(m, t)| {
+                let mk = t.market.as_ref();
+                json!({
+                    "symbol": t.token.symbol, "mint": m, "age_seconds": (now - t.token.timestamp).max(0),
+                    "market_cap_usd": mk.and_then(|x| x.mc_usd), "holders": mk.map(|x| x.holders),
+                    "dev_pct": mk.map(|x| x.dev_pct), "bundles_pct": mk.map(|x| x.bundle_pct), "early_buyers_pct": mk.map(|x| x.sniper_pct),
+                })
+            })
+            .collect::<Vec<_>>(),
         "good_odds_now": good.iter().take(5).map(|(m, r)| json!({ "symbol": name(m), "mint": m, "double_chance": r.pump, "crash_chance": r.dump })).collect::<Vec<_>>(),
         "ai_record_24h": crate::ai_risk::record_24h(),
         "danger_now": danger.iter().take(5).map(|(m, r)| json!({ "symbol": name(m), "mint": m, "crash_chance": r.dump })).collect::<Vec<_>>(),
@@ -334,7 +361,7 @@ const SYSTEM: &str = "You are Kixo AI, the assistant inside Kixo, a Solana memec
 
 Scope: answer only about Solana, crypto, blockchain, trading, DeFi, wallets and their security, and Kixo itself. If asked about anything else, say in one sentence that you only help with Solana and crypto, and offer a related question instead.
 
-Kixo: Sol Radar (new coins live), Discover, a trade page with charts, a demo account with virtual $10,000 at live prices and real fees, a Sniper (auto-buys new coins by rules), Smart Money and copy trading, Wallet Tracker and Monitor, alerts, and Kixo AI. Kixo AI watches each new coin's first 2 minutes and gives one word: Danger (high chance of a 70%+ crash within the hour), Careful, Calm, or Good odds (under 20% crash chance and 15%+ chance to double). For how accurate it is, use ai_record_24h in LIVE DATA (real coins, last 24 hours: of the coins it called Danger, the share that crashed 70%+ within the hour, against all coins); say the numbers as percentages with the coin counts. Auto trade (Copy Kixo AI, where the AI buys and sells by itself) is coming soon: Kixo is still training the AI every night and launches it once it proves it makes money after fees. Until then, say it is coming soon; never tell users to turn it on.
+Kixo: Sol Radar (new coins live), Discover, a trade page with charts, a demo account with virtual $10,000 at live prices and real fees, a Sniper (auto-buys new coins by rules), Smart Money and copy trading, Wallet Tracker and Monitor, alerts, and Kixo AI. Kixo AI watches each new coin's first 2 minutes and gives one word: Danger (high chance of a 70%+ crash within the hour), Careful, Calm, or Good odds (under 20% crash chance and 15%+ chance to double). For how accurate it is, use ai_record_24h in LIVE DATA (real coins, last 24 hours, grouped by the word it gave: coins, crashed_pct = share that crashed 70%+ within the hour, doubled_pct = share that doubled). Compare each word with all_coins and give the figures as they are (already in %, one decimal) with the coin counts. Be honest that Danger coins are the wildest: many crash, but some also double. Auto trade (Copy Kixo AI, where the AI buys and sells by itself) is coming soon: Kixo is still training the AI every night and launches it once it proves it makes money after fees. Until then, say it is coming soon; never tell users to turn it on.
 
 How Kixo works (use these facts; never invent menus, buttons or features):
 - Every account starts on the demo account: $10,000 of virtual money at live prices with real fees and price impact. The Demo / Real switch is in the top bar. Buy from any coin page (Buy and sell panel), or with Quick Buy on Discover and Sol Radar rows. Results are on the Portfolio page (positions, history, profit calendar). The weekly competition ranks demo profit taken, Monday to Sunday.

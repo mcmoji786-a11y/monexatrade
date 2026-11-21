@@ -37,6 +37,7 @@ mod sender;
 mod platform;
 mod ops;
 mod marketing;
+mod emails;
 mod ai_chat;
 mod ai_risk;
 mod auto_wallet;
@@ -259,7 +260,7 @@ async fn main() -> Result<()> {
         creators: Mutex::new(devs::Creators::default()),
         // Smart-money records survive restarts (data/smart_money.json).
         smart: Mutex::new(load_smart()),
-        leaders: Mutex::new(Vec::new()),
+        leaders: Mutex::new(load_leaders()),
         bot_checks: Mutex::new(HashMap::new()),
         smart_balances: Mutex::new(HashMap::new()),
         books: Mutex::new(book::Books::default()),
@@ -447,6 +448,12 @@ async fn main() -> Result<()> {
     alerts::spawn(alerts_ctx.clone());
     rug_exit::spawn(rug_exit::RugCtx { demo: demo::DemoCtx { app: state.clone(), acct: acct.clone() }, admin: admin_state.clone() });
     let alerts_ctx_for_x = alerts_ctx.clone();
+    let emails_routes: Router<Arc<AppState>> = Router::new()
+        .route("/admin/emails", get(emails::list))
+        .route("/admin/emails/{key}", axum::routing::put(emails::put))
+        .route("/admin/emails/{key}/preview", axum::routing::post(emails::preview))
+        .route("/admin/emails/{key}/test", axum::routing::post(emails::test))
+        .with_state(emails::EmailsCtx { http: state.http.clone() });
     let alerts_routes: Router<Arc<AppState>> = Router::new()
         .route("/alerts/status", get(alerts::status))
         .route("/alerts/me", get(alerts::me).put(alerts::save))
@@ -562,6 +569,7 @@ async fn main() -> Result<()> {
         .merge(chat_routes)
         .merge(social_routes)
         .merge(alerts_routes)
+        .merge(emails_routes)
         .merge(limits_routes)
         .merge(kol_routes)
         .merge(cashback_routes)
@@ -1824,6 +1832,8 @@ async fn update_smart(state: Arc<AppState>) {
         // can look calm there. More than BOT_TX_PER_MIN transactions a minute across its
         // latest BOT_SAMPLE is not a person.
         let mut leaders = Vec::new();
+        let wanted = candidates.len();
+        let mut checked = 0usize;
         for l in candidates {
             let cached = state.bot_checks.lock().expect("bot lock").get(&l.wallet).filter(|(at, _)| at.elapsed() < BOT_CHECK_TTL).map(|(_, b)| *b);
             let bot = match cached {
@@ -1840,6 +1850,7 @@ async fn update_smart(state: Arc<AppState>) {
                     bot
                 }
             };
+            checked += 1;
             if bot {
                 continue;
             }
@@ -1864,6 +1875,12 @@ async fn update_smart(state: Arc<AppState>) {
             leaders.push(devs::Leader { sol_balance: Some((sol * 1000.0).round() / 1000.0), ..l });
         }
         let leaders = drop_clones(leaders);
+        // The chain could not be read at all (provider down or out of quota): keep the
+        // last list instead of showing an empty board.
+        if wanted > 0 && checked == 0 {
+            continue;
+        }
+        save_leaders(&leaders);
         let mut counts: HashMap<String, u32> = HashMap::new();
         for l in &leaders {
             for m in &l.holding {
@@ -2170,6 +2187,22 @@ mod bot_tests {
 
 /// Where smart-money records are kept between restarts (gitignored).
 const SMART_FILE: &str = "data/smart_money.json";
+/// The last smart-wallet list, so the board is full right after a restart instead of
+/// empty until every wallet is checked on chain again.
+const LEADERS_FILE: &str = "data/smart_leaders.json";
+
+fn load_leaders() -> Vec<devs::Leader> {
+    std::fs::read(LEADERS_FILE).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+}
+
+fn save_leaders(leaders: &[devs::Leader]) {
+    if let Ok(b) = serde_json::to_vec(leaders) {
+        let tmp = format!("{LEADERS_FILE}.tmp");
+        if std::fs::write(&tmp, b).is_ok() {
+            let _ = std::fs::rename(&tmp, LEADERS_FILE);
+        }
+    }
+}
 
 fn load_smart() -> devs::SmartMoney {
     match std::fs::read(SMART_FILE).map(|b| serde_json::from_slice::<devs::SmartMoney>(&b)) {

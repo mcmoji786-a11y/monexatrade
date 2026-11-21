@@ -435,17 +435,23 @@ pub fn symbol_of(mint: &str) -> Option<String> {
     store().lock().expect("ai store lock").scores.get(mint).map(|r| r.symbol.clone()).filter(|s| !s.is_empty())
 }
 
-/// The AI's real record over the last 24 hours: of the coins it called Danger, and of all
-/// coins, how many crashed 70%+ (or doubled) within the hour after its word.
+/// The AI's real record over the last 24 hours, by the same four words the app shows
+/// (lib/ai-risk.ts verdict): how many coins got each word, and the share (in %, one
+/// decimal) that crashed 70%+ or doubled within the hour after.
 pub fn record_24h() -> Value {
     let t = now();
     let s = store().lock().expect("ai store lock");
     let o: Vec<&Outcome> = s.outcomes.iter().filter(|o| o.at >= t - 24 * 3600).collect();
+    let pct = |v: Value| {
+        let r = |k: &str| v[k].as_f64().map(|x| (x * 1000.0).round() / 10.0);
+        json!({ "coins": v["coins"], "crashed_pct": r("dumped"), "doubled_pct": r("doubled") })
+    };
     json!({
-        "danger_calls": group(o.iter().copied().filter(|o| o.dump >= 0.4)),
-        "all_coins": group(o.iter().copied()),
-        "low_crash_calls": group(o.iter().copied().filter(|o| o.dump < 0.1)),
-        "good_odds_calls": group(o.iter().copied().filter(|o| o.pump >= 0.2)),
+        "all_coins": pct(group(o.iter().copied())),
+        "danger": pct(group(o.iter().copied().filter(|o| o.dump >= 0.4))),
+        "careful": pct(group(o.iter().copied().filter(|o| o.dump >= 0.2 && o.dump < 0.4))),
+        "calm": pct(group(o.iter().copied().filter(|o| o.dump < 0.2 && o.pump < 0.15))),
+        "good_odds": pct(group(o.iter().copied().filter(|o| o.dump < 0.2 && o.pump >= 0.15))),
     })
 }
 

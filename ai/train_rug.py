@@ -279,6 +279,10 @@ PARAMS = {
     "base": dict(learning_rate=0.05, num_leaves=31, min_child_samples=40, colsample_bytree=0.8),
     "deep": dict(learning_rate=0.03, num_leaves=63, min_child_samples=80, colsample_bytree=0.7, reg_lambda=1.0),
     "strict": dict(learning_rate=0.05, num_leaves=15, min_child_samples=200, colsample_bytree=0.7, reg_lambda=5.0),
+    # Added 2026-11-21: a larger, slower model for the half-million coins, and a
+    # regularised middle one. Each is kept only if it wins on validation.
+    "wide": dict(learning_rate=0.02, num_leaves=127, min_child_samples=100, colsample_bytree=0.6, reg_lambda=2.0, min_split_gain=0.01),
+    "balanced": dict(learning_rate=0.03, num_leaves=31, min_child_samples=100, colsample_bytree=0.6, reg_alpha=0.5, reg_lambda=2.0),
 }
 MAX_TREES = 2000
 
