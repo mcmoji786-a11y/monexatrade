@@ -5,19 +5,19 @@
    Graphite neutrals on a near-black base. Emerald is the single chrome accent
    (live state, selection). Cyan is reserved for on-chain identifiers. No purple. */
 :root {
-  --mx-bg: #08090a;
-  --mx-surface: #0e0f11;
-  --mx-surface-2: #16171a;
-  --mx-surface-3: #202226;
-  --mx-border: rgb(237 237 237 / 0.08);
-  --mx-text: #ededed;
-  --mx-text-2: #a1a1a6;
-  --mx-muted: #85858b;
-  --mx-emerald: #34d399;
-  --mx-cyan: #67e8f9;
-  --mx-positive: #4cc38a;
-  --mx-negative: #e5484d;
-  --mx-warning: #e0a63e;
+  --mx-bg: #000000;
+  --mx-surface: #0a0a0b;
+  --mx-surface-2: #131315;
+  --mx-surface-3: #1c1c1f;
+  --mx-border: rgb(255 255 255 / 0.08);
+  --mx-text: #f7f7f8;
+  --mx-text-2: #b8b8bf;
+  --mx-muted: #8b8b93;
+  --mx-emerald: #2ee59d;
+  --mx-cyan: #4fe3ff;
+  --mx-positive: #2ee59d;
+  --mx-negative: #ff4d5e;
+  --mx-warning: #ffb547;
   --mx-ease: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: dark;
 }

@@ -37,10 +37,10 @@ export function AccountMenu() {
   }, [open]);
 
   if (!features.accounts) return null;
-  if (account.status === "loading") return <div className="h-9 w-20 rounded-lg bg-surface-2" aria-hidden="true" />;
+  if (account.status === "loading") return <div className="h-8 w-20 rounded-lg bg-surface-2" aria-hidden="true" />;
   if (account.status === "signed-out") {
     return (
-      <Link href={`/login?next=${encodeURIComponent(pathname)}`} className="flex h-9 items-center rounded-lg bg-text px-3 text-sm font-medium text-bg transition-opacity hover:opacity-90">
+      <Link href={`/login?next=${encodeURIComponent(pathname)}`} className="flex h-8 items-center rounded-lg bg-text px-3 text-xs font-medium text-bg transition-opacity hover:opacity-90">
         Sign in
       </Link>
     );
@@ -57,7 +57,7 @@ export function AccountMenu() {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label="Account"
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface text-text-2 transition-colors hover:bg-surface-2 hover:text-text"
       >
         <User size={16} strokeWidth={1.5} />
       </button>
@@ -99,7 +99,7 @@ function ModeSwitch() {
   useSettings(applyStartMode);
   if (!enabled) return null;
   return (
-    <div role="group" aria-label="Account mode" className="flex h-10 items-center rounded-lg border border-border bg-surface p-0.5 text-xs sm:h-9">
+    <div role="group" aria-label="Account mode" className="flex h-8 items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
       {(["demo", "real"] as const).map((m) => (
         <button
           key={m}
@@ -119,7 +119,7 @@ function ModeSwitch() {
 function DemoChip() {
   const { account } = useDemo();
   return (
-    <Link href="/portfolio" className="flex h-9 items-center gap-2 rounded-lg border border-warning/30 bg-surface px-2.5 text-sm sm:px-3 transition-colors hover:bg-surface-2" title="Demo account value at live prices">
+    <Link href="/portfolio" className="flex h-8 items-center gap-2 rounded-lg border border-warning/30 bg-surface px-2.5 text-xs transition-colors hover:bg-surface-2" title="Demo account value at live prices">
       <span data-private className="font-mono text-xs tabular-nums text-text">
         {account ? account.equity_usd.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "…"}
       </span>

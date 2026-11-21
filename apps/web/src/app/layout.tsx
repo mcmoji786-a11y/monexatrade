@@ -28,7 +28,7 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export const viewport: Viewport = { themeColor: "#08090a", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#000000", colorScheme: "dark" };
 
 /** Root layout: fonts and theme only. The marketing site and the app each add their own shell. */
 export default function RootLayout({ children }: LayoutProps<"/">) {

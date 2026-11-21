@@ -227,8 +227,8 @@ export function PriceChart({
     const v = (n: string) => css.getPropertyValue(n).trim();
     // Candle colors are brighter than the UI's positive/negative tokens so price
     // action reads at a glance, as on an exchange terminal.
-    const up = "#22ab94";
-    const down = "#f23645";
+    const up = "#2ee59d";
+    const down = "#ff4d5e";
     const muted = v("--mx-muted");
     const hair = "rgba(237,237,237,0.06)";
     const font = "JetBrains Mono, ui-monospace, monospace";
@@ -254,7 +254,7 @@ export function PriceChart({
           tooltip: { text: { family: font, size: 12, color: muted } },
           // Palette colors only (no purple): cyan, warning, text-2, then muted steps.
           lines: [v("--mx-cyan"), v("--mx-warning"), v("--mx-text-2"), "#6b6b70", "#4a4a4f"].map((color) => ({ color, size: 1 })),
-          bars: [{ upColor: "rgba(34,171,148,0.4)", downColor: "rgba(242,54,69,0.4)", noChangeColor: "rgba(133,133,139,0.4)" }],
+          bars: [{ upColor: "rgba(46,229,157,0.4)", downColor: "rgba(255,77,94,0.4)", noChangeColor: "rgba(133,133,139,0.4)" }],
         },
         xAxis: { axisLine: { color: hair }, tickLine: { color: hair }, tickText: { color: muted, family: font, size: 11 } },
         yAxis: { axisLine: { color: hair }, tickLine: { color: hair }, tickText: { color: muted, family: font, size: 11 } },
@@ -349,7 +349,7 @@ export function PriceChart({
       .slice(0, 30);
     for (const t of marks) {
       const kind = t.dev ? MARKS.dev : smartSet.has(t.wallet) ? MARKS.smart : t.whale ? MARKS.whale : MARKS.sniper;
-      const color = t.dev || kind === MARKS.smart ? kind.color : t.is_buy ? "#22ab94" : "#f23645";
+      const color = t.dev || kind === MARKS.smart ? kind.color : t.is_buy ? "#2ee59d" : "#ff4d5e";
       c.createOverlay({
         name: "simpleAnnotation",
         groupId: "marks",
@@ -381,7 +381,7 @@ export function PriceChart({
   };
 
   const screenshot = () => {
-    const url = chart.current?.getConvertPictureUrl(true, "png", "#0e0f11");
+    const url = chart.current?.getConvertPictureUrl(true, "png", "#000000");
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
@@ -462,7 +462,7 @@ export function PriceChart({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 bg-[#0b0c0e]">
+      <div className="flex min-h-0 flex-1 bg-bg">
         {/* Drawing tools */}
         <div className="hidden w-9 shrink-0 flex-col items-center gap-1 border-r border-border py-2 md:flex">
           {TOOLS.map((t) => (

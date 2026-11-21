@@ -110,9 +110,9 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/discover" aria-label="Kixo home" className="flex min-h-10 min-w-10 items-center gap-2.5 rounded focus-visible:outline-2 focus-visible:outline-emerald">
-      <KixoMark size={compact ? 28 : 32} />
-      {!compact && <span className="text-[22px] font-semibold tracking-tight text-text">Kixo</span>}
+    <Link href="/discover" aria-label="Kixo home" className="flex min-h-9 min-w-9 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-emerald">
+      <KixoMark size={24} />
+      {!compact && <span className="text-lg font-semibold tracking-tight text-text">Kixo</span>}
     </Link>
   );
 }
@@ -138,7 +138,7 @@ export function Sidebar() {
 
   return (
     <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex ${rail ? "w-16" : "w-60"}`}>
-      <div className={`flex h-14 shrink-0 items-center border-b border-border ${rail ? "justify-center" : "px-6"}`}>
+      <div className={`flex h-11 shrink-0 items-center border-b border-border ${rail ? "justify-center" : "px-5"}`}>
         <Logo compact={rail} />
       </div>
       <div className="nav-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">

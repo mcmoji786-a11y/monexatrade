@@ -25,12 +25,12 @@ export function Topbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b sm:gap-3 border-border bg-bg/90 px-4 backdrop-blur md:px-6">
+      <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-bg/90 px-3 backdrop-blur sm:gap-2.5 md:px-4">
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-text-2 transition-colors hover:bg-surface-2 hover:text-text md:hidden"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-text-2 transition-colors hover:bg-surface-2 hover:text-text md:hidden"
         >
           <Menu size={18} strokeWidth={1.5} />
         </button>
@@ -58,7 +58,7 @@ export function Topbar() {
             className="absolute inset-0 bg-black/60"
           />
           <div className="drawer-in absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border bg-surface">
-            <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
               <Logo />
               <button
                 type="button"
@@ -116,8 +116,8 @@ function GlobalSearch() {
         router.push(q ? `/radar?q=${encodeURIComponent(q)}` : "/radar");
       }}
     >
-      <label className="flex h-10 items-center gap-2.5 rounded-xl border border-border bg-surface px-3.5 text-sm transition-colors hover:border-text/15 focus-within:border-emerald/50 focus-within:bg-surface-2">
-        <Search size={16} strokeWidth={1.5} className="shrink-0 text-muted" />
+      <label className="flex h-8 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-[13px] transition-colors hover:border-text/15 focus-within:border-emerald/50 focus-within:bg-surface-2">
+        <Search size={14} strokeWidth={1.5} className="shrink-0 text-muted" />
         <input
           ref={input}
           value={value}
@@ -145,7 +145,7 @@ function NewsButton() {
       aria-pressed={news.open}
       aria-label={news.unread > 0 && !news.open ? `News, ${news.unread} new stories` : "News"}
       title="News  N"
-      className={`relative hidden h-9 w-9 items-center justify-center rounded-lg border transition-colors sm:flex ${news.open ? "border-emerald/40 bg-surface-3 text-text" : "border-border bg-surface text-text-2 hover:bg-surface-2 hover:text-text"}`}
+      className={`relative hidden h-8 w-8 items-center justify-center rounded-lg border transition-colors sm:flex ${news.open ? "border-emerald/40 bg-surface-3 text-text" : "border-border bg-surface text-text-2 hover:bg-surface-2 hover:text-text"}`}
     >
       <Newspaper size={16} strokeWidth={1.5} />
       {news.unread > 0 && !news.open && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald" />}

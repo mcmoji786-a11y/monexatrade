@@ -182,8 +182,8 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
             className={`h-7 rounded-md text-xs capitalize ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
               side === s
                 ? s === "buy"
-                  ? "bg-[#22ab94]/15 font-medium text-[#22ab94] ring-[#22ab94]/40"
-                  : "bg-[#f23645]/15 font-medium text-[#f23645] ring-[#f23645]/40"
+                  ? "bg-[#2ee59d]/15 font-medium text-[#2ee59d] ring-[#2ee59d]/40"
+                  : "bg-[#ff4d5e]/15 font-medium text-[#ff4d5e] ring-[#ff4d5e]/40"
                 : "text-text-2 ring-transparent hover:text-text"
             }`}
           >
@@ -297,7 +297,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
                 !valid || busy || (side === "sell" && !held) || !!previewErr
               }
               onClick={submit}
-              className={`mt-2.5 flex h-9 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#22ab94] text-bg" : "bg-[#f23645] text-text"}`}
+              className={`mt-2.5 flex h-9 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#2ee59d] text-bg" : "bg-[#ff4d5e] text-text"}`}
             >
               {busy && (
                 <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />

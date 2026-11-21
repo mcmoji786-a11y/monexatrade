@@ -53,7 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Sidebar />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
-        <Suspense fallback={<div className="h-14 border-b border-border" />}>
+        <Suspense fallback={<div className="h-11 border-b border-border" />}>
           <Topbar />
         </Suspense>
         {/* The trade terminal runs edge to edge; other pages keep the centered column. */}

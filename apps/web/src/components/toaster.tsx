@@ -12,7 +12,7 @@ export function Toaster() {
   const toasts = useToasts();
   if (!toasts.length) return null;
   return (
-    <div className="pointer-events-none fixed right-4 top-16 z-[55] flex w-[340px] max-w-[calc(100vw-32px)] flex-col gap-2" aria-live="polite">
+    <div className="pointer-events-none fixed right-4 top-14 z-[55] flex w-[340px] max-w-[calc(100vw-32px)] flex-col gap-2" aria-live="polite">
       {toasts.map((t) => (
         <ToastCard key={t.id} t={t} />
       ))}

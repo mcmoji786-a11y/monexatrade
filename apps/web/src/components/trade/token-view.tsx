@@ -143,10 +143,10 @@ function MobileTradeBar({ symbol }: { symbol: string }) {
   };
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-2 gap-2 border-t border-border bg-bg/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
-      <button type="button" onClick={() => go("buy")} className="h-11 rounded-lg bg-[#22ab94] text-sm font-medium text-bg focus-visible:outline-2 focus-visible:outline-emerald">
+      <button type="button" onClick={() => go("buy")} className="h-11 rounded-lg bg-[#2ee59d] text-sm font-medium text-bg focus-visible:outline-2 focus-visible:outline-emerald">
         Buy {symbol}
       </button>
-      <button type="button" onClick={() => go("sell")} className="h-11 rounded-lg bg-[#f23645] text-sm font-medium text-text focus-visible:outline-2 focus-visible:outline-emerald">
+      <button type="button" onClick={() => go("sell")} className="h-11 rounded-lg bg-[#ff4d5e] text-sm font-medium text-text focus-visible:outline-2 focus-visible:outline-emerald">
         Sell
       </button>
     </div>
