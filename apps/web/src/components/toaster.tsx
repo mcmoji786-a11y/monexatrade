@@ -26,7 +26,8 @@ export function Toaster() {
   );
 }
 
-const usdFmt = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 2 });
+/** Cents always, as the trade page's position figures, so the two read the same. */
+const usdFmt = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** $0.08150, $0.00000580: plain digits, never 1.72e-3. */
 const priceFmt = (v: number) => (v >= 1 ? `$${v.toFixed(4)}` : `$${v.toFixed(Math.min(12, Math.ceil(-Math.log10(v)) + 3))}`);
 
@@ -39,7 +40,7 @@ function TradeCard({ t }: { t: Toast & { trade: NonNullable<Toast["trade"]> } })
   const accent = buy || !loss ? "bg-positive" : "bg-negative";
   const figure =
     x.pnl != null
-      ? `${x.pnl >= 0 ? "+" : "−"}${usdFmt(Math.abs(x.pnl))}${x.pnlPct != null ? ` (${x.pnlPct >= 0 ? "+" : "−"}${Math.abs(x.pnlPct).toFixed(1)}%)` : ""}`
+      ? `${x.pnl >= 0 ? "+" : "−"}${usdFmt(Math.abs(x.pnl))}${x.pnlPct != null ? ` (${x.pnlPct >= 0 ? "+" : "−"}${Math.abs(x.pnlPct).toFixed(2)}%)` : ""}`
       : x.usd != null
         ? usdFmt(x.usd)
         : `${x.sol.toFixed(3)} SOL`;

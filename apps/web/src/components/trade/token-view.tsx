@@ -521,46 +521,50 @@ function TokenInfo({ row: r, launch }: { row: DiscoverRow; launch: FeedToken | n
   );
 }
 
-/** The demo position in this coin. Holding and P&L are marked at the live price, as on
- *  every trading platform, and move with every trade on the chart. The costs are shown
- *  plainly under them: what entering cost, the move needed to break even after the sale's
- *  fee, and what selling now would bring. */
+/** The demo position in this coin, figured exactly as a sale is:
+ *  - Value: what selling it all now would bring, after the sale's fee and price impact
+ *    (the gateway's own sell quote, the same one an order fills at).
+ *  - PnL: that value minus what the open position cost, the same sum as the P&L on the
+ *    sale's notification when it is sold now.
+ *  - Realized: the P&L of the sales already made on this coin this round, the sum of
+ *    their notifications.
+ *  Between account refreshes (every 3 s) the value follows the chart's price by how much
+ *  it moved since that refresh, never by comparing two different price sources. */
 function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | null }) {
   const { mode, trades, account } = useDemo();
   const mine = mode === "demo" ? (trades ?? []).filter((t) => t.mint === mint && t.round === (account?.round ?? 0)) : [];
-  const bought = mine.filter((t) => t.side === "buy").reduce((a, t) => a + Number(t.usd), 0);
-  const sold = mine.filter((t) => t.side === "sell").reduce((a, t) => a + Number(t.usd), 0);
+  const realized = mine.filter((t) => t.side === "sell" && t.realized_usd != null).reduce((a, t) => a + Number(t.realized_usd), 0);
+  const sales = mine.some((t) => t.side === "sell");
   const pos = mode === "demo" ? account?.positions.find((p) => p.mint === mint) : undefined;
-  // Gateway figures move with the live price between refreshes.
-  const scale = pos?.market_usd && livePrice ? livePrice / pos.market_usd : 1;
-  const holding = pos ? (pos.value_usd ?? 0) * scale : 0;
-  const pnl = mine.length ? sold + holding - bought : null;
-  // Costs of the open position: the buys' fee and impact (impact_pct includes the fee),
-  // the move needed to break even after the sale fee, and the sell-now value.
+  // The chart price when this account figure arrived: later moves scale the figure.
+  const [base, setBase] = useState<{ of: unknown; price: number | null }>({ of: null, price: null });
+  if (base.of !== account) setBase({ of: account, price: livePrice });
+  const scale = base.of === account && base.price && livePrice ? livePrice / base.price : 1;
+  const value = pos?.value_usd != null ? pos.value_usd * scale : null;
+  const cost = pos ? pos.cost_usd : null;
+  const pnl = value != null && cost != null ? value - cost : null;
+  const pct = pnl != null && cost ? (pnl / cost) * 100 : null;
+  // Entry cost: the fee and impact paid on this position's buys (impact_pct includes the
+  // fee). Break-even: the move needed for selling it all to bring back what it cost.
   const since = pos ? Date.parse(pos.opened_at) : 0;
   const entryCost = mine.filter((t) => t.side === "buy" && Date.parse(t.ts) >= since - 1000).reduce((a, t) => a + (Number(t.usd) * Number(t.impact_pct)) / (100 + Number(t.impact_pct)), 0);
-  const sellNow = pos?.exit_usd != null ? pos.exit_usd * scale : null;
-  // The price move that would make the whole trade on this coin come out even: what was
-  // spent, minus what earlier sales already brought back, against selling the rest now.
-  const stillNeeded = bought - sold;
-  const breakEven = pos && sellNow && sellNow > 0 ? (stillNeeded <= 0 ? -100 : (stillNeeded / sellNow - 1) * 100) : null;
-  const pct = pnl != null && bought > 0 ? (pnl / bought) * 100 : null;
-  const tone = pnl == null || Math.abs(pnl) < 0.005 ? "text-text-2" : pnl > 0 ? "text-positive" : "text-negative";
+  const breakEven = value && cost ? (cost / value - 1) * 100 : null;
+  const toneOf = (v: number | null) => (v == null || Math.abs(v) < 0.005 ? "text-text-2" : v > 0 ? "text-positive" : "text-negative");
   const cells: [string, React.ReactNode][] = [
-    ["Bought", <span key="b" className="text-text-2">{mine.length ? money(bought) : "—"}</span>],
-    ["Sold", <span key="s" className="text-text-2">{mine.length ? money(sold) : "—"}</span>],
-    ["Holding", pos ? <Tick key="h" value={holding} className="text-text">{money(holding)}</Tick> : <span key="h" className="text-text-2">—</span>],
+    ["Cost", <span key="c" className="text-text-2">{cost != null ? money(cost) : "—"}</span>],
+    ["Value", value != null ? <Tick key="v" value={value} className="text-text">{money(value)}</Tick> : <span key="v" className="text-text-2">—</span>],
     [
       "PnL",
       pnl == null ? (
         <span key="p" className="text-text-2">—</span>
       ) : (
-        <Tick key="p" value={pnl} className={tone}>
+        <Tick key="p" value={pnl} className={toneOf(pnl)}>
           {signed(pnl)}
           {pct != null && <span className="block text-[11px] opacity-80">{`${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`}</span>}
         </Tick>
       ),
     ],
+    ["Realized", sales ? <span key="r" className={toneOf(realized)}>{signed(realized)}</span> : <span key="r" className="text-text-2">—</span>],
   ];
   if (!mine.length && !pos) return null;
   return (
@@ -574,14 +578,13 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
         ))}
       </div>
       {pos && (
-        <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-t border-border px-3 py-2 text-[11px] text-muted" title="P&L is what selling now would bring, after the sale fee and price impact, so selling holds no surprise. Entry cost is the fee and price impact you paid when buying.">
+        <p className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 border-t border-border px-3 py-2 text-[11px] text-muted" title="Value is what selling it all now would bring, after the sale fee and price impact, and PnL is that minus what the position cost: selling now shows the same PnL on its notification. Realized is the PnL of sales already made. Entry cost is the fee and price impact you paid when buying.">
           {entryCost > 0.005 && <span>Entry cost <span className="font-mono text-text-2">{money(entryCost)}</span></span>}
           {breakEven != null && (
             <span>
               Break-even <span className={`font-mono ${breakEven <= 0 ? "text-positive" : "text-text-2"}`}>{breakEven <= 0 ? "reached" : `+${breakEven.toFixed(1)}%`}</span>
             </span>
           )}
-          {sellNow != null && <span>Sell now <span className="font-mono text-text-2">{money(sellNow)}</span></span>}
         </p>
       )}
     </section>
