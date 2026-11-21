@@ -38,7 +38,7 @@ const GRACE_SECS: i64 = 180;
 /// A token with no trade for this long is dead and dropped.
 const DEAD_AFTER_SECS: i64 = 600;
 /// Completed curves stay visible this long (until migration tracking exists).
-const KEEP_COMPLETE_SECS: i64 = 600;
+const KEEP_COMPLETE_SECS: i64 = 1_800;
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct MarketSnapshot {

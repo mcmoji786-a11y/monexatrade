@@ -83,6 +83,8 @@ pub struct MarketToken {
     pub organic_score: Option<f64>,
     pub launchpad: Option<String>,
     pub created_at: Option<String>,
+    /// When the coin left its launchpad curve for a pool (ISO time), if it did.
+    pub graduated_at: Option<String>,
     pub twitter: Option<String>,
     pub telegram: Option<String>,
     pub website: Option<String>,
@@ -111,6 +113,7 @@ struct RawToken {
     organic_score: Option<f64>,
     launchpad: Option<String>,
     created_at: Option<String>,
+    graduated_at: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
     twitter: Option<String>,
@@ -176,6 +179,7 @@ impl From<RawToken> for MarketToken {
             organic_score: round1(r.organic_score),
             launchpad: r.launchpad,
             created_at: r.created_at,
+            graduated_at: r.graduated_at,
             // Creator-supplied links: https only, like launch metadata.
             twitter: r.twitter.as_deref().and_then(metadata::twitter_url),
             telegram: r.telegram.as_deref().and_then(metadata::telegram_url),

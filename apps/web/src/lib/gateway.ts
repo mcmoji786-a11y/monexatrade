@@ -103,6 +103,8 @@ export type MarketToken = {
   organic_score: number | null;
   launchpad: string | null;
   created_at: string | null;
+  /** When it left its launchpad curve for a pool, if it did. */
+  graduated_at?: string | null;
   twitter: string | null;
   telegram: string | null;
   website: string | null;

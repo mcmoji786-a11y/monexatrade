@@ -259,6 +259,27 @@ export function RadarBoard() {
     )
     .sort((a, b) => SORTS[sort].by(b) - SORTS[sort].by(a));
 
+  // Graduated: coins from the radar that finished their curve, then memecoins that
+  // graduated in the last day from market data (their pool's live figures), newest
+  // graduation first. Search and the watchlist filter apply to both.
+  const minute = Math.floor(now / 60_000);
+  const graduated = useMemo(() => {
+    const onRadar = visible.filter((t) => stageOf(t) === "graduated");
+    const have = new Set(onRadar.map((t) => t.mint));
+    const since = minute * 60 - GRADUATED_WINDOW;
+    const extra: RadarToken[] = [];
+    for (const m of Object.values(markets)) {
+      const at = m.graduated_at ? Date.parse(m.graduated_at) / 1000 : NaN;
+      if (!(at >= since) || !m.launchpad || have.has(m.mint) || tokens.some((t) => t.mint === m.mint)) continue;
+      if (q && !(m.mint === q || m.symbol.toLowerCase().includes(lower) || m.name.toLowerCase().includes(lower))) continue;
+      if (filter === "watch" && !watch.includes(m.mint)) continue;
+      extra.push(fromMarket(m, at));
+    }
+    const when = (t: RadarToken) => (t.market?.complete ? (t.market.last_trade ?? t.timestamp) : (t as RadarToken & { graduatedAt?: number }).graduatedAt ?? t.timestamp);
+    return [...onRadar, ...extra].sort((a, b) => when(b) - when(a));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, markets, tokens, q, filter, watch, minute]);
+
   const card = (t: RadarToken) => (
     <TokenCard
       key={t.mint}
@@ -402,7 +423,7 @@ export function RadarBoard() {
         view === "columns" ? (
           <div className="mt-3 grid gap-3 lg:grid-cols-3">
             {STAGES.map((s) => {
-              const list = visible.filter((t) => stageOf(t) === s.key);
+              const list = s.key === "graduated" ? graduated : visible.filter((t) => stageOf(t) === s.key);
               return (
                 <section key={s.key} aria-label={s.label} className="flex min-w-0 flex-col">
                   <div className="mb-2 flex h-7 items-center gap-2">
@@ -449,8 +470,32 @@ export function RadarBoard() {
 const STAGES = [
   { key: "new", label: "New", hint: "Curve under 50%", dot: "bg-cyan", empty: "Waiting for the next launch" },
   { key: "final", label: "Almost graduating", hint: "Curve 50% or more", dot: "bg-warning", empty: "No coin is past half its curve right now" },
-  { key: "graduated", label: "Graduated", hint: "Moved to a pool", dot: "bg-emerald", empty: "No coin has graduated from the radar yet" },
+  { key: "graduated", label: "Graduated", hint: "Moved to a pool, last 24h", dot: "bg-emerald", empty: "No memecoin graduated in the last 24 hours" },
 ] as const;
+
+/** How far back the Graduated column reaches for coins that graduated elsewhere. */
+const GRADUATED_WINDOW = 24 * 3600;
+
+/** A graduated memecoin known from market data only, in the radar's shape: no curve,
+ *  its pool's live figures come in as the card's market data. */
+function fromMarket(m: MarketToken, graduatedAt: number): RadarToken & { graduatedAt: number } {
+  return {
+    signature: "",
+    name: m.name,
+    symbol: m.symbol,
+    uri: "",
+    mint: m.mint,
+    bonding_curve: "",
+    creator: "",
+    timestamp: m.created_at ? Date.parse(m.created_at) / 1000 : graduatedAt,
+    standard: "Spl",
+    launchpad: m.launchpad ?? "other",
+    meta: { image: m.image, description: null, twitter: m.twitter, telegram: m.telegram, website: m.website },
+    market: null,
+    dev_report: null,
+    graduatedAt,
+  };
+}
 
 function stageOf(t: RadarToken): (typeof STAGES)[number]["key"] {
   const m = t.market;

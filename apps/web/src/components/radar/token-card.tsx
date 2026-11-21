@@ -77,7 +77,7 @@ function TokenCardView({
   // figures come from the provider.
   const curve = token.launchpad === "pump.fun" || token.launchpad === "letsbonk.fun" || token.launchpad === "raydium-launchlab";
   const ownWallets = !!m && token.launchpad !== "letsbonk.fun" && token.launchpad !== "raydium-launchlab";
-  const own = m?.sol_quoted ? m : null;
+  const own = m?.sol_quoted && !(m.complete && alt) ? m : null;
   const graduating = !!m && !m.complete && m.curve_progress >= 85;
 
   const mc = own?.mc_usd ?? alt?.mc_usd ?? null;
