@@ -9,7 +9,7 @@ import type { RadarToken } from "./use-radar-feed";
  *  frozen cards still update. */
 const PAGE = 36;
 
-export function PausableGrid({ tokens, render }: { tokens: RadarToken[]; render: (t: RadarToken) => React.ReactNode }) {
+export function PausableGrid({ tokens, render, list = false }: { tokens: RadarToken[]; render: (t: RadarToken) => React.ReactNode; list?: boolean }) {
   // Frozen: the coins and order at the moment the pointer came in, with their latest
   // data. A coin that left the radar meanwhile keeps its last card until release.
   const [frozen, setFrozen] = useState<RadarToken[] | null>(null);
@@ -24,7 +24,7 @@ export function PausableGrid({ tokens, render }: { tokens: RadarToken[]; render:
     // A real mouse only: a tap on a phone fires mouse-enter but never mouse-leave, which
     // froze the list on phones until the page was left.
     <div
-      className="relative mt-4"
+      className={list ? "relative" : "relative mt-4"}
       onPointerEnter={(e) => e.pointerType === "mouse" && setFrozen(tokens)}
       onPointerLeave={(e) => e.pointerType === "mouse" && setFrozen(null)}
     >
@@ -45,7 +45,7 @@ export function PausableGrid({ tokens, render }: { tokens: RadarToken[]; render:
           )}
         </div>
       )}
-      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3 min-[2200px]:grid-cols-4">{shown.slice(0, limit).map(render)}</div>
+      <div className={list ? "flex flex-col gap-2" : "grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3 min-[2200px]:grid-cols-4"}>{shown.slice(0, limit).map(render)}</div>
       {shown.length > limit && (
         <div className="mt-4 flex justify-center">
           <button

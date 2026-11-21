@@ -160,6 +160,20 @@ export function RadarBoard() {
   const pathname = usePathname();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("newest");
+  // Columns by stage (new, almost graduating, graduated) or one grid; remembered here.
+  const [view, setView] = useState<"columns" | "grid">(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem("mx.radar.view") === "grid" ? "grid" : "columns";
+    } catch {
+      return "columns";
+    }
+  });
+  const pickView = (v: "columns" | "grid") => {
+    setView(v);
+    try {
+      localStorage.setItem("mx.radar.view", v);
+    } catch {}
+  };
   const { filters: adv } = useRadarFilters();
 
   const query = params.get("q") ?? "";
@@ -364,6 +378,19 @@ export function RadarBoard() {
               ))}
             </select>
           </label>
+          <div className="flex rounded-md border border-border p-0.5" role="group" aria-label="View">
+            {(["columns", "grid"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => pickView(v)}
+                className={`h-6 rounded px-2 text-[11px] capitalize transition-colors ${view === v ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"}`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
           <span className="font-mono text-xs text-muted">
             {visible.length}/{tokens.length}
           </span>
@@ -372,7 +399,32 @@ export function RadarBoard() {
 
       {/* Grid: pauses while the pointer is over it */}
       {visible.length > 0 ? (
-        <PausableGrid tokens={visible} render={card} />
+        view === "columns" ? (
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            {STAGES.map((s) => {
+              const list = visible.filter((t) => stageOf(t) === s.key);
+              return (
+                <section key={s.key} aria-label={s.label} className="flex min-w-0 flex-col">
+                  <div className="mb-2 flex h-7 items-center gap-2">
+                    <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden="true" />
+                    <h2 className="text-[13px] font-medium text-text">{s.label}</h2>
+                    <span className="font-mono text-[11px] text-muted">{list.length}</span>
+                    <span className="ml-auto truncate text-[11px] text-muted">{s.hint}</span>
+                  </div>
+                  <div className="nav-scroll lg:h-[calc(100dvh-13rem)] lg:overflow-y-auto lg:pr-1">
+                    {list.length ? (
+                      <PausableGrid tokens={list} render={card} list />
+                    ) : (
+                      <p className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-xs text-muted">{s.empty}</p>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <PausableGrid tokens={visible} render={card} />
+        )
       ) : (
         <EmptyState
           status={status}
@@ -391,6 +443,20 @@ export function RadarBoard() {
       </p>
     </section>
   );
+}
+
+/** A coin's stage on its bonding curve. Launchpads whose curve Kixo does not read count as new. */
+const STAGES = [
+  { key: "new", label: "New", hint: "Curve under 50%", dot: "bg-cyan", empty: "Waiting for the next launch" },
+  { key: "final", label: "Almost graduating", hint: "Curve 50% or more", dot: "bg-warning", empty: "No coin is past half its curve right now" },
+  { key: "graduated", label: "Graduated", hint: "Moved to a pool", dot: "bg-emerald", empty: "No coin has graduated from the radar yet" },
+] as const;
+
+function stageOf(t: RadarToken): (typeof STAGES)[number]["key"] {
+  const m = t.market;
+  if (m?.complete) return "graduated";
+  if (m && m.curve_progress >= 50) return "final";
+  return "new";
 }
 
 function EmptyState({
