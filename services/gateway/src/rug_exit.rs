@@ -11,7 +11,9 @@
 //! trading has its own review. The admin switch "rug_exit" stops it all.
 //!
 //! Users with rug exit on are read from `user_settings` every 30 s; their open demo
-//! positions every 10 s.
+//! positions every 10 s, and a new buy is watched the moment it fills (`note_buy`), so a
+//! dev who dumps seconds after the buy is still caught. A sale that fails is tried again
+//! after `RETRY`.
 
 use crate::demo::DemoCtx;
 use serde_json::Value;
@@ -20,6 +22,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use std::sync::OnceLock;
 use tokio::sync::{broadcast, Mutex};
 
 /// A creator sale smaller than this is ignored (dust, fee top-ups).
@@ -30,6 +33,27 @@ const USERS_EVERY: Duration = Duration::from_secs(30);
 const POSITIONS_EVERY: Duration = Duration::from_secs(10);
 /// An exit is not tried again for the same position within this time.
 const REPEAT: Duration = Duration::from_secs(600);
+/// A sale that failed (no price at that moment) is tried again after this.
+const RETRY: Duration = Duration::from_secs(20);
+
+/// The running watcher's state, so a demo buy can register itself at once.
+static LIVE: OnceLock<Arc<Mutex<State>>> = OnceLock::new();
+
+/// A demo buy just filled: watch the position now instead of at the next refresh, if
+/// this user has rug exit on.
+pub fn note_buy(user: &str, mint: &str) {
+    let Some(st) = LIVE.get().cloned() else { return };
+    let (user, mint) = (user.to_string(), mint.to_string());
+    tokio::spawn(async move { watch(&st, &user, &mint).await });
+}
+
+async fn watch(st: &Mutex<State>, user: &str, mint: &str) {
+    let mut s = st.lock().await;
+    if s.users.contains_key(user) {
+        s.holders.entry(mint.to_string()).or_default().insert(user.to_string());
+        s.fresh.insert((user.to_string(), mint.to_string()), Instant::now());
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Rules {
@@ -44,6 +68,8 @@ struct State {
     holders: HashMap<String, HashSet<String>>,
     /// (user, mint) -> when an exit was last tried.
     tried: HashMap<(String, String), Instant>,
+    /// (user, mint) -> when a buy registered it (kept through the next refresh).
+    fresh: HashMap<(String, String), Instant>,
 }
 
 #[derive(Clone)]
@@ -54,6 +80,7 @@ pub struct RugCtx {
 
 pub fn spawn(c: RugCtx) {
     let st = Arc::new(Mutex::new(State::default()));
+    let _ = LIVE.set(st.clone());
     tokio::spawn(refresh_loop(c.clone(), st.clone()));
     tokio::spawn(trades_loop(c.clone(), st.clone()));
     tokio::spawn(ai_loop(c, st));
@@ -102,6 +129,12 @@ async fn refresh_loop(c: RugCtx, st: Arc<Mutex<State>>) {
             }
             if ok {
                 let mut s = st.lock().await;
+                // Positions registered by a buy in the last moments may not be in this read yet.
+                let recent: Vec<(String, String)> = s.fresh.iter().filter(|(_, at)| at.elapsed() < POSITIONS_EVERY * 2).map(|(k, _)| k.clone()).collect();
+                s.fresh.retain(|_, at| at.elapsed() < POSITIONS_EVERY * 2);
+                for (u, m) in recent {
+                    holders.entry(m).or_default().insert(u);
+                }
                 // A position that is gone (sold, or bought again later) can be exited again.
                 s.tried.retain(|(u, m), at| at.elapsed() < REPEAT && holders.get(m).is_some_and(|h| h.contains(u)));
                 s.holders = holders;
@@ -131,11 +164,21 @@ async fn due(st: &Mutex<State>, mint: &str, ai: bool) -> Vec<String> {
     out
 }
 
-async fn exit(c: &RugCtx, user: &str, mint: &str, why: &str) {
+async fn exit(c: &RugCtx, st: &Mutex<State>, user: &str, mint: &str, why: &str) {
     match crate::demo::sell_all(&c.demo, user, mint, "rug_exit").await {
         Ok(Some((fill, symbol, realized))) => tracing::info!(user, mint, symbol, usd = fill.usd, realized, why, "rug exit sold a demo position"),
         Ok(None) => {}
-        Err(e) => tracing::warn!(user, mint, error = %e.1, "rug exit could not sell"),
+        Err(e) => {
+            tracing::warn!(user, mint, error = %e.1, "rug exit could not sell, trying again shortly");
+            retry_soon(st, user, mint).await;
+        }
+    }
+}
+
+/// Lets `due` pick this position again after `RETRY` instead of `REPEAT`.
+async fn retry_soon(st: &Mutex<State>, user: &str, mint: &str) {
+    if let Some(at) = st.lock().await.tried.get_mut(&(user.to_string(), mint.to_string())) {
+        *at = Instant::now().checked_sub(REPEAT - RETRY).unwrap_or(*at);
     }
 }
 
@@ -148,8 +191,8 @@ async fn trades_loop(c: RugCtx, st: Arc<Mutex<State>>) {
                     continue;
                 }
                 for user in due(&st, &mint, false).await {
-                    let (c, mint) = (c.clone(), mint.clone());
-                    tokio::spawn(async move { exit(&c, &user, &mint, "dev sold").await });
+                    let (c, st, mint) = (c.clone(), st.clone(), mint.clone());
+                    tokio::spawn(async move { exit(&c, &st, &user, &mint, "dev sold").await });
                 }
             }
             Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -172,8 +215,8 @@ async fn ai_loop(c: RugCtx, st: Arc<Mutex<State>>) {
                 continue;
             }
             for user in due(&st, &mint, true).await {
-                let (c, mint) = (c.clone(), mint.clone());
-                tokio::spawn(async move { exit(&c, &user, &mint, "AI danger").await });
+                let (c, st, mint) = (c.clone(), st.clone(), mint.clone());
+                tokio::spawn(async move { exit(&c, &st, &user, &mint, "AI danger").await });
             }
         }
     }
@@ -210,5 +253,18 @@ mod tests {
         assert_eq!(dev, vec!["a"], "b was already exited from M");
         assert!(due(&st, "M", false).await.is_empty(), "never twice");
         assert!(due(&st, "OTHER", false).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_new_buy_is_watched_at_once_and_a_failed_sale_comes_back_soon() {
+        let st = Mutex::new(State::default());
+        st.lock().await.users.insert("a".into(), Rules { dev: true, ai: true });
+        watch(&st, "a", "NEW").await;
+        watch(&st, "off", "NEW").await;
+        assert_eq!(due(&st, "NEW", false).await, vec!["a"], "watched before any refresh; users without rug exit are not");
+        assert!(due(&st, "NEW", false).await.is_empty());
+        retry_soon(&st, "a", "NEW").await;
+        let at = st.lock().await.tried[&("a".to_string(), "NEW".to_string())];
+        assert!(at.elapsed() >= REPEAT - RETRY, "a failed sale is due again after RETRY");
     }
 }

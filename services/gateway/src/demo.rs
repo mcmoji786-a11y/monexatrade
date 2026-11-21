@@ -408,6 +408,9 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
             })),
         )
         .await?;
+    if fill.side == "buy" {
+        crate::rug_exit::note_buy(&u.id, &o.mint);
+    }
     if fill.side == "sell" && o.fraction.unwrap_or(0.0) >= 0.999 {
         // Closing the position cancels its sell orders; the answer does not wait for it.
         let (c2, uid, mint) = (c.clone(), u.id.clone(), o.mint.clone());
