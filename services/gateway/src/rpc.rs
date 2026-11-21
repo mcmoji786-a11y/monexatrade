@@ -16,14 +16,51 @@ fn requests_per_second() -> usize {
     *RPS.get_or_init(|| std::env::var("HELIUS_RPS").ok().and_then(|v| v.parse().ok()).filter(|v| (1..=500).contains(v)).unwrap_or(DEFAULT_RPS))
 }
 
+tokio::task_local! {
+    /// Set for background work (history backfill, smart-wallet checks, funder lookups).
+    static BACKGROUND: bool;
+}
+
+/// Runs `f` as background work: its RPC calls use at most half the budget, and only while
+/// no trade page call is waiting, so live trades, holders and candles always go first.
+pub async fn background<F: std::future::Future>(f: F) -> F::Output {
+    BACKGROUND.scope(true, f).await
+}
+
+/// Foreground calls waiting for room right now.
+static WAITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct Waiting;
+impl Waiting {
+    fn new() -> Self {
+        WAITING.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Waiting
+    }
+}
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        WAITING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Room for background work: at most half the budget, and none while a trade page call
+/// waits. For background callers that send their own requests (funders.rs).
+pub async fn pace_background(weight: usize) {
+    background(pace(weight)).await
+}
+
 /// Waits until `weight` requests fit in the last second's budget. A batch of n calls
-/// costs n. Callers queue instead of failing with 429.
+/// costs n. Callers queue instead of failing with 429. Background work (see `background`)
+/// gets at most half the budget and steps aside while foreground calls wait.
 async fn pace(weight: usize) {
     use std::sync::Mutex;
     use std::time::Instant;
     static SENT: Mutex<std::collections::VecDeque<Instant>> =
         Mutex::new(std::collections::VecDeque::new());
-    let weight = weight.clamp(1, requests_per_second());
+    let bg = BACKGROUND.try_with(|b| *b).unwrap_or(false);
+    let cap = if bg { (requests_per_second() / 2).max(1) } else { requests_per_second() };
+    let weight = weight.clamp(1, cap);
+    let _waiting = (!bg).then(Waiting::new);
     loop {
         let wait = {
             let mut sent = SENT.lock().expect("rpc pace lock");
@@ -33,13 +70,19 @@ async fn pace(weight: usize) {
             {
                 sent.pop_front();
             }
-            if sent.len() + weight <= requests_per_second() {
+            let foreground_waiting = bg && WAITING.load(std::sync::atomic::Ordering::SeqCst) > 0;
+            if !foreground_waiting && sent.len() + weight <= cap {
                 let now = Instant::now();
                 sent.extend(std::iter::repeat_n(now, weight));
                 return;
             }
-            let oldest = sent[sent.len() + weight - requests_per_second() - 1];
-            Duration::from_secs(1).saturating_sub(oldest.elapsed())
+            if foreground_waiting {
+                Duration::from_millis(50)
+            } else {
+                // Here sent.len() + weight > cap and weight <= cap, so the index is in range.
+                let oldest = sent[sent.len() + weight - cap - 1];
+                Duration::from_secs(1).saturating_sub(oldest.elapsed())
+            }
         };
         tokio::time::sleep(wait.max(Duration::from_millis(20))).await;
     }
@@ -237,4 +280,26 @@ pub async fn signatures_with_times(http: &reqwest::Client, url: &str, account: &
     let times = all.iter().filter_map(|s| s["blockTime"].as_i64()).collect();
     let ok = all.iter().filter(|s| s["err"].is_null()).filter_map(|s| s["signature"].as_str().map(String::from)).collect();
     Some((ok, times))
+}
+
+#[cfg(test)]
+mod lane_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn background_is_marked_only_inside_its_scope() {
+        let flag = || BACKGROUND.try_with(|b| *b).unwrap_or(false);
+        assert!(!flag(), "plain calls are foreground");
+        assert!(background(async move { BACKGROUND.try_with(|b| *b).unwrap_or(false) }).await);
+        assert!(!flag(), "the mark ends with the scope");
+    }
+
+    #[tokio::test]
+    async fn background_steps_aside_while_foreground_waits() {
+        let held = Waiting::new();
+        let bg = tokio::time::timeout(Duration::from_millis(300), pace_background(1)).await;
+        assert!(bg.is_err(), "background waits while a foreground call is queued");
+        drop(held);
+        assert!(tokio::time::timeout(Duration::from_secs(2), pace_background(1)).await.is_ok(), "then it goes");
+    }
 }

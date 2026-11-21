@@ -235,7 +235,8 @@ pub fn start(state: Arc<crate::AppState>) -> Option<PathBuf> {
     });
     tokio::spawn(snapshot_loop(state.clone()));
     if std::env::var("HISTORY_BACKFILL").is_ok_and(|v| v.trim() == "1") {
-        tokio::spawn(history(state, dir.clone()));
+        // Reading the past is background work: live trade pages go first (rpc::background).
+        tokio::spawn(crate::rpc::background(history(state, dir.clone())));
     }
     tracing::info!(dir = %dir.display(), "data collector on");
     Some(dir)

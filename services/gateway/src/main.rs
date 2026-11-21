@@ -289,7 +289,7 @@ async fn main() -> Result<()> {
     tokio::spawn(process_events(state.clone(), ingest_rx));
     tokio::spawn(poll_markets(state.clone()));
     tokio::spawn(prune_launches(state.clone()));
-    tokio::spawn(update_smart(state.clone()));
+    tokio::spawn(rpc::background(update_smart(state.clone())));
     tokio::spawn(monitor::sample_loop(state.clone()));
     // Saves every launch and trade for the AI when COLLECT_DIR is set (collector.rs).
     collector::start(state.clone());

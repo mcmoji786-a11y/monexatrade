@@ -102,6 +102,7 @@ async fn rpc(state: &AppState, method: &str, params: Value) -> Option<Value> {
         tokio::time::sleep(wait).await;
         *last = std::time::Instant::now();
     }
+    crate::rpc::pace_background(1).await;
     let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
     let v: Value = state.http.post(state.config.helius_rpc_url()).json(&body).timeout(Duration::from_secs(10)).send().await.ok()?.json().await.ok()?;
     v.get("result").cloned()
