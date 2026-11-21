@@ -550,6 +550,24 @@ pub struct SimilarQuery {
 /// Past coins compared with a coin's AI scores.
 const SIMILAR_N: usize = 150;
 
+/// A rough, cautious result of buying a coin when Kixo AI scored it and holding up to an
+/// hour: a crash of 70%+ counts as the stop loss (-40%) even if it rose first, else a rise
+/// of 50% counts as the take profit (+50%), else nothing; minus 2% costs (1% each side).
+/// The Kixo Buy Score is the average of this over the closest past coins (web: buyScore).
+/// Tested without look-ahead on 7,132 coins (ai/buy_score_test.py, 2026-11-21): coins whose
+/// past neighbours averaged +2% or more really averaged +5.7% a trade (1% crashed); those
+/// under -10% averaged -17.9% (60% crashed).
+fn trade_result(o: &Outcome) -> f64 {
+    let r = if o.dumped {
+        -0.40
+    } else if o.high_x >= 1.5 {
+        0.50
+    } else {
+        0.0
+    };
+    r - 0.02
+}
+
 /// What happened to the past coins whose AI scores were closest to `dump` and `pump`: how
 /// many, the share that crashed 70%+ or doubled within the hour, and their typical lowest
 /// and highest price in that hour as multiples of the price when scored. Also the same for
@@ -574,6 +592,9 @@ fn similar_stats(outcomes: &[&Outcome], dump: f64, pump: f64) -> Option<Value> {
         json!({
             "coins": set.len(),
             "crashed": ((set.iter().filter(|o| o.dumped).count() as f64 / n) * 1000.0).round() / 1000.0,
+            // Rose 50%+ within the hour without crashing.
+            "good_buy": ((set.iter().filter(|o| !o.dumped && o.high_x >= 1.5).count() as f64 / n) * 1000.0).round() / 1000.0,
+            "trade": ((set.iter().map(|o| trade_result(o)).sum::<f64>() / n) * 1000.0).round() / 1000.0,
             "doubled": ((set.iter().filter(|o| o.doubled).count() as f64 / n) * 1000.0).round() / 1000.0,
             "low_x": q(&low, 0.5),
             "high_x": q(&high, 0.5),
@@ -631,6 +652,7 @@ mod similar_tests {
         assert_eq!(r["similar"]["coins"], 150);
         assert_eq!(r["similar"]["crashed"], 1.0);
         assert_eq!(r["similar"]["low_x"], 0.2);
+        assert_eq!(r["similar"]["trade"], -0.42, "every neighbour crashed: stop loss and costs");
         assert_eq!(r["all"]["coins"], 500);
         assert!(similar_stats(&refs[..100], 0.5, 0.5).is_none(), "too few outcomes");
     }

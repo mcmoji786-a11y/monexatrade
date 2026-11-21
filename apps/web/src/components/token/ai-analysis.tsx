@@ -91,11 +91,10 @@ export function outlook(risk: AiRisk | null, safety: Safety | null | undefined, 
   return null;
 }
 
-function Outlook({ risk, safety, num }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers }) {
+function Outlook({ risk, safety, num, sim }: { risk: AiRisk | null; safety: Safety | null | undefined; num?: Numbers; sim: Similar | undefined }) {
   const o = outlook(risk, safety, num?.ageSecs ?? null);
-  const sim = useSimilar(risk);
   if (!o) return null;
-  const p = plan(o.tone, risk, safety, num);
+  const p = plan(o.tone, risk, safety, num, freshScore(num) ? scoreOf(sim) : null);
   const watching = !risk && num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + 60;
   const reasons = plainReasons(safety, num);
   // "Out of 10 coins like this": past coins with the same AI scores when known, else the AI's own chances.
@@ -301,8 +300,91 @@ function ScanCard({ scan, take }: { scan: Scan; take: string | null | "loading" 
   );
 }
 
+/** Kixo Buy Score, 0 to 100, from the average trade result of the closest past coins
+ *  (gateway ai_risk.rs trade_result): 50 is break-even, every 1% better adds 8 points.
+ *  Tested without look-ahead on 7,132 past coins (ai/buy_score_test.py, 2026-11-21):
+ *  66+ really averaged +5.6% a trade (313 coins, 1% crashed), 35-65 -1.7%, under 35 -4.9%
+ *  (12.9% crashed). */
+export function buyScore(trade: number) {
+  // Never 0 or 100: no memecoin is a sure thing either way.
+  return Math.max(5, Math.min(95, Math.round(50 + 8 * trade * 100)));
+}
+const BUY_AT = 66;
+/** The score was tested on buying when Kixo AI scored the coin: it holds for a few
+ *  minutes after that, not for a coin bought much later. */
+const FRESH_FOR_S = 300;
+function freshScore(num?: Numbers) {
+  return num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + FRESH_FOR_S;
+}
+const AVOID_UNDER = 35;
+function scoreOf(sim: Similar | undefined) {
+  return sim?.similar.trade != null ? buyScore(sim.similar.trade) : null;
+}
+
+/** The Kixo Buy Score at the top of the analysis: how strongly Kixo recommends buying,
+ *  as Buy X% / Avoid Y%, with what past coins like this one did. */
+function BuyScore({ risk, sim, watching, fresh, ageSecs }: { risk: AiRisk | null; sim: Similar | undefined; watching: boolean; fresh: boolean; ageSecs: number | null }) {
+  if (!risk) {
+    return (
+      <div className="mb-3 rounded-xl border border-border bg-bg/60 px-4 py-3 text-sm text-text-2">
+        <span className="font-medium text-text">Kixo Buy Score</span>{" "}
+        {watching ? "comes once Kixo AI has seen this coin's first 2 minutes" : "is made for new coins from their first 2 minutes; this one is older, so the read below uses its safety checks"}
+      </div>
+    );
+  }
+  const score = scoreOf(sim);
+  if (sim === null || (sim && score == null)) {
+    return <div className="mb-3 rounded-xl border border-border bg-bg/60 px-4 py-3 text-sm text-text-2">Kixo Buy Score: not enough past coins to compare yet</div>;
+  }
+  if (score == null || !sim) {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-bg/60 px-4 py-3 text-sm text-text-2">
+        <Loader2 size={14} strokeWidth={1.5} className="animate-spin text-cyan" />
+        Working out the Kixo Buy Score from past coins like this one
+      </div>
+    );
+  }
+  if (!fresh) {
+    return (
+      <div className="mb-3 rounded-xl border border-border bg-bg/60 px-4 py-3 text-sm text-text-2">
+        <span className="font-medium text-text">Kixo Buy Score</span> was <span className="font-mono text-text">{score}/100</span> when Kixo AI scored this coin at about minute 2.
+        That was a call for buying then; it is now {ageSecs != null ? `${Math.round(ageSecs / 60)} minutes` : "much"} later, so it no longer applies. The read below uses the coin&apos;s signs now.
+      </div>
+    );
+  }
+  const verdictText = score >= BUY_AT ? "Recommended: a small buy" : score < AVOID_UNDER ? "Avoid" : "Not recommended: no clear edge";
+  const tone = score >= BUY_AT ? "text-positive border-positive/40" : score < AVOID_UNDER ? "text-negative border-negative/40" : "text-warning border-warning/40";
+  const t = sim.similar.trade ?? 0;
+  return (
+    <div className={`mb-3 rounded-xl border-2 bg-bg/60 px-4 py-3 ${tone}`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-medium text-text">Kixo Buy Score</span>
+        <span className="font-mono text-2xl font-semibold">
+          {score}
+          <span className="text-sm text-muted">/100</span>
+        </span>
+      </div>
+      <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-surface-3" aria-hidden="true">
+        <span className="h-full bg-positive" style={{ width: `${score}%` }} />
+        <span className="h-full bg-negative/70" style={{ width: `${100 - score}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between font-mono text-xs">
+        <span className="text-positive">Buy {score}%</span>
+        <span className="text-negative">Avoid {100 - score}%</span>
+      </div>
+      <p className="mt-2 text-sm font-medium">{verdictText}</p>
+      <p className="mt-1 text-xs leading-5 text-text-2">
+        The {sim.similar.coins} past coins most like this one: an average trade {t >= 0 ? "made" : "lost"}{" "}
+        <span className="font-mono">{Math.abs(t * 100).toFixed(1)}%</span>; {Math.round((sim.similar.good_buy ?? 0) * 100)} in 100 rose 50%+,{" "}
+        {Math.round(sim.similar.crashed * 100)} in 100 crashed.
+      </p>
+      <p className="mt-1 text-[11px] text-muted">Checked on 7,132 past coins: scores of 66+ really made +5.6% a trade on average, scores under 35 lost 4.9%</p>
+    </div>
+  );
+}
+
 type Similar = {
-  similar: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number; high_x_p75: number; low_x_p25: number };
+  similar: { coins: number; crashed: number; doubled: number; good_buy?: number; trade?: number; low_x: number; high_x: number; high_x_p75: number; low_x_p25: number };
   all: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number };
 } | null;
 
@@ -310,6 +392,7 @@ type Similar = {
 function useSimilar(risk: AiRisk | null) {
   const key = risk ? `${risk.dump.toFixed(3)}|${risk.pump.toFixed(3)}` : "";
   const [state, setState] = useState<{ key: string; v: Similar }>({ key: "", v: null });
+  // undefined while it loads; null when there is no answer.
   useEffect(() => {
     if (!key) return;
     const [dump, pump] = key.split("|");
@@ -322,7 +405,7 @@ function useSimilar(risk: AiRisk | null) {
       alive = false;
     };
   }, [key]);
-  return state.key === key ? state.v : null;
+  return state.key === key ? state.v : key ? undefined : null;
 }
 
 const change = (x: number) => `${x >= 1 ? "+" : "−"}${Math.abs((x - 1) * 100).toFixed(0)}%`;
@@ -417,7 +500,7 @@ function Countdown({ launchedAt, ageSecs }: { launchedAt: number | null; ageSecs
 /** Kixo's plan for the coin in plain words, worked out in code from the same data as the
  *  outlook so it never contradicts it: buy or not, how much, where to get out, and what
  *  would change the picture. Market cap levels are the real numbers for this coin. */
-function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers) {
+function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers, buy: number | null = null) {
   const mc = n?.mcUsd ?? null;
   const at = (x: number) => (mc ? ` (market cap ${usd(mc * x)})` : "");
   const young = n?.ageSecs != null && n.ageSecs < 120;
@@ -432,7 +515,11 @@ function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined
     `If it reaches ${take}x, sell at least half${at(take)}`,
   ];
 
-  if (tone === "bad" || v === "danger" || n?.devSoldAll) {
+  // The Kixo Buy Score, tested on thousands of past coins, decides when it is clear.
+  if (buy != null && buy >= BUY_AT && !n?.devSoldAll) {
+    return { tone: "good" as Tone, title: "Kixo recommends a small buy", sub: "Past coins like this one made money on average. Still a memecoin: only money you can lose", stepsTitle: "How to buy it", steps: ifBuy("a small amount (1 to 3% of your balance)", 0.6, 1.5), watch };
+  }
+  if (tone === "bad" || v === "danger" || n?.devSoldAll || (buy != null && buy < AVOID_UNDER)) {
     return {
       tone: "bad" as Tone,
       title: "Don't buy",
@@ -482,9 +569,9 @@ function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined
 }
 
 /** The question sent to the model: the coin's live facts only, and the shape of the answer. */
-function prompt(input: AnalysisInput, risk: AiRisk | null, scan: Finding[] = []) {
+function prompt(input: AnalysisInput, risk: AiRisk | null, scan: Finding[] = [], buy: number | null = null) {
   const o = outlook(risk, input.safety, input.num?.ageSecs ?? null);
-  const decision = o ? plan(o.tone, risk, input.safety, input.num).title : null;
+  const decision = o ? plan(o.tone, risk, input.safety, input.num, buy).title : null;
   const facts = input.facts.map((f) => `${f.label}: ${f.value}`).join("; ");
   const s = input.safety;
   const flags = s ? s.factors.filter((f) => f.points < 0).slice(0, 6).map((f) => (f.detail ? `${f.label} (${f.detail})` : f.label)).join("; ") : "";
@@ -513,6 +600,8 @@ type Turn = { q: string; a: string[] };
 function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => void }) {
   const risk = useAiRisk(input.mint);
   const scan = useLiveScan(input.mint);
+  const sim = useSimilar(risk);
+  const watching = !risk && input.num?.ageSecs != null && input.num.ageSecs < AI_WINDOW_S + 60;
   const [rules, setRules] = useState<AnalysisResult | null>(null);
   const [read, setRead] = useState<string[] | null | "loading">("loading");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -538,10 +627,10 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
   // The model's read, once, after the live scan so it can build on it. The AI word is
   // included when it is already known.
   useEffect(() => {
-    if (asked.current || scan.status === "scanning") return;
+    if (asked.current || scan.status === "scanning" || (risk && sim === undefined)) return;
     asked.current = true;
-    askModel(prompt(input, risk, scan.findings), []).then((r) => setRead(r && "reply" in r ? plain(r.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean) : null));
-  }, [input, risk, scan]);
+    askModel(prompt(input, risk, scan.findings, freshScore(input.num) ? scoreOf(sim) : null), []).then((r) => setRead(r && "reply" in r ? plain(r.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean) : null));
+  }, [input, risk, scan, sim]);
 
   const follow = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -601,7 +690,8 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {/* Kixo's outlook and call, from the AI model or the safety checks */}
-          <Outlook risk={risk} safety={input.safety} num={input.num} />
+          <BuyScore risk={risk} sim={sim} watching={watching} fresh={freshScore(input.num)} ageSecs={input.num?.ageSecs ?? null} />
+          <Outlook risk={risk} safety={input.safety} num={input.num} sim={sim} />
 
           {/* What Kixo AI found when it checked this coin just now, and its short read */}
           <ScanCard scan={scan} take={read === "loading" ? "loading" : Array.isArray(read) ? firstSentences(parseRead(read).take.join(" "), 2) : null} />
