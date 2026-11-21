@@ -1,58 +1,26 @@
 "use client";
 
 import { KixoMark } from "@/components/brand";
-import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NAV_GROUPS } from "@/lib/nav";
 import { useSupportUnread } from "@/lib/support";
 import { toggleNews, useNews } from "@/lib/news";
 
-/* Collapsed or full sidebar, remembered per browser (a convenience only). Coin pages
-   keep their own choice and start collapsed, so the chart gets the room. */
-const KEYS = { app: "mx.sidebar", trade: "mx.sidebar.trade" } as const;
-type Where = keyof typeof KEYS;
-const collapsed: Record<Where, boolean> = { app: false, trade: true };
-let loaded = false;
-const listeners = new Set<() => void>();
-function load() {
-  if (loaded || typeof window === "undefined") return;
-  loaded = true;
-  try {
-    collapsed.app = localStorage.getItem(KEYS.app) === "1";
-    collapsed.trade = localStorage.getItem(KEYS.trade) !== "0";
-  } catch {}
-}
-function setCollapsed(where: Where, v: boolean) {
-  collapsed[where] = v;
-  try {
-    localStorage.setItem(KEYS[where], v ? "1" : "0");
-  } catch {}
-  listeners.forEach((l) => l());
-}
-function useCollapsed(where: Where) {
-  return useSyncExternalStore(
-    (l) => (listeners.add(l), () => listeners.delete(l)),
-    () => (load(), collapsed[where]),
-    () => where === "trade",
-  );
-}
-
-/** Navigation used by the desktop sidebar and the mobile drawer. `rail` shows icons only. */
+/** Navigation used by the desktop sidebar and the mobile drawer. `rail`: the desktop
+ *  icon rail, whose labels fade in when the sidebar opens on hover. */
 export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void; rail?: boolean }) {
+  // Labels on the rail: hidden while closed, faded in when the sidebar opens.
+  const label = rail ? "opacity-0 transition-opacity duration-150 group-hover/side:opacity-100 group-has-[:focus-visible]/side:opacity-100" : "";
   const pathname = usePathname();
   const unread = useSupportUnread();
   const news = useNews(false);
   return (
-    <nav className={`flex flex-col py-2 ${rail ? "gap-2 px-1.5" : "gap-3 px-1.5"}`} aria-label="Main">
+    <nav className="flex flex-col gap-2.5 px-1.5 py-2" aria-label="Main">
       {NAV_GROUPS.map((group, gi) => (
         <div key={group.label}>
-          {rail ? (
-            gi > 0 && <div className="mx-2 mb-2 h-px bg-border" aria-hidden="true" />
-          ) : (
-            <div className="px-2 pb-0.5 text-[10.5px] text-muted">{group.label}</div>
-          )}
+          <div className={`relative h-4 px-2 text-[10.5px] whitespace-nowrap text-muted ${label}`}>{group.label}</div>
+          {rail && gi > 0 && <div className="-mt-2.5 mb-2.5 ml-3 h-px w-5 bg-border transition-opacity group-hover/side:opacity-0" aria-hidden="true" />}
           <ul className="flex flex-col gap-0.5">
             {group.items.map((item) => {
               const href = `/${item.slug}`;
@@ -73,9 +41,9 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                       onNavigate?.();
                     }}
                     aria-pressed={panel ? news.open : undefined}
-                    title={rail ? `${item.label}${item.live ? "" : " (soon)"}` : undefined}
+
                     aria-current={active ? "page" : undefined}
-                    className={`relative flex h-7 items-center rounded-md text-[12.5px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "justify-center" : "gap-2 px-2"} ${
+                    className={`relative flex h-8 items-center gap-2.5 rounded-md text-[12.5px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "pl-[14px]" : "px-2"} ${
                       active
                         ? "bg-surface-3 text-text"
                         : item.live
@@ -86,9 +54,9 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                     {/* The active page's marker: a short emerald rail on the left edge. */}
                     {active && <span className="absolute top-1 bottom-1 left-0 w-0.5 rounded-full bg-emerald" aria-hidden="true" />}
                     {/* New support replies: a count on Support (a dot on the collapsed rail). */}
-                    {item.slug === "support" && unread > 0 && rail && <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-emerald" aria-label={`${unread} new replies`} />}
-                    <Icon size={14} strokeWidth={1.5} className={active ? "text-emerald" : item.live ? "text-text-2" : "text-muted/70"} />
-                    {!rail && (
+                    {item.slug === "support" && unread > 0 && rail && <span className="absolute top-1.5 left-7 h-1.5 w-1.5 rounded-full bg-emerald group-hover/side:hidden" aria-label={`${unread} new replies`} />}
+                    <Icon size={16} strokeWidth={1.5} className={`shrink-0 ${active ? "text-emerald" : item.live ? "text-text-2" : "text-muted/70"}`} />
+                    <span className={`flex min-w-0 flex-1 items-center gap-2 ${label}`}>
                       <>
                         <span className="flex-1 truncate">{item.label}</span>
                         {panel && news.unread > 0 && !news.open && <span className="rounded-full bg-surface-3 px-1.5 font-mono text-[10px] leading-4 text-text-2" aria-label={`${news.unread} new stories`}>{news.unread > 99 ? "99+" : news.unread}</span>}
@@ -96,7 +64,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                         {/* Built sections need no badge; only the ones still coming say so. */}
                         {!item.live && <span className="rounded border border-border px-1.5 py-px text-[10px] leading-4 text-muted">Soon</span>}
                       </>
-                    )}
+                    </span>
                   </Link>
                 </li>
               );
@@ -108,60 +76,30 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
   );
 }
 
-export function Logo({ compact = false }: { compact?: boolean }) {
+export function Logo({ compact = false, fade = false }: { compact?: boolean; fade?: boolean }) {
   return (
     <Link href="/discover" aria-label="Kixo home" className="flex min-h-9 min-w-9 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-emerald">
-      <KixoMark size={compact ? 26 : 28} />
-      {!compact && <span className="text-xl font-semibold tracking-tight text-text">Kixo</span>}
+      <KixoMark size={28} />
+      {!compact && (
+        <span className={`text-xl font-semibold tracking-tight whitespace-nowrap text-text ${fade ? "opacity-0 transition-opacity duration-150 group-hover/side:opacity-100 group-has-[:focus-visible]/side:opacity-100" : ""}`}>Kixo</span>
+      )}
     </Link>
   );
 }
 
-function Keycap({ children }: { children: React.ReactNode }) {
-  return <kbd className="rounded border border-border bg-bg px-1.5 font-mono text-[10px] leading-4 text-muted">{children}</kbd>;
-}
-
 export function Sidebar() {
-  const where: Where = usePathname().startsWith("/token/") ? "trade" : "app";
-  const rail = useCollapsed(where);
-
-  // "[" toggles the sidebar, as in most trading terminals (not while typing).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const typing = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable='true']");
-      if (e.key !== "[" || e.metaKey || e.ctrlKey || e.altKey || typing) return;
-      setCollapsed(where, !collapsed[where]);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [where]);
-
+  // A 56px icon rail holds the page's place; the panel opens over the page (no layout
+  // jump) while the pointer is on it, and closes as it leaves.
   return (
-    <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex ${rail ? "w-14" : "w-44"}`}>
-      <div className={`flex h-11 shrink-0 items-center border-b border-border ${rail ? "justify-center" : "px-3"}`}>
-        <Logo compact={rail} />
-      </div>
-      <div className="nav-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <NavList rail={rail} />
-      </div>
-      <div className={`shrink-0 border-t border-border p-1.5 ${rail ? "flex justify-center" : ""}`}>
-        <button
-          type="button"
-          onClick={() => setCollapsed(where, !rail)}
-          title={rail ? "Expand sidebar  [" : "Collapse sidebar  ["}
-          aria-label={rail ? "Expand sidebar" : "Collapse sidebar"}
-          aria-expanded={!rail}
-          className={`flex h-7 items-center rounded-md text-[12.5px] text-muted transition-colors hover:bg-surface-2 hover:text-text-2 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "w-8 justify-center" : "w-full gap-2 px-2"}`}
-        >
-          {rail ? <PanelLeftOpen size={14} strokeWidth={1.5} /> : <PanelLeftClose size={14} strokeWidth={1.5} />}
-          {!rail && (
-            <>
-              <span className="flex-1 text-left">Collapse</span>
-              <Keycap>[</Keycap>
-            </>
-          )}
-        </button>
-      </div>
-    </aside>
+    <div className="sticky top-0 z-50 hidden h-screen w-14 shrink-0 md:block">
+      <aside className="group/side absolute inset-y-0 left-0 z-40 flex w-14 flex-col overflow-hidden border-r border-border bg-surface transition-[width,box-shadow] duration-200 ease-out hover:w-48 hover:shadow-2xl hover:shadow-black/70 has-[:focus-visible]:w-48">
+        <div className="flex h-11 shrink-0 items-center border-b border-border pl-[13px]">
+          <Logo fade />
+        </div>
+        <div className="nav-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+          <NavList rail />
+        </div>
+      </aside>
+    </div>
   );
 }

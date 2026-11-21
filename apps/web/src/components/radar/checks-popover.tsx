@@ -5,7 +5,7 @@ import { NEW_LAUNCH, type Check as RiskCheck } from "@/lib/risk";
 
 /** "n/15 checks" chip; hover or focus shows every check. `listed` is true while the
  *  coin is on the lower-risk list (safety score 80+, or its first 3 minutes there). */
-export function ChecksChip({ checks, listed, score }: { checks: RiskCheck[]; listed: boolean; score: number }) {
+export function ChecksChip({ checks, listed, score, align = "left" }: { checks: RiskCheck[]; listed: boolean; score: number; align?: "left" | "right" }) {
   const required = checks;
   const passed = checks.filter((c) => c.ok).length;
   const all = listed;
@@ -24,7 +24,7 @@ export function ChecksChip({ checks, listed, score }: { checks: RiskCheck[]; lis
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none invisible absolute bottom-full left-0 z-20 mb-2 w-72 rounded-lg border border-border bg-surface-2 p-3 opacity-0 shadow-lg transition-opacity duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100"
+        className={`pointer-events-none invisible absolute bottom-full ${align === "right" ? "right-0" : "left-0"} z-30 mb-2 w-72 rounded-lg border border-border bg-surface-2 p-3 opacity-0 shadow-lg transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-hover:delay-300 group-has-[:focus-visible]:visible group-has-[:focus-visible]:opacity-100`}
       >
         <span className="block text-xs font-medium text-text">
           {passed} of {required.length} checks passed

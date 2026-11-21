@@ -262,8 +262,8 @@ function TokenCardView({
           </span>
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5 [&_button]:h-6">
-          {checks.length > 0 && <ChecksChip checks={checks} listed={lowerRisk} score={safety.score} />}
-          <SafetyBadge safety={safety} />
+          {checks.length > 0 && <ChecksChip checks={checks} listed={lowerRisk} score={safety.score} align="right" />}
+          <SafetyBadge safety={safety} align="right" />
           <AiButton input={() => inputFromLaunch(token)} safety={safety} compact />
           <QuickBuy mint={token.mint} symbol={token.symbol} className="px-2" />
         </span>

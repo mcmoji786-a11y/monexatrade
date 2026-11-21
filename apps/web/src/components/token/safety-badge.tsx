@@ -8,7 +8,7 @@ const WORD = { higher: "Fewer red flags", medium: "Some red flags", low: "Many r
 
 /** Safety score as a small ring with the number; hover or focus lists every factor and
  *  the points it moved. `size`: "sm" for tables and cards, "md" for spotlights. */
-function SafetyBadgeInner({ safety, size = "sm" }: { safety: Safety; size?: "sm" | "md" }) {
+function SafetyBadgeInner({ safety, size = "sm", align = "left" }: { safety: Safety; size?: "sm" | "md"; align?: "left" | "right" }) {
   const r = size === "md" ? 15 : 11;
   const box = (r + 3) * 2;
   const c = 2 * Math.PI * r;
@@ -39,7 +39,7 @@ function SafetyBadgeInner({ safety, size = "sm" }: { safety: Safety; size?: "sm"
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 hidden w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-2 p-3 text-left shadow-lg group-focus-within:block group-hover:block"
+        className={`pointer-events-none invisible absolute bottom-full ${align === "right" ? "right-0" : "left-0"} z-30 mb-2 block w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-2 p-3 text-left opacity-0 shadow-lg transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100 group-hover:delay-300 group-has-[:focus-visible]:visible group-has-[:focus-visible]:opacity-100`}
       >
         <span className="flex items-baseline justify-between">
           <span className="text-xs font-medium text-text">Safety {safety.score}/100</span>
@@ -65,7 +65,7 @@ function SafetyBadgeInner({ safety, size = "sm" }: { safety: Safety; size?: "sm"
 }
 
 /** Hidden when the admin switches "safety_score" off (lib/features.ts). */
-export function SafetyBadge(props: { safety: Safety; size?: "sm" | "md" }) {
+export function SafetyBadge(props: { safety: Safety; size?: "sm" | "md"; align?: "left" | "right" }) {
   const f = useFeatures();
   return f.safety_score ? <SafetyBadgeInner {...props} /> : null;
 }
