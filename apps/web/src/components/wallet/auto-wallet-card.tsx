@@ -79,7 +79,7 @@ export function AutoWalletCard() {
         <div className="mt-4 flex flex-col gap-4">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <p data-private className="font-mono text-2xl tabular-nums text-text">
+              <p className="font-mono text-2xl tabular-nums text-text">
                 {sol != null ? sol.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "…"} <span className="font-sans text-sm text-text-2">SOL</span>
               </p>
               <button
@@ -87,7 +87,7 @@ export function AutoWalletCard() {
                 onClick={() => data.pubkey && navigator.clipboard.writeText(data.pubkey).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1200)))}
                 className="mt-1 flex items-center gap-1.5 font-mono text-xs text-cyan"
               >
-                <span data-private>{shortAddress(data.pubkey ?? "")}</span>
+                <span>{shortAddress(data.pubkey ?? "")}</span>
                 {copied ? <Check size={12} strokeWidth={1.5} /> : <Copy size={12} strokeWidth={1.5} />}
               </button>
             </div>

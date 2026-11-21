@@ -1,6 +1,5 @@
 "use client";
 
-import { setStreamer, useStreamer } from "@/lib/streamer";
 
 import { useKixoWallet } from "@/lib/kixo-wallet";
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -148,9 +147,6 @@ export function SettingsBoard() {
             <Row label="Sound" hint="A short tone with trade and exit pop-ups">
               <Switch on={s.notifications.sound} onChange={(v) => notes({ sound: v })} label="Sound" />
             </Row>
-            <Row label="Streamer mode" hint="Blurs your balances, P&L and wallet address so you can record or stream Kixo. Shift+S anywhere">
-              <StreamerSwitch />
-            </Row>
             <Row label="Welcome tour" hint="A one-minute walk through Kixo, step by step">
               <button type="button" onClick={startTour} className="h-8 rounded-lg border border-border px-3 text-xs text-text-2 hover:bg-surface-2 hover:text-text">
                 Start tour
@@ -184,7 +180,6 @@ export function SettingsBoard() {
             {[
               ["/", "Search a token or contract address"],
               ["[", "Collapse or expand the sidebar"],
-              ["Shift+S", "Streamer mode: blur balances and your wallet"],
               ["Enter", "Place the order in a ticket"],
               ["Esc", "Close a dialog"],
             ].map(([k, v]) => (
@@ -573,10 +568,4 @@ function DataCard() {
       </div>
     </Card>
   );
-}
-
-/** Streamer mode lives in this browser only (lib/streamer.ts). */
-function StreamerSwitch() {
-  const on = useStreamer();
-  return <Switch on={on} onChange={setStreamer} label="Streamer mode" />;
 }

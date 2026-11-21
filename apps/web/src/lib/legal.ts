@@ -92,7 +92,7 @@ export const PRIVACY: LegalSection[] = [
   },
   {
     title: "What stays in your browser",
-    body: ["Some things never reach our servers: your watchlist, Wallet Monitor list, real orders, grids and copies, notification choices, streamer mode and similar preferences are stored in your browser only. Clearing your browser data removes them."],
+    body: ["Some things never reach our servers: your watchlist, Wallet Monitor list, real orders, grids and copies, notification choices and similar preferences are stored in your browser only. Clearing your browser data removes them."],
   },
   {
     title: "What we never collect",
