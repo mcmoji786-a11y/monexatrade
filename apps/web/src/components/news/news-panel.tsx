@@ -370,8 +370,16 @@ export function NewsDock() {
   }, [f.news]);
 
   if (!on) return null;
+  // On a coin's trade page the chart and order box keep their full width: the panel
+  // opens over the page. Elsewhere it docks and the page narrows beside it.
+  const over = pathname.startsWith("/token/");
   return (
-    <aside aria-label="News" className="fixed inset-0 z-50 flex flex-col bg-surface lg:sticky lg:inset-auto lg:top-0 lg:z-auto lg:h-screen lg:w-95 lg:shrink-0 lg:border-l lg:border-border">
+    <aside
+      aria-label="News"
+      className={`fixed inset-0 z-50 flex flex-col bg-surface lg:inset-auto lg:top-0 lg:h-screen lg:w-95 lg:border-l lg:border-border ${
+        over ? "lg:fixed lg:right-0 lg:shadow-2xl lg:shadow-black/70" : "lg:sticky lg:z-auto lg:shrink-0"
+      }`}
+    >
       <NewsFeed onClose={() => setNewsOpen(false)} />
     </aside>
   );

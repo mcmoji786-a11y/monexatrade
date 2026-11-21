@@ -29,7 +29,10 @@ export function Activity({
   now,
   creator,
   supply,
+  tapeShown = false,
 }: {
+  /** The live trades column is on screen: its trades and whales are not repeated here. */
+  tapeShown?: boolean;
   mint: string;
   book: BookState;
   solUsd: number | null;
@@ -38,7 +41,9 @@ export function Activity({
   /** Token supply, to show market cap for DEX trades. */
   supply: number | null;
 }) {
-  const [tab, setTab] = useState<TabKey>("trades");
+  const [picked, setTab] = useState<TabKey>("trades");
+  const tabs = tapeShown ? TABS.filter((t) => t.key !== "trades" && t.key !== "whales") : TABS;
+  const tab: TabKey = tabs.some((t) => t.key === picked) ? picked : tabs[0].key;
   // Who to show in the trades, holders and top traders lists.
   const [who, setWho] = useState<WalletLabel | "all">("all");
   const labels = useCoinLabels(mint);
@@ -98,15 +103,15 @@ export function Activity({
     {/* On wide screens it fills the column down to the end of the side panel. */}
     <section data-tour="trade-activity" className="flex min-h-[360px] flex-col lg:flex-1">
       <GroupsSummary g={groups} />
-      <div role="tablist" className="no-scrollbar flex h-11 items-center gap-1 overflow-x-auto border-b border-border px-2">
-        {TABS.map((t) => (
+      <div role="tablist" className="no-scrollbar flex h-9 items-center gap-0.5 overflow-x-auto border-b border-border px-1.5">
+        {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+            className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
               tab === t.key ? "bg-surface-3 text-text" : "text-text-2 hover:text-text"
             }`}
           >

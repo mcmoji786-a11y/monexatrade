@@ -3,7 +3,7 @@
 import { LiveTradesColumn } from "./live-trades-column";
 import { WalletLink } from "@/components/tracker/wallet-tracker";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, BadgeCheck, Crosshair, Fish, Gauge, Globe, Send, Share2, UserCog, Users, UsersRound, type LucideIcon } from "lucide-react";
@@ -66,6 +66,8 @@ export function TokenView() {
   }, [baseRow, lastTrade, feed.solUsd]);
   const [chartH, setChartH] = useStoredSize("mx.trade.chartH", 620, 320, 1100);
   const [sideW, setSideW] = useStoredSize("mx.trade.sideW", 340, 300, 600);
+  const [tapeW, setTapeW] = useStoredSize("mx.trade.tapeW", 290, 220, 520);
+  const tapeShown = useWide();
   // The same safety score as the coin's card on Radar and Discover: one number everywhere.
   const safety = useMemo(() => {
     if (!row || !now) return null;
@@ -98,13 +100,19 @@ export function TokenView() {
                 supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null}
               />
             </section>
-            {/* The tape next to the chart on wide screens; the Trades tab has it everywhere. */}
-            <div className="hidden w-72 shrink-0 2xl:block">
-              <LiveTradesColumn book={book} solUsd={feed.solUsd} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} now={now} />
-            </div>
+            {/* The tape next to the chart on wide screens (resizable); smaller screens get
+                the Trades tab below instead. */}
+            {tapeShown && (
+              <>
+                <Splitter axis="col" value={tapeW} onChange={setTapeW} invert label="Resize live trades" />
+                <div className="shrink-0" style={{ width: tapeW }}>
+                  <LiveTradesColumn book={book} solUsd={feed.solUsd} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} now={now} />
+                </div>
+              </>
+            )}
           </div>
           <Splitter axis="row" value={chartH} onChange={setChartH} label="Resize chart height" />
-          <Activity mint={mint} book={book} solUsd={feed.solUsd} now={now} creator={launch?.creator ?? null} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} />
+          <Activity mint={mint} book={book} solUsd={feed.solUsd} now={now} tapeShown={tapeShown} creator={launch?.creator ?? null} supply={row.mcUsd && row.priceUsd ? row.mcUsd / row.priceUsd : null} />
         </div>
 
         <Splitter axis="col" value={sideW} onChange={setSideW} invert label="Resize side panel" />
@@ -131,6 +139,20 @@ export function TokenView() {
       <MobileTradeBar symbol={row.symbol} />
       <TradeTour />
     </div>
+  );
+}
+
+/** Wide screens (the 2xl breakpoint) show the live trades column beside the chart. */
+const WIDE = "(min-width: 1536px)";
+function useWide() {
+  return useSyncExternalStore(
+    (f) => {
+      const m = window.matchMedia(WIDE);
+      m.addEventListener("change", f);
+      return () => m.removeEventListener("change", f);
+    },
+    () => window.matchMedia(WIDE).matches,
+    () => false,
   );
 }
 
@@ -593,6 +615,7 @@ function MyPosition({ mint, livePrice }: { mint: string; livePrice: number | nul
       ),
     ],
   ];
+  if (!mine.length && !pos) return null;
   return (
     <section className="border-b border-border">
       <div className="grid grid-cols-4 text-center">
