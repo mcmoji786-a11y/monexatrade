@@ -1,12 +1,18 @@
-import type { Metadata } from "next";
-import { MonitorBoard } from "@/components/monitor/monitor-board";
+﻿import type { Metadata } from "next";
+import { Suspense } from "react";
+import { MonitorHub } from "@/components/monitor/monitor-hub";
 
 export const metadata: Metadata = {
   title: "Wallet Monitor",
-  description: "Monitor Solana wallets and get an alert the moment they buy or sell",
-  alternates: { canonical: "/wallets" }, openGraph: { title: "Solana wallet monitor · Kixo", description: "Monitor Solana wallets and get an alert the moment they buy or sell", url: "/wallets" },
+  description: "Follow Solana wallets, well-known traders and coin calls on X, with an alert the moment they buy, sell or post",
+  alternates: { canonical: "/wallets" },
+  openGraph: { title: "Solana wallet monitor · Kixo", description: "Follow Solana wallets, well-known traders and coin calls on X, with an alert the moment they buy, sell or post", url: "/wallets" },
 };
 
 export default function WalletsPage() {
-  return <MonitorBoard />;
+  return (
+    <Suspense>
+      <MonitorHub />
+    </Suspense>
+  );
 }

@@ -43,14 +43,11 @@ export function KolBoard() {
   const shown = only ? rows.filter((r) => r.trade.wallet === only) : rows;
 
   return (
-    <section className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-medium text-text">KOL Tracker</h1>
-        <p className="mt-1 max-w-2xl text-sm text-text-2">Well-known traders, named with their X accounts, and every trade they make on new Solana coins, live. Coins they bought show a KOL badge across Kixo</p>
-      </div>
+    <section className="flex flex-col gap-4">
+      <p className="max-w-2xl text-sm text-text-2">Well-known traders, named with their X accounts, and every trade they make on new Solana coins. Coins they bought show a KOL badge across Kixo. The bell sends a KOL&apos;s trades to your alerts</p>
 
-      <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <section className="flex max-h-[720px] flex-col rounded-xl border border-border bg-surface">
+      <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <section className="flex max-h-180 flex-col rounded-xl border border-border bg-surface">
           <label className="flex h-11 items-center gap-2 border-b border-border px-3">
             <Search size={14} strokeWidth={1.5} className="text-muted" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search KOLs" aria-label="Search KOLs" className="min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-muted" />
@@ -109,7 +106,7 @@ export function KolBoard() {
           {shown.length === 0 ? (
             <p className="px-6 py-12 text-center text-sm text-muted">{kols?.length ? "No KOL trades in the last while. New ones appear here the moment they confirm" : "Trades appear here once KOLs are listed"}</p>
           ) : (
-            <ul className="max-h-[680px] divide-y divide-border overflow-y-auto">
+            <ul className="max-h-168 divide-y divide-border overflow-y-auto">
               {shown.map((r) => (
                 <li key={r.key} className="row-in flex min-h-12 items-center gap-3 px-4 py-2 text-sm">
                   <span className="w-28 shrink-0 truncate text-text">{r.kol?.name ?? "KOL"}</span>

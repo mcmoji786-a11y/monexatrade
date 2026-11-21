@@ -1,12 +1,6 @@
-import type { Metadata } from "next";
-import { XTracker } from "@/components/xtrack/x-tracker";
+﻿import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "X Tracker",
-  description: "Choose X accounts and get an alert when one posts a Solana contract address",
-  alternates: { canonical: "/x-tracker" },
-};
-
+/** The X Tracker is the Calls tab of Wallet Monitor now; old links land there. */
 export default function XTrackerPage() {
-  return <XTracker />;
+  redirect("/wallets?tab=calls");
 }

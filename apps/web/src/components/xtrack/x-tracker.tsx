@@ -53,11 +53,8 @@ export function XTracker() {
   };
 
   return (
-    <section className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-medium text-text">X Tracker</h1>
-        <p className="mt-1 max-w-2xl text-sm text-text-2">Choose X accounts. When one posts a Solana contract address, it shows here with the coin one click away, and an alert reaches your Email, Telegram or Discord</p>
-      </div>
+    <section className="flex flex-col gap-4">
+      <p className="max-w-2xl text-sm text-text-2">Choose X accounts. When one posts a Solana contract address, the call shows here with the coin one click away, and an alert reaches your Email, Telegram or Discord</p>
 
       {status && !status.x_api && (
         <p className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-text-2">
@@ -68,12 +65,12 @@ export function XTracker() {
       {auth.status !== "signed-in" ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-4">
           <p className="text-sm text-text-2">Sign in to choose X accounts</p>
-          <button type="button" onClick={() => openLogin("/x-tracker")} className="h-9 rounded-lg bg-text px-4 text-sm font-medium text-bg">
+          <button type="button" onClick={() => openLogin("/wallets?tab=calls")} className="h-9 rounded-lg bg-text px-4 text-sm font-medium text-bg">
             Sign in
           </button>
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
           <section className="rounded-xl border border-border bg-surface p-4">
             <p className="text-sm text-text">Your accounts</p>
             <p className="mt-0.5 text-xs text-muted">Up to {status?.per_user ?? 10}. Alerts use the channels in Settings, Alerts outside Kixo</p>
@@ -112,7 +109,7 @@ export function XTracker() {
           </section>
 
           <section className="rounded-xl border border-border bg-surface">
-            <p className="border-b border-border px-4 py-3 text-sm text-text">Posts with a coin</p>
+            <p className="border-b border-border px-4 py-3 text-sm text-text">Calls</p>
             {feed.length === 0 ? (
               <p className="px-6 py-12 text-center text-sm text-muted">{accounts?.length ? "Nothing yet. A post with a contract address from your accounts shows here" : "Add an account to start"}</p>
             ) : (
@@ -126,7 +123,7 @@ export function XTracker() {
                         On X <ExternalLink size={11} strokeWidth={1.5} />
                       </a>
                     </p>
-                    <p className="mt-1.5 text-sm leading-6 break-words whitespace-pre-line text-text-2">{p.text}</p>
+                    <p className="mt-1.5 text-sm leading-6 wrap-break-word whitespace-pre-line text-text-2">{p.text}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {p.mints.map((m) => (
                         <Link key={m} href={tokenHref(m)} className="rounded-md border border-emerald/30 px-2 py-0.5 font-mono text-xs text-emerald hover:bg-emerald/5">

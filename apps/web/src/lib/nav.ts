@@ -3,8 +3,6 @@
 // `live` marks sections that already work with real data.
 import type { LucideIcon } from "lucide-react";
 import {
-  AtSign,
-  BadgeCheck,
   Brain,
   ChartPie,
   Compass,
@@ -38,8 +36,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { slug: "sniper", label: "Sniper", phase: "Phase 1", icon: Crosshair, live: true },
       { slug: "ai", label: "Kixo AI", phase: "Phase 2", icon: ScanSearch, live: true },
       { slug: "smart-money", label: "Smart Money", phase: "Phase 1", icon: Brain, live: true },
-      { slug: "kols", label: "KOL Tracker", phase: "Phase 2", icon: BadgeCheck, live: true },
-      { slug: "x-tracker", label: "X Tracker", phase: "Phase 2", icon: AtSign, live: true },
       { slug: "tracker", label: "Wallet Tracker", phase: "Phase 1", icon: ScanEye, live: true },
       { slug: "wallets", label: "Wallet Monitor", phase: "Phase 1", icon: Wallet, live: true },
     ],

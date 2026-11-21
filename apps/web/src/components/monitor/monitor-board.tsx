@@ -30,22 +30,18 @@ export function MonitorBoard() {
     .reduce((s, a) => s + a.trade.sol, 0);
 
   return (
-    <section className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-6">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-medium text-text">Wallet Monitor</h1>
-            <span className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-text-2">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${live ? "live-ring bg-emerald" : "bg-muted"}`}
-              />
-              {wallets.length === 0 ? "Idle" : live ? "Live" : "Connecting"}
-            </span>
-          </div>
-          <p className="mt-1 max-w-2xl text-sm text-text-2">
-            Follow any Solana wallet. Its buys and sells on new coins show here
-            the moment they confirm, and big moves alert you
-          </p>
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-10 gap-y-4 rounded-xl border border-border bg-surface px-5 py-4">
+        <div className="flex flex-col gap-1">
+          <span className="flex items-center gap-2 text-sm text-text">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${live ? "live-ring bg-emerald" : "bg-muted"}`}
+            />
+            {wallets.length === 0 ? "Idle" : live ? "Live" : "Connecting"}
+          </span>
+          <span className="text-xs text-muted">
+            Buys and sells on new coins, the moment they confirm
+          </span>
         </div>
         <dl className="flex flex-wrap gap-x-10 gap-y-4">
           <HeadStat
@@ -74,8 +70,8 @@ export function MonitorBoard() {
 
       <AddWallet onAdd={m.add} count={wallets.length} />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="flex flex-col gap-6">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="flex flex-col gap-4">
           <WalletList
             wallets={wallets}
             update={m.update}
@@ -113,7 +109,7 @@ function AddWallet({
   };
   return (
     <form
-      className="flex flex-wrap items-start gap-2 rounded-2xl border border-border bg-surface p-4"
+      className="flex flex-wrap items-start gap-2 rounded-xl border border-border bg-surface p-4"
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -140,7 +136,7 @@ function AddWallet({
       </label>
       <button
         type="submit"
-        className="mt-5 flex h-9 items-center gap-1.5 rounded-lg bg-text px-4 text-sm font-medium text-bg hover:opacity-90"
+        className="mt-5 flex h-9 items-center gap-1.5 rounded-lg bg-text px-4 text-sm font-medium text-bg transition-opacity hover:opacity-90"
       >
         <Plus size={14} strokeWidth={1.5} />
         Monitor
@@ -175,13 +171,13 @@ function WalletList({
   const tradesOf = (w: string) => activity.filter((a) => a.trade.wallet === w);
   if (!wallets.length) {
     return (
-      <div className="rounded-2xl border border-dashed border-border px-8 py-12 text-center text-sm text-muted">
+      <div className="rounded-xl border border-dashed border-border px-8 py-12 text-center text-sm text-muted">
         No wallets yet. Add one above, or pick one from Smart Money
       </div>
     );
   }
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
+    <div className="overflow-x-auto rounded-xl border border-border bg-surface">
       <table className="w-full min-w-160 text-sm whitespace-nowrap">
         <thead>
           <tr className="h-10 border-b border-border text-left text-xs text-muted">
@@ -377,7 +373,7 @@ function Delivery() {
   };
 
   return (
-    <aside className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-4">
+    <aside className="flex flex-col gap-4 self-start rounded-xl border border-border bg-surface p-4">
       <p className="text-sm font-medium text-text">Alert delivery</p>
 
       <Channel
