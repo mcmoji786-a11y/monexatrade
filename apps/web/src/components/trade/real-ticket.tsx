@@ -105,7 +105,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
   if (!cfg.enabled || !cfg.ready)
     return (
       <>
-        <button type="button" disabled className={`mt-4 h-11 w-full cursor-not-allowed rounded-full text-sm font-medium opacity-50 ${side === "buy" ? "bg-[#2ebd85] text-bg" : "bg-[#f6465d] text-text"}`}>
+        <button type="button" disabled className={`mt-4 h-11 w-full cursor-not-allowed rounded-full text-sm font-medium opacity-50 ${side === "buy" ? "bg-[#22ab94] text-bg" : "bg-[#f23645] text-text"}`}>
           {side === "buy" ? "Buy" : "Sell"} {symbol || "token"}
         </button>
         <p className="mt-2 text-center text-xs text-muted">
@@ -225,7 +225,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
           setConfirming(false);
           submit();
         }}
-        className={`mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#2ebd85] text-bg" : "bg-[#f6465d] text-text"}`}
+        className={`mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#22ab94] text-bg" : "bg-[#f23645] text-text"}`}
       >
         {stage && <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />}
         {stage ? STAGE[stage] : confirming ? `Confirm buy of ${value} SOL` : `${side === "buy" ? "Buy" : "Sell"} ${symbol || "token"}`}

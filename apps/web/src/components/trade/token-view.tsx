@@ -144,10 +144,10 @@ function MobileTradeBar({ symbol }: { symbol: string }) {
   };
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-2 gap-2 border-t border-border bg-bg/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
-      <button type="button" onClick={() => go("buy")} className="h-11 rounded-lg bg-[#2ebd85] text-sm font-medium text-bg focus-visible:outline-2 focus-visible:outline-emerald">
+      <button type="button" onClick={() => go("buy")} className="h-11 rounded-lg bg-[#22ab94] text-sm font-medium text-bg focus-visible:outline-2 focus-visible:outline-emerald">
         Buy {symbol}
       </button>
-      <button type="button" onClick={() => go("sell")} className="h-11 rounded-lg bg-[#f6465d] text-sm font-medium text-text focus-visible:outline-2 focus-visible:outline-emerald">
+      <button type="button" onClick={() => go("sell")} className="h-11 rounded-lg bg-[#f23645] text-sm font-medium text-text focus-visible:outline-2 focus-visible:outline-emerald">
         Sell
       </button>
     </div>
@@ -298,10 +298,10 @@ function Header({
           <ArrowLeft size={16} strokeWidth={1.5} />
         </Link>
 
-        <TokenLogo src={r.image} symbol={r.symbol} size={32} />
+        <TokenLogo src={r.image} symbol={r.symbol} size={28} />
         <div className="min-w-0 flex-1 xl:max-w-56 xl:flex-none">
           <div className="flex items-baseline gap-2">
-            <h1 className="truncate text-lg font-medium text-text">{r.symbol || "—"}</h1>
+            <h1 className="truncate text-base font-medium text-text">{r.symbol || "—"}</h1>
             {r.verified && <BadgeCheck size={15} strokeWidth={1.5} className="shrink-0 self-center text-cyan" aria-label="Verified" />}
             <span className="truncate text-sm text-muted">{r.name}</span>
           </div>
@@ -325,7 +325,7 @@ function Header({
           <div className="flex shrink-0 flex-col justify-center px-3 py-1.5">
             <dt className="text-[11px] text-muted">Market cap</dt>
             <dd>
-              <Tick value={r.mcUsd} className="font-mono text-lg leading-6 text-emerald">
+              <Tick value={r.mcUsd} className="font-mono text-base leading-5 text-emerald">
                 {usd(r.mcUsd)}
               </Tick>
             </dd>
@@ -388,7 +388,7 @@ function Header({
             />
           )}
         </dl>
-        <div data-tour="trade-tools" className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+        <div data-tour="trade-tools" className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:shrink-0 [&_a]:h-7 [&_a]:text-xs [&_button]:h-7 [&_button]:text-xs">
           {safety && <SafetyBadge safety={safety} size="md" />}
           <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
           <KolBadge mint={r.mint} size="md" />
@@ -412,7 +412,7 @@ function Cell({ k, v, title }: { k: string; v: React.ReactNode; title?: string }
   return (
     <div title={title} className="flex shrink-0 flex-col justify-center border-l border-border px-3 py-1.5">
       <dt className="text-[11px] text-muted">{k}</dt>
-      <dd className="mt-0.5 font-mono text-sm text-text">{v}</dd>
+      <dd className="mt-0.5 font-mono text-[13px] leading-5 text-text">{v}</dd>
     </div>
   );
 }

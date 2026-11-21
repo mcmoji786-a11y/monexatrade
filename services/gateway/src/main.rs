@@ -1124,7 +1124,8 @@ async fn token_handler(
     if !is_mint(&mint) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    Ok(Json(lookup_token(&state, &mint).await.flatten()))
+    // Provider busy: 503, so the page keeps asking instead of calling the coin untracked.
+    lookup_token(&state, &mint).await.map(Json).ok_or(StatusCode::SERVICE_UNAVAILABLE)
 }
 
 /// A token's market data from the provider, cached. Only Solana memecoins come back:
@@ -1691,8 +1692,8 @@ fn swap_trade(mint: &str, s: txdecode::Swap, factor: f64) -> monexa_ingest::pump
 
 /// Free-plan pacing for transaction fetches: small batches about once a second
 /// (Helius free allows ~10 requests a second, shared with everything else).
-const TX_BATCH: usize = 6;
-const TX_BATCH_GAP: Duration = Duration::from_millis(800);
+const TX_BATCH: usize = 8;
+const TX_BATCH_GAP: Duration = Duration::from_millis(300);
 /// Pending transactions kept per round; beyond this the oldest are dropped (only a
 /// coin trading faster than the free plan can fetch reaches it).
 const TX_BACKLOG: usize = 600;

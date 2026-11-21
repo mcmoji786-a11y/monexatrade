@@ -198,12 +198,22 @@ pub async fn transactions(
         })
         .collect();
     let mut out = vec![None; sigs.len()];
-    if let Some(Value::Array(replies)) = call(http, url, &Value::Array(batch)).await {
+    if let Some(Value::Array(replies)) = call(http, url, &Value::Array(batch.clone())).await {
         for r in replies {
             if let Some(i) = r["id"].as_u64().map(|i| i as usize) {
                 if i < out.len() && r["result"].is_object() {
                     out[i] = Some(r["result"].clone());
                 }
+            }
+        }
+        return out;
+    }
+    // Many public nodes refuse batch requests: ask for each one on its own, side by side.
+    let singles = batch.into_iter().map(|b| async move { call(http, url, &b).await });
+    for (i, r) in futures_util::future::join_all(singles).await.into_iter().enumerate() {
+        if let Some(r) = r {
+            if r["result"].is_object() {
+                out[i] = Some(r["result"].clone());
             }
         }
     }

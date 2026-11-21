@@ -166,7 +166,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
   }
 
   return (
-    <section className="border-b border-border p-4">
+    <section className="border-b border-border p-3">
       <div className="grid grid-cols-2 gap-1 rounded-lg bg-bg p-1">
         {(["buy", "sell"] as const).map((s) => (
           <button
@@ -179,12 +179,12 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
               setPreview(null),
               setPreviewErr(null)
             )}
-            className={`h-9 rounded-md text-sm capitalize transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
+            className={`h-8 rounded-md text-sm capitalize ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-emerald ${
               side === s
                 ? s === "buy"
-                  ? "bg-[#2ebd85] font-medium text-bg"
-                  : "bg-[#f6465d] font-medium text-text"
-                : "text-text-2 hover:text-text"
+                  ? "bg-[#22ab94]/15 font-medium text-[#22ab94] ring-[#22ab94]/40"
+                  : "bg-[#f23645]/15 font-medium text-[#f23645] ring-[#f23645]/40"
+                : "text-text-2 ring-transparent hover:text-text"
             }`}
           >
             {s}
@@ -209,7 +209,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
 
       {demo && (
         <>
-          <label className="mt-3 flex h-11 items-center gap-2 rounded-lg border border-border bg-bg px-3 focus-within:border-emerald/50">
+          <label className="mt-3 flex h-10 items-center gap-2 rounded-lg border border-border bg-bg px-3 focus-within:border-emerald/50">
             <span className="text-xs text-muted">Amount</span>
             <input
               inputMode="decimal"
@@ -297,7 +297,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
                 !valid || busy || (side === "sell" && !held) || !!previewErr
               }
               onClick={submit}
-              className={`mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#2ebd85] text-bg" : "bg-[#f6465d] text-text"}`}
+              className={`mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${side === "buy" ? "bg-[#22ab94] text-bg" : "bg-[#f23645] text-text"}`}
             >
               {busy && (
                 <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />

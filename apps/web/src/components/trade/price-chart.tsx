@@ -148,6 +148,14 @@ export function PriceChart({
   // DEX history comes in 1 minute candles, so shorter intervals are not offered.
   const minSecs = dex ? book.history.candle_secs : 1;
   const tf = Math.max(interval, minSecs);
+  // Pick the starting interval once per coin from how much history it has.
+  const picked = useRef("");
+  useEffect(() => {
+    if (picked.current === mint || !live || book.candles.length < 2) return;
+    picked.current = mint;
+    const span = book.candles[book.candles.length - 1].t - book.candles[0].t;
+    setInterval_(span > 30 * 60 ? 60 : 15);
+  }, [mint, live, book]);
 
   // Fallback sampling when the gateway has no trade book for this token.
   const mcRef = useRef(mcUsd);
@@ -219,8 +227,8 @@ export function PriceChart({
     const v = (n: string) => css.getPropertyValue(n).trim();
     // Candle colors are brighter than the UI's positive/negative tokens so price
     // action reads at a glance, as on an exchange terminal.
-    const up = "#2ebd85";
-    const down = "#f6465d";
+    const up = "#22ab94";
+    const down = "#f23645";
     const muted = v("--mx-muted");
     const hair = "rgba(237,237,237,0.06)";
     const font = "JetBrains Mono, ui-monospace, monospace";
@@ -246,10 +254,10 @@ export function PriceChart({
           tooltip: { text: { family: font, size: 12, color: muted } },
           // Palette colors only (no purple): cyan, warning, text-2, then muted steps.
           lines: [v("--mx-cyan"), v("--mx-warning"), v("--mx-text-2"), "#6b6b70", "#4a4a4f"].map((color) => ({ color, size: 1 })),
-          bars: [{ upColor: "rgba(76,195,138,0.45)", downColor: "rgba(229,72,77,0.45)", noChangeColor: "rgba(133,133,139,0.45)" }],
+          bars: [{ upColor: "rgba(34,171,148,0.4)", downColor: "rgba(242,54,69,0.4)", noChangeColor: "rgba(133,133,139,0.4)" }],
         },
-        xAxis: { axisLine: { color: hair }, tickLine: { color: hair }, tickText: { color: muted, family: font, size: 12 } },
-        yAxis: { axisLine: { color: hair }, tickLine: { color: hair }, tickText: { color: muted, family: font, size: 12 } },
+        xAxis: { axisLine: { color: hair }, tickLine: { color: hair }, tickText: { color: muted, family: font, size: 11 } },
+        yAxis: { axisLine: { color: hair }, tickLine: { color: hair }, tickText: { color: muted, family: font, size: 11 } },
         separator: { color: hair },
         crosshair: {
           horizontal: { line: { color: "rgba(237,237,237,0.25)" }, text: { family: font, backgroundColor: v("--mx-surface-3"), borderColor: v("--mx-surface-3") } },
@@ -264,8 +272,8 @@ export function PriceChart({
       customApi: { formatBigNumber: (x) => usd(Number(x)).replace("$", "") },
     });
     if (!c) return;
-    c.setOffsetRightDistance(64);
-    c.setBarSpace(10);
+    c.setOffsetRightDistance(48);
+    c.setBarSpace(7);
     c.subscribeAction("onCrosshairChange" as never, (d: unknown) => {
       setHover((d as { kLineData?: KLineData } | undefined)?.kLineData ?? null);
     });
@@ -298,7 +306,7 @@ export function PriceChart({
       // Spread a short history across most of the width instead of a thin sliver at
       // the right edge; long histories keep a readable minimum candle width.
       const width = box.current?.clientWidth ?? 800;
-      c.setBarSpace(Math.min(12, Math.max(6, (width * 0.7) / Math.max(1, data.length))));
+      c.setBarSpace(Math.min(9, Math.max(5, (width * 0.6) / Math.max(1, data.length))));
       c.applyNewData(data);
       c.scrollToRealTime();
     } else {
@@ -327,10 +335,20 @@ export function PriceChart({
     c.removeOverlay({ groupId: "marks" });
     if (!live || !showMarks) return;
     const scale = (showUnit === "usd" ? (solUsd ?? 1) : 1) / (mode === "price" && tokenSupply ? tokenSupply : 1);
-    const marks = book.trades.filter((t) => t.dev || smartSet.has(t.wallet) || t.whale || (t.sniper && !t.is_buy)).slice(0, 60);
+    // One mark per candle and kind, the newest 30: a busy coin stays readable.
+    const seen = new Set<string>();
+    const marks = book.trades
+      .filter((t) => t.dev || smartSet.has(t.wallet) || t.whale || (t.sniper && !t.is_buy))
+      .filter((t) => {
+        const k = `${t.ts - (t.ts % interval)}|${t.dev ? "d" : smartSet.has(t.wallet) ? "s" : t.whale ? "w" : "n"}|${t.is_buy}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, 30);
     for (const t of marks) {
       const kind = t.dev ? MARKS.dev : smartSet.has(t.wallet) ? MARKS.smart : t.whale ? MARKS.whale : MARKS.sniper;
-      const color = t.dev || kind === MARKS.smart ? kind.color : t.is_buy ? "#4cc38a" : "#e5484d";
+      const color = t.dev || kind === MARKS.smart ? kind.color : t.is_buy ? "#22ab94" : "#f23645";
       c.createOverlay({
         name: "simpleAnnotation",
         groupId: "marks",
