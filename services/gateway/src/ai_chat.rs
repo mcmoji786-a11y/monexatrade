@@ -61,6 +61,11 @@ fn provider(name: &'static str, url: &'static str, key_var: &str, model_var: &st
 fn providers() -> Vec<Provider> {
     [
         provider("groq", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "GROQ_MODEL", "openai/gpt-oss-120b", Some("low")),
+        // Each Groq model has its own free limit (8,000 tokens a minute, about two answers
+        // with live data), so two more models on the same key triple what Groq takes
+        // before the slower providers are needed (checked 2026-11-21, all under 1 s).
+        provider("groq-20b", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "GROQ_MODEL_2", "openai/gpt-oss-20b", Some("low")),
+        provider("groq-qwen", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "GROQ_MODEL_3", "qwen/qwen3.8-27b", Some("none")),
         provider("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "GEMINI_API_KEY", "GEMINI_MODEL", "gemini-3.5-flash", Some("none")),
         provider("openrouter", "https://openrouter.ai/api/v1/chat/completions", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free", None),
     ]
@@ -443,33 +448,66 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
     }
     messages.push(json!({ "role": "user", "content": msg }));
 
-    for p in list {
-        let resting = limits().lock().expect("chat limits lock").resting.get(p.name).is_some_and(|t| t.elapsed() < REST_AFTER_LIMIT);
-        if resting {
-            continue;
-        }
-        let mut req = json!({ "model": p.model, "messages": messages, "max_tokens": 700, "temperature": 0.4 });
-        if let Some(e) = p.effort {
-            req["reasoning_effort"] = json!(e);
-        }
-        let res = ctx.http.post(p.url).bearer_auth(&p.key).timeout(Duration::from_secs(25)).json(&req).send().await;
-        match res {
-            Ok(r) if r.status().is_success() => {
-                if let Ok(v) = r.json::<Value>().await {
-                    if let Some(text) = v["choices"][0]["message"]["content"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
-                        return Json(json!({ "reply": text, "provider": p.name }));
+    // Hedged: ask the first provider; if it has not answered within HEDGE_AFTER, ask the
+    // next one too, and take the first good answer. A slow or stuck provider no longer
+    // holds the reply for its whole timeout.
+    let usable: Vec<Provider> = list
+        .into_iter()
+        .filter(|p| !limits().lock().expect("chat limits lock").resting.get(p.name).is_some_and(|t| t.elapsed() < REST_AFTER_LIMIT))
+        .collect();
+    let mut queue = usable.into_iter();
+    let mut pending = futures_util::stream::FuturesUnordered::new();
+    if let Some(p) = queue.next() {
+        pending.push(ask(ctx.http.clone(), p, messages.clone()));
+    }
+    while !pending.is_empty() {
+        tokio::select! {
+            done = futures_util::StreamExt::next(&mut pending) => {
+                match done {
+                    Some((name, Some(text))) => return Json(json!({ "reply": text, "provider": name })),
+                    Some((name, None)) => {
+                        // Rate limited, down or empty: rest it a minute, try the next at once.
+                        limits().lock().expect("chat limits lock").resting.insert(name, Instant::now());
+                        if let Some(p) = queue.next() {
+                            pending.push(ask(ctx.http.clone(), p, messages.clone()));
+                        }
                     }
+                    None => break,
                 }
             }
-            Ok(r) => {
-                // Rate limited or down: rest this provider a minute, try the next.
-                tracing::warn!(provider = p.name, status = r.status().as_u16(), "AI chat provider refused");
+            _ = tokio::time::sleep(HEDGE_AFTER) => {
+                if let Some(p) = queue.next() {
+                    pending.push(ask(ctx.http.clone(), p, messages.clone()));
+                }
             }
-            Err(e) => tracing::warn!(provider = p.name, error = %e, "AI chat provider unreachable"),
         }
-        limits().lock().expect("chat limits lock").resting.insert(p.name, Instant::now());
     }
     Json(json!({ "fallback": true, "reason": "providers busy" }))
+}
+
+/// A provider that has not answered within this long gets company: the next one is asked too.
+const HEDGE_AFTER: Duration = Duration::from_secs(4);
+
+/// One provider's answer: its name and the text, or None when it refused or failed.
+async fn ask(http: reqwest::Client, p: Provider, messages: Vec<Value>) -> (&'static str, Option<String>) {
+    let mut req = json!({ "model": p.model, "messages": messages, "max_tokens": 700, "temperature": 0.4 });
+    if let Some(e) = p.effort {
+        req["reasoning_effort"] = json!(e);
+    }
+    match http.post(p.url).bearer_auth(&p.key).timeout(Duration::from_secs(25)).json(&req).send().await {
+        Ok(r) if r.status().is_success() => {
+            let text = r.json::<Value>().await.ok().and_then(|v| v["choices"][0]["message"]["content"].as_str().map(|t| t.trim().to_string())).filter(|t| !t.is_empty());
+            (p.name, text)
+        }
+        Ok(r) => {
+            tracing::warn!(provider = p.name, status = r.status().as_u16(), "AI chat provider refused");
+            (p.name, None)
+        }
+        Err(e) => {
+            tracing::warn!(provider = p.name, error = %e, "AI chat provider unreachable");
+            (p.name, None)
+        }
+    }
 }
 
 #[cfg(test)]

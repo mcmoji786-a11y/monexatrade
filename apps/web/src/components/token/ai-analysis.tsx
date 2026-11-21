@@ -348,7 +348,7 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
               Kixo AI is reading this coin&apos;s live data
             </p>
           ) : read ? (
-            <Read lines={read} />
+            <Read lines={read} holders={input.num?.holders ?? null} />
           ) : rules?.status === "ok" ? (
             <div className="flex flex-col gap-4 text-sm">
               <p className="leading-6 text-text">{rules.summary}</p>
@@ -444,8 +444,10 @@ export function parseRead(lines: string[]) {
 
 /** The model's written read: the quick take, the good and the bad. The outlook and the call
  *  come from Kixo itself (Outlook), so anything the model adds there is left out. */
-function Read({ lines }: { lines: string[] }) {
+function Read({ lines, holders }: { lines: string[]; holders: number | null }) {
   const r = parseRead(lines);
+  // With a handful of holders, holder shares say nothing: never shown as a strength.
+  if (holders != null && holders < 10) r.good = r.good.filter((x) => !/top.?10|dev (holds|wallet)|of (the )?supply|holder/i.test(x));
   return (
     <div className="flex flex-col gap-4 text-sm leading-6">
       {r.take.length > 0 && <p className="text-text">{r.take.join(" ")}</p>}
