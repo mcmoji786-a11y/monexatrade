@@ -14,6 +14,7 @@ import { AI_WINDOW_S, pct, useAiRisk, verdict, type AiRisk } from "@/lib/ai-risk
 import { tokenHref } from "@/lib/open-token";
 import { TokenLogo } from "./token-bits";
 import { useNow } from "@/components/radar/use-radar-feed";
+import { SCAN_STEPS, useLiveScan, type Finding, type Scan } from "./live-scan";
 import type { Safety } from "@/lib/safety";
 
 /** "AI" button on a coin. `compact` is the small table version. */
@@ -236,6 +237,70 @@ function Sources({ ai }: { ai: boolean }) {
   );
 }
 
+/** The first `n` sentences of a text. */
+function firstSentences(t: string, n: number) {
+  const parts = t.match(/[^.!?]+[.!?]+(\s|$)/g);
+  return parts ? parts.slice(0, n).join("").trim() : t;
+}
+
+const SCAN_ICON: Record<Finding["tone"], { Icon: typeof Check; tone: string }> = {
+  bad: { Icon: X, tone: "text-negative" },
+  warn: { Icon: X, tone: "text-warning" },
+  good: { Icon: Check, tone: "text-positive" },
+  info: { Icon: Check, tone: "text-text-2" },
+};
+
+/** Kixo AI's live check of the coin: the checks while they run, then what it found (things
+ *  the coin's page does not show) and the language model's short read built on them. */
+function ScanCard({ scan, take }: { scan: Scan; take: string | null | "loading" }) {
+  return (
+    <section className="mb-4 rounded-xl border border-cyan/30 bg-bg/60 p-4">
+      <p className="flex items-center gap-2 text-xs text-cyan">
+        <Sparkle size={13} strokeWidth={1.5} />
+        {scan.status === "scanning" ? "Kixo AI is checking this coin live" : "Kixo AI checked this coin just now"}
+      </p>
+      {scan.status === "scanning" && (
+        <ul className="mt-2 flex flex-col gap-1.5 text-sm text-text-2">
+          {SCAN_STEPS.map((st) => (
+            <li key={st} className="flex items-center gap-2">
+              <Loader2 size={13} strokeWidth={1.5} className="animate-spin text-cyan" />
+              {st}
+            </li>
+          ))}
+        </ul>
+      )}
+      {scan.status === "done" && scan.findings.length === 0 && <p className="mt-2 text-sm text-text-2">Nothing unusual in its holders and wallets right now.</p>}
+      {scan.status === "done" && (
+        <ul className="mt-2 flex flex-col gap-1.5 text-sm leading-6 text-text">
+          {scan.findings.map((f) => {
+            const { Icon, tone } = SCAN_ICON[f.tone];
+            return (
+              <li key={f.text} className="flex gap-2">
+                <Icon size={14} strokeWidth={2} className={`mt-1 shrink-0 ${tone}`} />
+                {f.text}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {scan.status === "none" && <p className="mt-2 text-sm text-text-2">Kixo does not have this coin&apos;s holder data yet (it reads it for coins it watches from launch and for coins open on a trade page).</p>}
+      {take === "loading" ? (
+        scan.status !== "scanning" && (
+          <p className="mt-3 flex items-center gap-2 text-sm text-text-2">
+            <Loader2 size={13} strokeWidth={1.5} className="animate-spin" />
+            Writing Kixo AI&apos;s read
+          </p>
+        )
+      ) : take ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="text-xs text-muted">Kixo AI&apos;s read</p>
+          <p className="mt-1 text-sm leading-6 text-text">{take}</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 type Similar = {
   similar: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number; high_x_p75: number; low_x_p25: number };
   all: { coins: number; crashed: number; doubled: number; low_x: number; high_x: number };
@@ -417,7 +482,9 @@ function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined
 }
 
 /** The question sent to the model: the coin's live facts only, and the shape of the answer. */
-function prompt(input: AnalysisInput, risk: AiRisk | null) {
+function prompt(input: AnalysisInput, risk: AiRisk | null, scan: Finding[] = []) {
+  const o = outlook(risk, input.safety, input.num?.ageSecs ?? null);
+  const decision = o ? plan(o.tone, risk, input.safety, input.num).title : null;
   const facts = input.facts.map((f) => `${f.label}: ${f.value}`).join("; ");
   const s = input.safety;
   const flags = s ? s.factors.filter((f) => f.points < 0).slice(0, 6).map((f) => (f.detail ? `${f.label} (${f.detail})` : f.label)).join("; ") : "";
@@ -427,9 +494,11 @@ function prompt(input: AnalysisInput, risk: AiRisk | null) {
     `Live facts: ${facts}.`,
     s ? `Kixo safety score ${s.score}/100.${flags ? ` Flags: ${flags}.` : " No red flags."}` : "",
     v && risk ? `Kixo AI word: ${v.label} (crash chance ${pct(risk.dump)}, double chance ${pct(risk.pump)}, from its first 2 minutes).` : "",
+    decision ? `Kixo's decision for this coin is: "${decision}". Your read must agree with it: never suggest buying, aping or a stop loss when it says not to buy or to wait.` : "",
+    scan.length ? `Kixo's live scan of this coin's holders and wallets, just now: ${scan.map((f) => f.text).join("; ")}. This is the newest and most specific information: build the quick take on it.` : "",
     `Use only these facts and the LIVE DATA (holders, dev position, bundlers, snipers, the dev's wallet and history). Do not repeat the address. Talk like a friendly guide to someone buying their first memecoin: simple everyday English, short sentences, no trading jargon (if you must use a word like liquidity or bundle, explain it in a few words). Write chances as whole percentages only (like 17%), never as decimals.`,
     `Answer in plain text, one item per line, every line starting with its label:`,
-    `Quick take: 1 or 2 casual sentences on what is going on with this coin.`,
+    `Quick take: 2 short sentences on what is special about this coin right now and what it means for someone thinking of buying, using the live scan.`,
     `Good: one strength per line, up to 3 lines, each with the real number.`,
     `Bad: one risk per line, up to 3 lines, each with the real number (dev selling, bundlers or snipers holding, top 10 share, dev's past rugs).`,
     `Rules for you, never repeat them: top 10 holders under 20% is healthy (Good), over 30% is a risk (Bad). Liquidity under $10K is thin (Bad), over $50K is decent (Good). Bundles or snipers still holding over 10% is a risk. Kixo's safety score: 75 or more is good, under 50 is a risk (a low score is never a strength). A fact goes in Good or in Bad, never both, and never contradict yourself. The live facts above come first: if LIVE DATA disagrees or is missing, trust the live facts. Never list missing or unknown data as a strength or a risk; just leave it out. With fewer than 10 holders, holder shares (top 10, dev, early buyers) mean nothing yet: never list them as Good.`,
@@ -443,6 +512,7 @@ type Turn = { q: string; a: string[] };
 
 function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => void }) {
   const risk = useAiRisk(input.mint);
+  const scan = useLiveScan(input.mint);
   const [rules, setRules] = useState<AnalysisResult | null>(null);
   const [read, setRead] = useState<string[] | null | "loading">("loading");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -465,12 +535,13 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
     };
   }, [input]);
 
-  // The model's read, once. The AI word is included when it is already known.
+  // The model's read, once, after the live scan so it can build on it. The AI word is
+  // included when it is already known.
   useEffect(() => {
-    if (asked.current) return;
+    if (asked.current || scan.status === "scanning") return;
     asked.current = true;
-    askModel(prompt(input, risk), []).then((r) => setRead(r && "reply" in r ? plain(r.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean) : null));
-  }, [input, risk]);
+    askModel(prompt(input, risk, scan.findings), []).then((r) => setRead(r && "reply" in r ? plain(r.reply).split(/\n+/).map((l) => l.trim()).filter(Boolean) : null));
+  }, [input, risk, scan]);
 
   const follow = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -531,6 +602,9 @@ function AiDialog({ input, onClose }: { input: AnalysisInput; onClose: () => voi
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {/* Kixo's outlook and call, from the AI model or the safety checks */}
           <Outlook risk={risk} safety={input.safety} num={input.num} />
+
+          {/* What Kixo AI found when it checked this coin just now, and its short read */}
+          <ScanCard scan={scan} take={read === "loading" ? "loading" : Array.isArray(read) ? firstSentences(parseRead(read).take.join(" "), 2) : null} />
 
           {/* For traders who want the numbers: the prediction, the written read, the data and where it comes from */}
           <details className="group mt-4 rounded-lg border border-border">
@@ -654,7 +728,7 @@ function Read({ lines, holders }: { lines: string[]; holders: number | null }) {
   if (holders != null && holders < 10) r.good = r.good.filter((x) => !/top.?10|dev (holds|wallet)|of (the )?supply|holder/i.test(x));
   return (
     <div className="flex flex-col gap-4 text-sm leading-6">
-      {r.take.length > 0 && <p className="text-text">{r.take.join(" ")}</p>}
+      {/* The quick take is shown above, in the live scan card. */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Points title="Good" icon={Check} tone="text-positive" items={r.good} />
         <Points title="Bad" icon={X} tone="text-negative" items={r.bad} />
