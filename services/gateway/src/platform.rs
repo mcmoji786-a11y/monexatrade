@@ -31,8 +31,9 @@ const AUDIT_FILE: &str = "data/audit.jsonl";
 const OWNER_SESSION: Duration = Duration::from_secs(15 * 60);
 
 /// API keys the admin may set, with what each one is for.
-pub const SECRET_NAMES: [(&str, &str); 8] = [
+pub const SECRET_NAMES: [(&str, &str); 9] = [
     ("HELIUS_API_KEY", "Helius: main Solana data and the fast Sender path"),
+    ("SHYFT_API_KEY", "Shyft: free unlimited RPC for wallet tracking and background work (Helius stays for trading)"),
     ("JUPITER_API_KEY", "Jupiter: swap routes for coins outside the launchpads"),
     ("X_BEARER_TOKEN", "X (Twitter): posts in the news feed"),
     ("REDDIT_CLIENT_ID", "Reddit: posts in the news feed (with the secret below)"),

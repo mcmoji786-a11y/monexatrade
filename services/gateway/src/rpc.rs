@@ -90,6 +90,15 @@ async fn pace(weight: usize) {
 
 async fn call(http: &reqwest::Client, url: &str, body: &Value) -> Option<Value> {
     pace(body.as_array().map_or(1, Vec::len)).await;
+    // Background work takes the router's background lane: Shyft and the free nodes
+    // before Helius (rpc_router.rs).
+    let bg_url;
+    let url = if BACKGROUND.try_with(|b| *b).unwrap_or(false) && monexa_common::rpc_route().as_deref() == Some(url) {
+        bg_url = format!("{}bg", url);
+        bg_url.as_str()
+    } else {
+        url
+    };
     let res = http
         .post(url)
         .json(body)

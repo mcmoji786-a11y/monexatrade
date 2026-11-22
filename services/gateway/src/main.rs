@@ -2823,8 +2823,13 @@ async fn live_trades_handler(State(state): State<Arc<AppState>>, Path(address): 
     if !account::is_solana_address(&address) {
         return Err(StatusCode::BAD_REQUEST);
     }
+    // The Wallet Tracker polls this while open: follow the wallet on every coin meanwhile.
+    wallet_watch::touch(&address);
     let set: std::collections::HashSet<String> = [address].into_iter().collect();
-    let rows = state.books.lock().expect("books lock").trades_by(&set, 200);
+    let mut rows = state.books.lock().expect("books lock").trades_by(&set, 200);
+    rows.extend(wallet_watch::recent_by(&set, 200));
+    rows.sort_by(|a, b| b.1.ts.cmp(&a.1.ts));
+    rows.truncate(200);
     let b = state.board.lock().expect("board lock");
     let out = rows
         .into_iter()
@@ -2834,6 +2839,7 @@ async fn live_trades_handler(State(state): State<Arc<AppState>>, Path(address): 
                 .get(&mint)
                 .map(|f| (f.token.symbol.clone(), f.meta.as_ref().and_then(|m| m.image.clone())))
                 .or_else(|| b.markets.get(&mint).map(|m| (m.symbol.clone(), m.image.clone())))
+                .or_else(|| wallet_watch::symbol(&mint).map(|s| (s, None)))
                 .unwrap_or_default();
             serde_json::json!({ "mint": mint, "buy": t.is_buy, "sol": t.sol, "tokens": t.tokens, "time": t.ts, "sig": t.signature, "symbol": symbol, "image": image, "price_sol": t.price_sol })
         })

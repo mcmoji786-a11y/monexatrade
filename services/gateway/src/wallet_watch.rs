@@ -47,7 +47,9 @@ const RETRY_REFUSED: Duration = Duration::from_secs(60);
 const SUBSCRIBE_BURST: usize = 25;
 /// Transactions read per wallet per minute. Bots that send hundreds a minute (arbitrage,
 /// market making) would otherwise fill the queue and delay everyone else's alerts.
-const PER_WALLET_PER_MIN: usize = 20;
+const PER_WALLET_PER_MIN: usize = 60;
+/// A wallet opened in the Wallet Tracker stays followed this long after its last look.
+const TOUCH_FOR: Duration = Duration::from_secs(120);
 /// Transactions read at the same time.
 const READ_AT_ONCE: usize = 8;
 
@@ -89,6 +91,8 @@ const QUOTES: [&str; 3] = [
 struct Shared {
     /// Wallets of open Wallet Monitor pages, with how many pages hold each.
     clients: HashMap<String, usize>,
+    /// Wallets open in a Wallet Tracker drawer, with when it last asked.
+    touched: HashMap<String, Instant>,
     recent: VecDeque<(String, TradeRow)>,
     symbols: HashMap<String, String>,
 }
@@ -122,6 +126,15 @@ impl Drop for Hold {
     }
 }
 
+/// Keeps a wallet followed for TOUCH_FOR (the Wallet Tracker asks every few seconds).
+pub fn touch(wallet: &str) {
+    let mut s = shared().lock().expect("wallet watch lock");
+    s.touched.retain(|_, at| at.elapsed() < TOUCH_FOR);
+    if s.touched.len() < MAX_WALLETS {
+        s.touched.insert(wallet.to_string(), Instant::now());
+    }
+}
+
 /// Recent swaps found here by any of `wallets`, newest first.
 pub fn recent_by(wallets: &HashSet<String>, limit: usize) -> Vec<(String, TradeRow)> {
     let s = shared().lock().expect("wallet watch lock");
@@ -136,7 +149,11 @@ pub fn symbol(mint: &str) -> Option<String> {
 fn followed() -> HashSet<String> {
     let mut out: HashSet<String> = crate::alerts::watched_wallets();
     out.extend(crate::kols::addresses());
-    out.extend(shared().lock().expect("wallet watch lock").clients.keys().cloned());
+    {
+        let s = shared().lock().expect("wallet watch lock");
+        out.extend(s.clients.keys().cloned());
+        out.extend(s.touched.iter().filter(|(_, at)| at.elapsed() < TOUCH_FOR).map(|(w, _)| w.clone()));
+    }
     out.retain(|w| crate::account::is_solana_address(w));
     if out.len() > MAX_WALLETS {
         out = out.into_iter().take(MAX_WALLETS).collect();
@@ -147,13 +164,15 @@ fn followed() -> HashSet<String> {
 pub async fn run(state: Arc<AppState>) {
     let (tx, rx) = mpsc::unbounded_channel::<(String, String)>();
     tokio::spawn(read_loop(state.clone(), rx));
-    let urls = state.config.ws_urls();
+    // Shyft first (unlimited on its free plan), then Helius and the free nodes.
+    let base = state.config.ws_urls();
     let mut turn = 0usize;
     loop {
         if followed().is_empty() {
             tokio::time::sleep(SYNC_EVERY).await;
             continue;
         }
+        let urls: Vec<String> = crate::rpc_router::shyft_ws_url().into_iter().chain(base.iter().cloned()).collect();
         let url = &urls[turn % urls.len()];
         if let Err(err) = stream(url, &tx).await {
             tracing::info!(%err, node = %node_name(url), "wallet watch stream ended, trying the next node");
@@ -307,7 +326,8 @@ async fn read_loop(state: Arc<AppState>, mut rx: mpsc::UnboundedReceiver<(String
                 // Only the read itself holds a slot, not the wait before it.
                 let got = {
                     let Ok(_slot) = gate.acquire().await else { return };
-                    crate::rpc::transactions(&state.http, &url, std::slice::from_ref(&sig)).await
+                    // Background lane: Shyft and the free nodes before Helius.
+                    crate::rpc::background(crate::rpc::transactions(&state.http, &url, std::slice::from_ref(&sig))).await
                 };
                 if let Some(Some(tx)) = got.into_iter().next() {
                     bump(&counts().read);
