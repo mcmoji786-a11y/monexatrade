@@ -3,6 +3,7 @@
 import { KixoMark } from "@/components/brand";
 import { useEffect, useState } from "react";
 import { Check, KeyRound, Loader2, LogOut, ShieldCheck } from "lucide-react";
+import { GATEWAY_HTTP } from "@/lib/gateway";
 import { adminFetch, OwnerNeeded, sendOwnerCode, signInAdmin, signOutAdmin, useAdminKey, useOwner, verifyOwnerCode } from "@/lib/admin";
 
 const input = "h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none placeholder:text-muted focus:border-emerald/50";
@@ -336,6 +337,7 @@ export function ApiKeys() {
   return (
     <div className="flex max-w-3xl flex-col gap-4">
       {needOwner && <OwnerUnlock />}
+      <AlertChannels />
       <div className="overflow-hidden rounded-xl border border-border bg-surface">
         {data.keys.map((k, i) => (
           <div key={k.name} className={`flex flex-col gap-2 px-5 py-4 ${i ? "border-t border-border" : ""}`}>
@@ -382,6 +384,69 @@ export function ApiKeys() {
         Keys are stored on the server only and are never shown again, only their last 4 characters. A key set here wins over the .env one; Clear goes back to .env. The Helius live stream picks up a new key on the next restart; everything else uses it at once
       </p>
     </div>
+  );
+}
+
+/* ---------------- Alert channels ---------------- */
+
+type AlertStatus = { telegram: boolean; telegram_bot: string | null; discord: boolean; email: boolean; server_delivery: boolean };
+type WatchStats = { following: number; swaps: number };
+
+/** Whether alerts can reach users right now: Telegram (Kixo's bot, its token below),
+ *  Discord (each user's own webhook, nothing to set here) and Email, plus how many
+ *  wallets the gateway follows on-chain for them. Refreshes every 15 seconds. */
+function AlertChannels() {
+  const [st, setSt] = useState<AlertStatus | null>(null);
+  const [watch, setWatch] = useState<WatchStats | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetch(`${GATEWAY_HTTP}/alerts/status`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((v) => alive && v && setSt(v))
+        .catch(() => {});
+      fetch(`${GATEWAY_HTTP}/metrics/public`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((v) => alive && v?.engine?.wallet_watch && setWatch(v.engine.wallet_watch))
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 15_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  const row = (name: string, ok: boolean, text: string) => (
+    <div key={name} className="flex items-baseline justify-between gap-4 px-5 py-3">
+      <span className="text-sm text-text">{name}</span>
+      <span className={`text-right text-xs ${ok ? "text-positive" : "text-muted"}`}>{text}</span>
+    </div>
+  );
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-3">
+        <span className="text-sm font-medium text-text">Alert channels</span>
+        {watch && <span className="font-mono text-[11px] text-muted">{`${watch.following} wallets followed · ${watch.swaps} swaps found`}</span>}
+      </div>
+      {!st ? (
+        <p className="px-5 py-3 text-xs text-muted">Checking</p>
+      ) : (
+        <div className="divide-y divide-border">
+          {row("Delivery", st.server_delivery, st.server_delivery ? "On" : "Off: turn on Alerts by Email, Telegram, Discord in Features")}
+          {row("Telegram", !!st.telegram_bot, st.telegram_bot ? `Connected as @${st.telegram_bot}` : st.telegram ? "Token set but Telegram did not accept it" : "Not set: add TELEGRAM_BOT_TOKEN below")}
+          {row("Discord", st.discord, "Ready. Each user pastes their own channel webhook in Settings, Alerts")}
+          {row("Email", st.email, st.email ? "Ready" : "Not set: add RESEND_API_KEY below")}
+        </div>
+      )}
+      {st && !st.telegram_bot && (
+        <ol className="flex list-decimal flex-col gap-1 border-t border-border py-3 pr-5 pl-9 text-xs text-text-2">
+          <li>In Telegram open @BotFather and send /newbot</li>
+          <li>Name it Kixo Alerts and pick a username ending in bot, like KixoAlertsBot</li>
+          <li>Copy the token it sends and paste it into TELEGRAM_BOT_TOKEN below. It works at once, no restart</li>
+        </ol>
+      )}
+    </section>
   );
 }
 
