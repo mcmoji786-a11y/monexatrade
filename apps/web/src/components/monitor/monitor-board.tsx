@@ -1,11 +1,10 @@
 "use client";
 
 import { WalletLink } from "@/components/tracker/wallet-tracker";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Bell, Plus, Trash2 } from "lucide-react";
 import { AlertChannels } from "@/components/alerts/alert-channels";
 import { GATEWAY_WS, sol, type TradeRow } from "@/lib/gateway";
-import { tokenHref } from "@/lib/open-token";
 import { MAX_MONITORED, useMonitor, type MonitoredWallet } from "@/lib/prefs";
 import { useNow } from "@/components/radar/use-radar-feed";
 import { Tick } from "@/components/token/tick";
@@ -284,7 +283,7 @@ function WalletList({
   );
 }
 
-/** Live trades of the monitored wallets, plus browser alerts for the ones that match a rule. */
+/** Live trades of the monitored wallets (their alerts come from LiveNotifier). */
 function useWalletActivity(wallets: MonitoredWallet[]) {
   const key = wallets
     .map((w) => w.address)
@@ -294,14 +293,6 @@ function useWalletActivity(wallets: MonitoredWallet[]) {
   const [live, setLive] = useState(false);
   // Signatures that arrived live (not history), so they animate in once.
   const [fresh, setFresh] = useState<Set<string>>(new Set());
-  // The socket handler reads the latest rules without reconnecting on every edit.
-  const rules = useRef(wallets);
-  const browser = useMonitor().prefs.browser;
-  const notify = useRef(browser);
-  useEffect(() => {
-    rules.current = wallets;
-    notify.current = browser;
-  }, [wallets, browser]);
 
   useEffect(() => {
     if (!key) return;
@@ -321,29 +312,7 @@ function useWalletActivity(wallets: MonitoredWallet[]) {
         };
         setActivity((cur) => [a, ...cur].slice(0, MAX_ROWS));
         setFresh((cur) => new Set([...cur, a.trade.signature].slice(-50)));
-        const w = rules.current.find((x) => x.address === a.trade.wallet);
-        const hit =
-          w && (a.trade.is_buy ? a.trade.sol >= w.minBuySol : w.sells);
-        if (
-          hit &&
-          notify.current &&
-          typeof Notification !== "undefined" &&
-          Notification.permission === "granted"
-        ) {
-          const n = new Notification(
-            `${w.label || "Wallet"} ${a.trade.is_buy ? "bought" : "sold"} ${a.symbol ?? "a coin"}`,
-            {
-              body: `${a.trade.sol.toFixed(2)} SOL · click to open the coin`,
-              tag: a.trade.signature,
-            },
-          );
-          // One click from the alert to the coin's trade page.
-          n.onclick = () => {
-            window.focus();
-            window.location.assign(tokenHref(a.mint));
-            n.close();
-          };
-        }
+        // Alerts for these trades come from LiveNotifier, on every page.
       }
     };
     return () => {

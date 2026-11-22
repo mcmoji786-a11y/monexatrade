@@ -22,6 +22,7 @@ import { AnnouncementBar, FeatureGuard } from "@/components/feature-guard";
 import { MarketingBanner, MarketingPopup } from "@/components/marketing/marketing-ui";
 import { LiveChat } from "@/components/support/live-chat";
 import { NewsDock } from "@/components/news/news-panel";
+import { LiveNotifier } from "@/components/monitor/live-notifier";
 
 /** App shell: sidebar navigation, top bar and the page content. */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen">
       <PriceAlertWatcher />
       <AlertSync />
+      <LiveNotifier />
       <ProductTour />
       <SniperEngine />
       <RealOrderEngine />
