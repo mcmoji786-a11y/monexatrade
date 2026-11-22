@@ -37,7 +37,10 @@ $missing = @($out.Keys | Where-Object { -not $out[$_] })
 if ($missing) { throw "Missing on this PC: $($missing -join ', ')" }
 
 $tmp = Join-Path $env:TEMP "kixo-waitlist.env"
-[IO.File]::WriteAllText($tmp, (($out.Keys | ForEach-Object { "$_=$($out[$_])" }) -join "`n") + "`n")
+# Values in double quotes: both systemd and bash (the build sources this file) read them,
+# even with spaces or < > as in "Kixo <hello@kixo.trade>".
+function Format-EnvValue([string]$v) { '"' + ($v -replace '\\', '\\' -replace '"', '\"' -replace '\$', '\$' -replace '`', '\`') + '"' }
+[IO.File]::WriteAllText($tmp, (($out.Keys | ForEach-Object { "$_=$(Format-EnvValue $out[$_])" }) -join "`n") + "`n")
 try {
   scp -o BatchMode=yes -P $Port $tmp "${Server}:/tmp/kixo-waitlist.env"
   ssh -o BatchMode=yes -p $Port $Server "sudo install -o root -g kixo -m 640 /tmp/kixo-waitlist.env /etc/kixo/waitlist.env && rm -f /tmp/kixo-waitlist.env"
