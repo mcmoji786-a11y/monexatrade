@@ -13,6 +13,8 @@ import { closeWalletTracker, openWalletTracker, useAddressKind, useOpenWallet, t
 import { shortAddress } from "@/lib/gateway";
 import { useNow } from "@/components/radar/use-radar-feed";
 import { TokenLogo } from "@/components/token/token-bits";
+import { walletReport } from "@/lib/wallet-report";
+import { Explain, WalletPerformance, WalletSummary } from "./wallet-report-view";
 
 /* ---------------- Formatting ---------------- */
 
@@ -294,6 +296,23 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
   const windowSecs = WINDOWS.find(([k]) => k === win)![1];
   const recent = now ? swaps.filter((t) => Math.floor(now / 1000) - t.time <= windowSecs) : [];
 
+  // The plain-words report: from the 30-day history when it can be read, else from the
+  // swaps Kixo saw live.
+  // Whichever source saw more swaps: the history is often one page when the history
+  // service is limited, while Kixo's live feed keeps every swap since it began following.
+  const reportFromHistory = fromHistory && trades.length >= liveRows.length;
+  const reportDays = reportFromHistory ? 30 : 7;
+  // The day buckets move once a minute, not on every tick of the clock.
+  const nowSecs = Math.floor(now / 60_000) * 60;
+  const labelKey = headerLabels.join(",");
+  const report = useMemo(() => {
+    if (!nowSecs) return null;
+    const rows = reportFromHistory
+      ? trades.map((t) => ({ mint: t.mint, symbol: t.symbol, buy: t.buy, sol: t.sol, amount: Number(t.raw), time: t.time }))
+      : liveRows.map((t) => ({ mint: t.mint, symbol: t.symbol, buy: t.buy, sol: t.sol, amount: t.tokens, time: t.time }));
+    return walletReport(rows, { nowSecs, days: reportDays, holdingsUsd: total, labels: labelKey ? labelKey.split(",") : [] });
+  }, [reportFromHistory, trades, liveRows, nowSecs, total, labelKey, reportDays]);
+
   const loading = port.loading && !p;
   return (
     <div className={`flex flex-col gap-5 ${compact ? "p-4" : ""}`}>
@@ -362,6 +381,8 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
 
       {port.error && !p && <p className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-xs text-warning">{port.error}</p>}
 
+      {report && pnlReady && <WalletSummary r={report} source={reportFromHistory ? "its swaps in the last 30 days" : "the swaps Kixo saw live"} />}
+
       {/* Balance */}
       <section className={`grid gap-3 ${compact ? "grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
         <div className={`rounded-xl border border-border bg-bg/40 p-4 ${compact ? "col-span-2" : ""}`}>
@@ -369,8 +390,8 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
           <p className="mt-1 font-mono text-2xl tabular-nums text-text">{loading ? <Loader2 size={20} strokeWidth={1.5} className="animate-spin text-muted" /> : usd(total)}</p>
           <p className="mt-1 text-xs text-muted">{p ? `${tokens.length} coins · SOL at ${usd(solUsd)}` : "Reading the chain"}</p>
         </div>
-        <Stat label="SOL balance" value={solFmt(p?.sol)} sub={usd(solValue)} />
-        <Stat label="Coins value" value={usd(tokensUsd)} sub={solUsd ? solFmt(tokensUsd / solUsd) : ""} />
+        <Stat label="SOL balance" value={solFmt(p?.sol)} sub={usd(solValue)} why="SOL in this wallet right now, ready to buy with" />
+        <Stat label="Coins value" why="What all its coins are worth at today's prices" value={usd(tokensUsd)} sub={solUsd ? solFmt(tokensUsd / solUsd) : ""} />
         {!compact && <Stat label="Last active" value={lastActive ? ago(lastActive, now) : act.loading ? "…" : "No swaps in 30 days"} sub={trades.length ? `${trades.length} swaps in 30 days` : ""} />}
       </section>
 
@@ -382,13 +403,15 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
           sub={!pnlReady ? "Reading swaps" : pnlSwaps === 0 ? "No swaps found" : `${solUsd ? signedUsd(realizedSol * solUsd) : ""}${hasOpen ? ` · open ${openSol >= 0 ? "+" : "−"}${solFmt(Math.abs(openSol))}` : ""}`}
           tone={pnlSwaps && realizedSol > 0 ? "good" : pnlSwaps && realizedSol < 0 ? "bad" : undefined}
         />
-        <Stat label="Win rate" value={closedN ? `${Math.round((wins / closedN) * 100)}%` : "—"} sub={closedN ? `${wins} of ${closedN} coins sold in profit` : "No sales seen"} />
+        <Stat label="Win rate" why="Of the coins it sold, how many it sold for more than it paid" value={closedN ? `${Math.round((wins / closedN) * 100)}%` : "—"} sub={closedN ? `${wins} of ${closedN} coins sold in profit` : "No sales seen"} />
         <Stat
           label={fromHistory ? "Swaps, 30d" : seen ? "Swaps, 7d" : "Swaps seen"}
           value={pnlReady ? String(pnlSwaps) : "…"}
           sub={!pnlReady ? "" : seen ? `on ${seen.coins} coins Kixo read` : `${(fromHistory ? trades : liveRows).filter((t) => t.buy).length} buys · ${(fromHistory ? trades : liveRows).filter((t) => !t.buy).length} sells`}
         />
       </section>
+
+      {report && pnlReady && <WalletPerformance r={report} solUsd={solUsd} compact={compact} days={reportDays} />}
 
       {/* Holdings */}
       <section className="overflow-hidden rounded-xl border border-border">
@@ -458,10 +481,13 @@ function WalletView({ address, compact }: { address: string; compact: boolean })
   );
 }
 
-function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "bad" }) {
+function Stat({ label, value, sub, tone, why }: { label: string; value: string; sub?: string; tone?: "good" | "bad"; why?: string }) {
   return (
     <div className="rounded-xl border border-border bg-bg/40 p-3">
-      <p className="text-[11px] text-text-2">{label}</p>
+      <p className="flex items-center gap-1 text-[11px] text-text-2">
+        {label}
+        {why && <Explain text={why} />}
+      </p>
       <p className={`mt-1 font-mono text-base tabular-nums ${tone === "good" ? "text-positive" : tone === "bad" ? "text-negative" : "text-text"}`}>{value}</p>
       {sub ? <p className="mt-0.5 truncate text-[11px] text-muted">{sub}</p> : null}
     </div>

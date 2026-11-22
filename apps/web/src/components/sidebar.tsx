@@ -19,7 +19,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
     <nav className="flex flex-col gap-2.5 px-1.5 py-2" aria-label="Main">
       {NAV_GROUPS.map((group, gi) => (
         <div key={group.label}>
-          <div className={`relative h-4 px-2 text-[10.5px] whitespace-nowrap text-muted ${label}`}>{group.label}</div>
+          <div className={`relative h-5 px-2 text-xs whitespace-nowrap text-muted ${label}`}>{group.label}</div>
           {rail && gi > 0 && <div className="-mt-2.5 mb-2.5 ml-3 h-px w-5 bg-border transition-opacity group-hover/side:opacity-0" aria-hidden="true" />}
           <ul className="flex flex-col gap-0.5">
             {group.items.map((item) => {
@@ -43,7 +43,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                     aria-pressed={panel ? news.open : undefined}
 
                     aria-current={active ? "page" : undefined}
-                    className={`relative flex h-8 items-center gap-2.5 rounded-md text-[12.5px] whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "pl-[14px]" : "px-2"} ${
+                    className={`relative flex h-9 items-center gap-3 rounded-md text-sm whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-emerald ${rail ? "pl-[13px]" : "px-2"} ${
                       active
                         ? "bg-surface-3 text-text"
                         : item.live
@@ -55,7 +55,7 @@ export function NavList({ onNavigate, rail = false }: { onNavigate?: () => void;
                     {active && <span className="absolute top-1 bottom-1 left-0 w-0.5 rounded-full bg-emerald" aria-hidden="true" />}
                     {/* New support replies: a count on Support (a dot on the collapsed rail). */}
                     {item.slug === "support" && unread > 0 && rail && <span className="absolute top-1.5 left-7 h-1.5 w-1.5 rounded-full bg-emerald group-hover/side:hidden" aria-label={`${unread} new replies`} />}
-                    <Icon size={16} strokeWidth={1.5} className={`shrink-0 ${active ? "text-emerald" : item.live ? "text-text-2" : "text-muted/70"}`} />
+                    <Icon size={18} strokeWidth={1.5} className={`shrink-0 ${active ? "text-emerald" : item.live ? "text-text-2" : "text-muted/70"}`} />
                     <span className={`flex min-w-0 flex-1 items-center gap-2 ${label}`}>
                       <>
                         <span className="flex-1 truncate">{item.label}</span>
@@ -92,7 +92,7 @@ export function Sidebar() {
   // jump) while the pointer is on it, and closes as it leaves.
   return (
     <div className="sticky top-0 z-50 hidden h-screen w-14 shrink-0 md:block">
-      <aside className="group/side absolute inset-y-0 left-0 z-40 flex w-14 flex-col overflow-hidden border-r border-border bg-surface transition-[width,box-shadow] duration-200 ease-out hover:w-48 hover:shadow-2xl hover:shadow-black/70 has-[:focus-visible]:w-48">
+      <aside className="group/side absolute inset-y-0 left-0 z-40 flex w-14 flex-col overflow-hidden border-r border-border bg-surface transition-[width,box-shadow] duration-200 ease-out hover:w-56 hover:shadow-2xl hover:shadow-black/70 has-[:focus-visible]:w-56">
         <div className="flex h-11 shrink-0 items-center border-b border-border pl-[13px]">
           <Logo fade />
         </div>

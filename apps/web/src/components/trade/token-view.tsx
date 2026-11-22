@@ -299,24 +299,24 @@ function Header({
   return (
     <section className="border-b border-border bg-surface">
       {/* Row 1: identity, the market cap and price, tools */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-1.5">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2">
         <Link
           href="/discover"
           aria-label="Back to Discover"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-3 hover:text-text"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-3 hover:text-text"
         >
-          <ArrowLeft size={15} strokeWidth={1.5} />
+          <ArrowLeft size={16} strokeWidth={1.5} />
         </Link>
 
-        <div className="flex min-w-0 items-center gap-2.5">
-          <TokenLogo src={r.image} symbol={r.symbol} size={26} />
+        <div className="flex min-w-0 items-center gap-3">
+          <TokenLogo src={r.image} symbol={r.symbol} size={32} />
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5">
-              <h1 className="max-w-40 truncate text-sm font-medium text-text">{r.symbol || "—"}</h1>
-              {r.verified && <BadgeCheck size={13} strokeWidth={1.5} className="shrink-0 self-center text-cyan" aria-label="Verified" />}
-              <span className="max-w-32 truncate text-xs text-muted">{r.name}</span>
+              <h1 className="max-w-48 truncate text-base font-medium text-text">{r.symbol || "—"}</h1>
+              {r.verified && <BadgeCheck size={14} strokeWidth={1.5} className="shrink-0 self-center text-cyan" aria-label="Verified" />}
+              <span className="max-w-40 truncate text-sm text-muted">{r.name}</span>
             </div>
-            <div className="flex items-center gap-2 text-[11px] leading-4">
+            <div className="mt-0.5 flex items-center gap-2 text-xs leading-4">
               <CopyMint mint={r.mint} />
               <span className="font-mono text-muted" title="Age">
                 {formatAge(ageSecs)}
@@ -329,21 +329,21 @@ function Header({
         </div>
 
         <div className="flex items-baseline gap-3 font-mono tabular-nums">
-          <Tick value={r.mcUsd} className="text-[15px] leading-5 text-text">
+          <Tick value={r.mcUsd} className="text-lg leading-6 text-text">
             {usd(r.mcUsd)}
           </Tick>
-          <span className="text-xs text-text-2">
+          <span className="text-sm text-text-2">
             <Tick value={r.priceUsd}>{price(r.priceUsd)}</Tick>
           </span>
-          <span className="text-xs">
+          <span className="text-sm">
             <Change v={r.change5m} />
-            <span className="ml-1 font-sans text-[11px] text-muted">5m</span>
+            <span className="ml-1 font-sans text-xs text-muted">5m</span>
           </span>
         </div>
 
         <div
           data-tour="trade-tools"
-          className="ml-auto flex flex-wrap items-center gap-1 [&_a]:h-7 [&_a]:px-2 [&_a]:text-xs [&_button]:h-7 [&_button]:px-2 [&_button]:text-xs [&_.tool-label]:hidden min-[1800px]:[&_.tool-label]:inline"
+          className="ml-auto flex flex-wrap items-center gap-1 [&_a]:h-8 [&_a]:px-2.5 [&_a]:text-[13px] [&_button]:h-8 [&_button]:px-2.5 [&_button]:text-[13px] [&_.tool-label]:hidden min-[1800px]:[&_.tool-label]:inline"
         >
           {safety && <SafetyBadge safety={safety} size="sm" />}
           <AiRiskChip mint={r.mint} ageSecs={ageSecs} size="md" />
@@ -353,16 +353,16 @@ function Header({
           <PriceAlertButton mint={r.mint} symbol={r.symbol} mcUsd={r.mcUsd} />
           <NoteButton kind="coin" target={r.mint} label={r.symbol} />
           <ShareCoinButton row={r} book={book} solUsd={solUsd} safety={safety} ageSecs={ageSecs} />
-          <button type="button" onClick={startTradeTour} title="A walk through this page" aria-label="Page tour" className="flex w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text">
-            <CircleHelp size={14} strokeWidth={1.5} />
+          <button type="button" onClick={startTradeTour} title="A walk through this page" aria-label="Page tour" className="flex w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-text">
+            <CircleHelp size={15} strokeWidth={1.5} />
           </button>
           <AiButton input={() => inputFromRow(r)} safety={safety} />
         </div>
       </div>
 
       {/* Row 2: every figure on one strip, the creator's record at its end */}
-      <div className="flex items-center gap-4 border-t border-border px-3">
-        <dl data-tour="trade-figures" className="no-scrollbar flex min-w-0 flex-1 items-center gap-x-4 overflow-x-auto py-1.5">
+      <div className="flex items-center gap-5 border-t border-border px-4">
+        <dl data-tour="trade-figures" className="no-scrollbar flex min-w-0 flex-1 items-center gap-x-5 overflow-x-auto py-2">
           <Cell k="1h" v={<Change v={r.change1h} />} />
           {market?.change_24h_pct != null && <Cell k="24h" v={<Change v={market.change_24h_pct} />} />}
           <Cell k="Liq" title="Liquidity" v={usd(r.liquidityUsd)} />
@@ -428,8 +428,8 @@ function Header({
 /** One figure in the header strip, separated by a hairline. */
 function Cell({ k, v, title }: { k: string; v: React.ReactNode; title?: string }) {
   return (
-    <div title={title} className="flex shrink-0 items-baseline gap-1.5 text-xs whitespace-nowrap">
-      <dt className="text-[11px] text-muted">{k}</dt>
+    <div title={title} className="flex shrink-0 items-baseline gap-1.5 text-[13px] whitespace-nowrap">
+      <dt className="text-xs text-muted">{k}</dt>
       <dd className="font-mono text-text tabular-nums">{v}</dd>
     </div>
   );
