@@ -1,6 +1,8 @@
 /* Search content for the waitlist: the FAQ (shown on the page and as FAQPage data) and
    the site facts. Answers describe Kixo honestly as it will launch. */
 
+import { SOCIALS } from "./socials";
+
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3100";
 
 export const FAQ: { q: string; a: string }[] = [
@@ -51,15 +53,21 @@ export function jsonLd() {
     {
       "@context": "https://schema.org",
       "@type": "Organization",
+      "@id": `${SITE}/#org`,
       name: "Kixo",
+      alternateName: ["Kixo Trade", "kixo.trade"],
       url: SITE,
-      logo: `${SITE}/kixo-mark.png`,
+      logo: { "@type": "ImageObject", url: `${SITE}/kixo-mark.png`, width: 512, height: 512 },
       description: "AI trading agent and Solana memecoin trading terminal.",
+      // The official profiles: tells Google these accounts and this site are one brand.
+      sameAs: SOCIALS.map((s) => s.href),
     },
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
       name: "Kixo",
+      alternateName: ["Kixo Trade", "kixo.trade"],
+      publisher: { "@id": `${SITE}/#org` },
       url: SITE,
       description: "The AI that trades Solana memecoins for you. Join the waitlist.",
     },
