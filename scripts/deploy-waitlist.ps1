@@ -41,7 +41,7 @@ $key = (Get-ChildItem "$root\apps\waitlist\public" -Filter *.txt | Where-Object 
 if ($key) {
   $body = @{ host = "kixo.trade"; key = $key; keyLocation = "https://kixo.trade/$key.txt"; urlList = @("https://kixo.trade/", "https://kixo.trade/llms.txt") } | ConvertTo-Json
   try {
-    $r = Invoke-WebRequest -UseBasicParsing -Method Post "https://api.indexnow.org/indexnow" -ContentType "application/json; charset=utf-8" -Body $body
+    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Method Post "https://api.indexnow.org/indexnow" -ContentType "application/json; charset=utf-8" -Body $body
     Write-Host "IndexNow: $($r.StatusCode)"
   } catch { Write-Warning "IndexNow ping failed: $($_.Exception.Message)" }
 }
