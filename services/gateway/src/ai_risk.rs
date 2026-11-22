@@ -47,6 +47,9 @@ pub struct Risk {
     lo: f64,
     #[serde(skip)]
     hi: f64,
+    /// The latest price seen, so a pick can be checked against where the coin is now.
+    #[serde(skip)]
+    last: f64,
     #[serde(skip)]
     resolved: bool,
     /// The coin's symbol when scored, for the AI's past calls.
@@ -117,7 +120,7 @@ fn load_scores_from(path: &str) -> usize {
             continue;
         }
         s.order.push_back(x.mint.clone());
-        s.scores.insert(x.mint, Risk { dump: x.dump, pump: x.pump, trades: x.trades, at: x.at, p0: x.p0, lo: x.lo, hi: x.hi, resolved: x.resolved, symbol: x.symbol });
+        s.scores.insert(x.mint, Risk { dump: x.dump, pump: x.pump, trades: x.trades, at: x.at, p0: x.p0, lo: x.lo, hi: x.hi, last: x.p0, resolved: x.resolved, symbol: x.symbol });
         n += 1;
     }
     n
@@ -192,10 +195,13 @@ pub fn trade(t: &Trade, slot: Option<u64>) {
     let mut s = store().lock().expect("ai store lock");
     // A scored coin in its hour: follow its price for the track record.
     if let Some(r) = s.scores.get_mut(&t.mint) {
-        if !r.resolved && t.virtual_token_reserves > 0 && r.p0 > 0.0 {
+        if t.virtual_token_reserves > 0 && r.p0 > 0.0 {
             let price = t.virtual_sol_reserves as f64 / t.virtual_token_reserves as f64;
-            r.lo = r.lo.min(price);
-            r.hi = r.hi.max(price);
+            r.last = price;
+            if !r.resolved {
+                r.lo = r.lo.min(price);
+                r.hi = r.hi.max(price);
+            }
         }
         return;
     }
@@ -317,6 +323,7 @@ pub async fn run(ctx: AiCtx) {
                             p0,
                             lo: p0,
                             hi: p0,
+                            last: p0,
                             resolved: p0 <= 0.0,
                             symbol,
                         };
@@ -351,6 +358,14 @@ pub async fn run(ctx: AiCtx) {
 /// The AI's score for one coin, if it has one (for the chat's live data).
 pub fn score_of(mint: &str) -> Option<Risk> {
     store().lock().expect("ai store lock").scores.get(mint).cloned()
+}
+
+/// Where a scored coin is now against its price when scored: (now, lowest, highest) as
+/// multiples, 1.0 = unchanged. None when the coin was not priced when scored.
+pub fn moves(mint: &str) -> Option<(f64, f64, f64)> {
+    let s = store().lock().expect("ai store lock");
+    let r = s.scores.get(mint)?;
+    (r.p0 > 0.0).then(|| (r.last / r.p0, r.lo / r.p0, r.hi / r.p0))
 }
 
 /// Coins scored in the last `secs` seconds, newest first.
@@ -718,7 +733,7 @@ mod tests {
         {
             let mut s = store().lock().unwrap();
             for (m, at) in [(fresh, t - 60), (old, t - KEEP_SCORES_SECS - 60)] {
-                s.scores.insert(m.into(), Risk { dump: 0.81, pump: 0.06, trades: 40, at, p0: 1e-7, lo: 5e-8, hi: 1.2e-7, resolved: false, symbol: "ZAP".into() });
+                s.scores.insert(m.into(), Risk { dump: 0.81, pump: 0.06, trades: 40, at, p0: 1e-7, lo: 5e-8, hi: 1.2e-7, last: 1e-7, resolved: false, symbol: "ZAP".into() });
             }
         }
         assert!(save_scores_to(&path) >= 1);

@@ -338,8 +338,14 @@ fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
     }
     let recent = crate::ai_risk::recent(1800);
     let name = |m: &str| board.tokens.get(m).map(|t| t.token.symbol.clone()).filter(|s| !s.is_empty()).or_else(|| crate::ai_risk::symbol_of(m)).unwrap_or_else(|| m[..6.min(m.len())].to_string());
-    let mut good: Vec<_> = recent.iter().filter(|(_, r)| verdict(r.dump, r.pump) == "Good odds").collect();
-    good.sort_by(|a, b| b.1.pump.total_cmp(&a.1.pump));
+    // The AI scores a coin once, at 2 minutes. A pick is only offered if the coin still
+    // looks alive now: not crashed since, the dev has not dumped, and it still trades.
+    let mut good: Vec<(&String, &crate::ai_risk::Risk, Value)> = recent
+        .iter()
+        .filter(|(_, r)| verdict(r.dump, r.pump) == "Good odds")
+        .filter_map(|(m, r)| alive_now(board, m, now).map(|st| (m, r, st)))
+        .collect();
+    good.sort_by(|a, b| b.2["now_vs_when_scored"].as_f64().unwrap_or(0.0).total_cmp(&a.2["now_vs_when_scored"].as_f64().unwrap_or(0.0)));
     let mut danger: Vec<_> = recent.iter().filter(|(_, r)| r.dump >= 0.4).collect();
     danger.sort_by(|a, b| b.1.dump.total_cmp(&a.1.dump));
     json!({
@@ -356,10 +362,67 @@ fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
                 })
             })
             .collect::<Vec<_>>(),
-        "good_odds_now": good.iter().take(5).map(|(m, r)| json!({ "symbol": name(m), "mint": m, "double_chance": r.pump, "crash_chance": r.dump })).collect::<Vec<_>>(),
+        "best_new_launches_now": good.iter().take(5).map(|(m, r, st)| json!({ "symbol": name(m), "mint": m, "double_chance_when_scored": r.pump, "crash_chance_when_scored": r.dump, "status_now": st })).collect::<Vec<_>>(),
+        "best_established_now": established(board),
         "ai_record_24h": crate::ai_risk::record_24h(),
         "danger_now": danger.iter().take(5).map(|(m, r)| json!({ "symbol": name(m), "mint": m, "crash_chance": r.dump })).collect::<Vec<_>>(),
     })
+}
+
+/// A recently scored coin's state now, or None when it has crashed, the dev dumped, it
+/// is nearly worthless or nobody trades it: such a coin is never offered as a pick.
+fn alive_now(board: &crate::Board, mint: &str, now: i64) -> Option<Value> {
+    let (now_x, low_x, peak_x) = crate::ai_risk::moves(mint)?;
+    let t = board.tokens.get(mint)?;
+    let mk = t.market.as_ref()?;
+    let mc = mk.mc_usd.unwrap_or(0.0);
+    let quiet = now - mk.last_trade;
+    let crashed = now_x < 0.5 || (peak_x > 0.0 && now_x / peak_x < 0.4) || (low_x <= 0.3 && now_x < 0.6);
+    if crashed || mk.dev_sold_all || mc < 3_000.0 || quiet > 600 {
+        return None;
+    }
+    Some(json!({
+        "now_vs_when_scored": round2(now_x),
+        "peak_vs_when_scored": round2(peak_x),
+        "market_cap_usd": mk.mc_usd.map(|v| v.round()),
+        "holders": mk.holders,
+        "top10_pct": round2(mk.top10_pct),
+        "dev_pct": round2(mk.dev_pct),
+        "bundles_pct": round2(mk.bundle_pct),
+        "seconds_since_last_trade": quiet,
+        "age_minutes": (now - t.token.timestamp).max(0) / 60,
+    }))
+}
+
+/// Established memecoins that look healthy right now (market board, Jupiter data):
+/// real liquidity and volume, organic trading, no mint authority, not held by a few
+/// wallets, and rising over the last hour. Best five by the last hour's volume.
+fn established(board: &crate::Board) -> Vec<Value> {
+    let mut v: Vec<crate::jupiter::MarketToken> = board
+        .markets
+        .all()
+        .into_iter()
+        .filter(|m| {
+            m.liquidity_usd.unwrap_or(0.0) >= 25_000.0
+                && m.mc_usd.unwrap_or(0.0) >= 100_000.0
+                && m.volume_1h_usd.unwrap_or(0.0) >= 20_000.0
+                && m.organic_score.unwrap_or(0.0) >= 50.0
+                && m.mint_authority_disabled
+                && m.freeze_authority_disabled != Some(false)
+                && m.top_holders_pct.unwrap_or(100.0) <= 30.0
+                && m.change_1h_pct.unwrap_or(-1.0) > 0.0
+                && m.change_5m_pct.unwrap_or(0.0) > -15.0
+        })
+        .collect();
+    v.sort_by(|a, b| b.volume_1h_usd.unwrap_or(0.0).total_cmp(&a.volume_1h_usd.unwrap_or(0.0)));
+    v.into_iter()
+        .take(5)
+        .map(|m| json!({
+            "symbol": m.symbol, "mint": m.mint, "market_cap_usd": m.mc_usd.map(|x| x.round()), "liquidity_usd": m.liquidity_usd.map(|x| x.round()),
+            "change_1h_pct": m.change_1h_pct, "change_24h_pct": m.change_24h_pct, "volume_1h_usd": m.volume_1h_usd.map(|x| x.round()),
+            "holders": m.holders, "top10_pct": m.top_holders_pct, "organic_score": m.organic_score, "launchpad": m.launchpad,
+        }))
+        .collect()
 }
 
 const SYSTEM: &str = "You are Kixo AI, the assistant inside Kixo, a Solana memecoin trading terminal.
@@ -392,9 +455,16 @@ Rules:
 - Use the LIVE DATA below for any coin facts. Never invent prices, holders or numbers. If the data does not have it, say so and suggest opening the coin on Kixo.
 - Coin details in LIVE DATA: 'wallets' has holders, the top 10 holders with labels, the dev's position in this coin (how much it holds, bought, sold), and bundlers, snipers and whales (how many wallets, how many still hold, what share of supply they hold). 'dev_wallet_now' is the creator's whole wallet right now: SOL balance, its dollar value, and the other coins it holds. 'dev_history' is the dev's earlier coins. 'groups' has bundles (wallets that bought in the same block) and clusters (wallets funded by the same wallet, likely one person; dev true means the dev is in it), each with its size and the share of supply it still holds. When asked about the dev, bundlers, snipers or holders, answer with these exact numbers.
 - Chances are given as 0 to 1; say them as percentages.
+- When asked for the best coin, a coin to buy, or what looks good today: pick only from best_new_launches_now (new coins Kixo AI scored well that are still alive now: status_now has where the price is against the score, holders and shares) or best_established_now (older memecoins with real liquidity, organic trading and a rising hour). Both lists are already checked: coins that crashed, whose dev sold everything, that are nearly worthless or that stopped trading are left out. Name one or two, say why with their exact numbers, and give the main risk. If both lists are empty, say plainly that nothing looks good right now and suggest waiting or watching Sol Radar. Never pick a coin from danger_now, and never call any coin safe or a sure win.
 - Never promise profit or tell someone to put money in. Explain risk plainly; most new memecoins go to zero. Suggest the demo account, small sizes and a stop loss.
 - Never ask for a seed phrase or private key, and warn that anyone asking for one is a scammer.
 - Reply in casual, friendly English, like a sharp trader friend: short sentences, plain words, a little trader slang is fine (rug, bag, dump, ape), no hype and no emojis. Reply in English even if the user writes Roman Urdu. Keep it short: under 120 words unless asked for more. Plain text only: no markdown, no ** or # signs, no tables.";
+
+/// The chat shows plain text: markdown the model adds anyway (bold, headings) is removed.
+fn plain(text: &str) -> String {
+    text.replace("**", "").replace("__", "").lines().map(|l| l.trim_start_matches(|c| c == '#').trim_start()).collect::<Vec<_>>().join("
+")
+}
 
 #[derive(Deserialize)]
 pub struct Turn {
@@ -464,7 +534,7 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
         tokio::select! {
             done = futures_util::StreamExt::next(&mut pending) => {
                 match done {
-                    Some((name, Some(text))) => return Json(json!({ "reply": text, "provider": name })),
+                    Some((name, Some(text))) => return Json(json!({ "reply": plain(&text), "provider": name })),
                     Some((name, None)) => {
                         // Rate limited, down or empty: rest it a minute, try the next at once.
                         limits().lock().expect("chat limits lock").resting.insert(name, Instant::now());
@@ -513,6 +583,13 @@ async fn ask(http: reqwest::Client, p: Provider, messages: Vec<Value>) -> (&'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn markdown_is_removed() {
+        assert_eq!(plain("## Pick
+Buy **FIONA** now"), "Pick
+Buy FIONA now");
+    }
 
     #[test]
     fn secrets_are_caught_and_questions_are_not() {
