@@ -2,13 +2,20 @@ import { ImageResponse } from "next/og";
 import { byCode } from "@/lib/members";
 import { offerFor } from "@/lib/offers";
 import { interFonts, logo } from "@/lib/og";
+import { allow, cachedImage, tooMany } from "@/lib/guard";
 
 /* `GET /api/card?code=` : a person's share card (1200x630), used as the preview image of
    their invite link on X, Telegram and others, and as a download. */
 
 export const runtime = "nodejs";
 
+/** Rate-limited and cached, like the memes. */
 export async function GET(req: Request) {
+  if (!allow(req, "img", 60)) return tooMany();
+  return cachedImage(`card:${new URL(req.url).searchParams.get("code") ?? ""}`, () => draw(req));
+}
+
+async function draw(req: Request) {
   const code = new URL(req.url).searchParams.get("code")?.trim().toLowerCase() ?? "";
   const s = code ? await byCode(code).catch(() => null) : null;
   const tier = s ? offerFor(s.referrals, s.rank).name : null;

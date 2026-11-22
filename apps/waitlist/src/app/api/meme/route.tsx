@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { byCode } from "@/lib/members";
 import { interFonts, logo } from "@/lib/og";
+import { allow, cachedImage, tooMany } from "@/lib/guard";
 import { readFile } from "fs/promises";
 import path from "path";
 
@@ -65,7 +66,14 @@ function imageSize(b: Buffer): { w: number; h: number } | null {
   return null;
 }
 
+/** Rate-limited and cached: drawing a meme takes the server a few seconds. */
 export async function GET(req: Request) {
+  if (!allow(req, "img", 60)) return tooMany();
+  const q = new URL(req.url).searchParams;
+  return cachedImage(`meme:${q.get("ref") ?? ""}:${q.get("v") ?? "1"}`, () => draw(req));
+}
+
+async function draw(req: Request) {
   const ref = new URL(req.url).searchParams.get("ref")?.trim().toLowerCase() ?? "";
   const s = ref ? await byCode(ref).catch(() => null) : null;
   const name = s?.handle ? `@${s.handle}` : null;

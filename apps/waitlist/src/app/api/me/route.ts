@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { configured, emailOf, join, placeById, userFrom } from "@/lib/members";
 import { sendFriendJoined, sendWelcome } from "@/lib/mail";
+import { allow, tooMany } from "@/lib/guard";
 
 /** `POST /api/me {ref?, source?}` with the signed-in account's access token: puts the
  *  account on the list (once) and returns its place, invite code, friends and invites.
  *  The first time, the welcome email goes out; when this request names who invited the
  *  account, that person gets a "friend joined" email. */
 export async function POST(req: Request) {
+  if (!allow(req, "me", 40)) return tooMany();
   if (!configured()) return NextResponse.json({ error: "The waitlist is not set up yet" }, { status: 503 });
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
   const user = await userFrom(token).catch(() => null);

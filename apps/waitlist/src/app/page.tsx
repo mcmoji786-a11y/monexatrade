@@ -64,7 +64,7 @@ export default function Page() {
             <li className="perk">
               <span className="perk-when">3 friends</span>
               <b>{OFFERS[1].off}% off</b>
-              <span>+ Insider badge</span>
+              <span>+ Founding Member badge</span>
             </li>
             <li className="perk top">
               <span className="perk-when">10 friends</span>

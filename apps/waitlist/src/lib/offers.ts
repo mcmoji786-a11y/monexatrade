@@ -22,7 +22,7 @@ export type Offer = {
    friends, no Kixo fee at all with 10 (plus a badge and unlimited Kixo AI). */
 export const OFFERS: Offer[] = [
   { key: "early", name: "Early Bird", how: "Join the waitlist", off: 50, months: 3 },
-  { key: "insider", name: "Insider", how: "3 friends join with your link", off: 75, months: 6, extra: "Insider badge" },
+  { key: "insider", name: "Insider", how: "3 friends join with your link", off: 75, months: 6, extra: "Founding Member badge" },
   { key: "founding", name: "Founding Trader", how: "10 friends join with your link", off: 100, months: 12, extra: "Founding Trader badge and unlimited Kixo AI" },
 ];
 

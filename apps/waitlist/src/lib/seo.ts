@@ -34,7 +34,7 @@ export const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What do I get for joining the waitlist?",
-    a: "Early access, the Kixo AI agent free for one year, and a discount on Kixo's trading fee: 50% for everyone on the list, 75% and the Insider badge when 3 friends join with your link, and no Kixo fee at all, the Founding Trader badge and unlimited Kixo AI when 10 do.",
+    a: "Early access, the Kixo AI agent free for one year, and a discount on Kixo's trading fee: 50% for everyone on the list, 75% and the Founding Member badge when 3 friends join with your link, and no Kixo fee at all, the Founding Trader badge and unlimited Kixo AI when 10 do.",
   },
   {
     q: "Why do I sign in instead of leaving an email?",

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { configured, setHandle, userFrom } from "@/lib/members";
+import { allow, tooMany } from "@/lib/guard";
 
 /** `POST /api/handle {handle}`: the signed-in account's public Kixo handle, shown on the
  *  leaderboard and in its share video, and kept as its trader name in the app. */
 export async function POST(req: Request) {
+  if (!allow(req, "handle", 10)) return tooMany();
   if (!configured()) return NextResponse.json({ error: "The waitlist is not set up yet" }, { status: 503 });
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
   const user = await userFrom(token).catch(() => null);
