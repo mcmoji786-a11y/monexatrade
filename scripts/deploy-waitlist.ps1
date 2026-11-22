@@ -34,3 +34,14 @@ ssh @ssh "sudo bash /tmp/vps-deploy-waitlist.sh /tmp/kixo-waitlist.tgz"
 $code = $LASTEXITCODE
 Remove-Item $tgz
 if ($code -ne 0) { throw "deploy failed" }
+
+# IndexNow: tell Bing (ChatGPT's search), Yandex and others the pages changed. The key is
+# the 32-hex file in apps/waitlist/public (public by design, checked at /<key>.txt).
+$key = (Get-ChildItem "$root\apps\waitlist\public" -Filter *.txt | Where-Object { $_.BaseName -match '^[0-9a-f]{32}$' } | Select-Object -First 1).BaseName
+if ($key) {
+  $body = @{ host = "kixo.trade"; key = $key; keyLocation = "https://kixo.trade/$key.txt"; urlList = @("https://kixo.trade/", "https://kixo.trade/llms.txt") } | ConvertTo-Json
+  try {
+    $r = Invoke-WebRequest -UseBasicParsing -Method Post "https://api.indexnow.org/indexnow" -ContentType "application/json; charset=utf-8" -Body $body
+    Write-Host "IndexNow: $($r.StatusCode)"
+  } catch { Write-Warning "IndexNow ping failed: $($_.Exception.Message)" }
+}
