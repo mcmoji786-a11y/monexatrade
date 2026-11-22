@@ -5,7 +5,8 @@
 # apps/web/.env.local. SMTP lines are added when apps/waitlist/.env.local has them.
 param(
   [Parameter(Mandatory = $true)][string]$Server,
-  [Parameter(Mandatory = $true)][string]$Domain
+  [Parameter(Mandatory = $true)][string]$Domain,
+  [int]$Port = 22
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -38,8 +39,8 @@ if ($missing) { throw "Missing on this PC: $($missing -join ', ')" }
 $tmp = Join-Path $env:TEMP "kixo-waitlist.env"
 [IO.File]::WriteAllText($tmp, (($out.Keys | ForEach-Object { "$_=$($out[$_])" }) -join "`n") + "`n")
 try {
-  scp $tmp "${Server}:/etc/kixo/waitlist.env"
-  ssh $Server "chown root:kixo /etc/kixo/waitlist.env && chmod 640 /etc/kixo/waitlist.env"
+  scp -o BatchMode=yes -P $Port $tmp "${Server}:/tmp/kixo-waitlist.env"
+  ssh -o BatchMode=yes -p $Port $Server "sudo install -o root -g kixo -m 640 /tmp/kixo-waitlist.env /etc/kixo/waitlist.env && rm -f /tmp/kixo-waitlist.env"
   Write-Host "Settings written on the VPS: $($out.Keys -join ', ')"
 } finally {
   Remove-Item $tmp -ErrorAction SilentlyContinue
