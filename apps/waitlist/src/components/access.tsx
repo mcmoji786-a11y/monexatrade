@@ -316,6 +316,8 @@ function GoogleMark() {
 
 export function Invite({ s, token, onChange }: { s: Status; token?: string; onChange?: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [meme, setMeme] = useState(false);
+  const [tab, setTab] = useState<Tab>("friends");
   const link = `${SITE || window.location.origin}/?ref=${s.handle ?? s.code}`;
   const next = nextStep(s.referrals, s.rank);
   const pitch = `I'm #${s.position.toLocaleString("en-US")} on the Kixo waitlist: the AI that trades Solana memecoins for you. Early list gets the AI agent free for a year`;
@@ -334,12 +336,21 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
   const signOut = async () => {
     await supabase()?.auth.signOut();
   };
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "friends", label: `Friends · ${s.referrals.toLocaleString("en-US")}` },
+    { key: "name", label: "Your name" },
+    ...(s.invitedBy || s.canName ? [{ key: "invited" as Tab, label: "Invited by" }] : []),
+  ];
   return (
-    <div className="panel">
-      <p className="panel-title">You&apos;re in{s.name ? `, ${s.name.split(" ")[0]}` : ""}</p>
-      <p className="panel-sub">Every friend who joins with your link moves you up {3} places and counts toward your next offer</p>
+    <div className="panel compact">
+      <div className="panel-top">
+        <p className="panel-title">You&apos;re in{s.name ? `, ${s.name.split(" ")[0]}` : ""}</p>
+        <button type="button" className="link small" onClick={signOut} title={`Signed in as ${s.email ?? "your account"}`}>
+          Sign out
+        </button>
+      </div>
 
-      <div className="progress">
+      <div className="progress slim">
         <div className="progress-head">
           <span>{next ? `Next: ${next.offer.name}, ${next.offer.off}% off` : "Top offer reached"}</span>
           <span className="muted">{next ? `${next.invites} more friend${next.invites === 1 ? "" : "s"}` : offerFor(s.referrals, s.rank).name}</span>
@@ -349,11 +360,8 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
         </div>
       </div>
 
-      <label className="field-label" htmlFor="invite-link">
-        Your invite link
-      </label>
       <div className="link-row">
-        <input id="invite-link" readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
+        <input id="invite-link" aria-label="Your invite link" readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
         <button type="button" className="btn-primary" onClick={copy}>
           {copied ? "Copied" : "Copy"}
         </button>
@@ -364,30 +372,39 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
             {x.name}
           </a>
         ))}
-        <a href={`/api/card?code=${s.code}`} target="_blank" rel="noopener" className="btn-ghost">
-          Card image
-        </a>
-      </div>
-      <Friends s={s} />
-      {s.invitedBy ? (
-        <p className="note">
-          Invited by <b className="accent">{s.invitedBy}</b>
-        </p>
-      ) : s.canName ? (
-        <NameInviter last={s.claim} onDone={onChange} />
-      ) : null}
-      <MemeShare refName={s.handle ?? s.code} link={link} />
-      <HandleField handle={s.handle} token={token} onSaved={onChange} />
-      <Socials />
-      <p className="note">
-        Signed in as {s.email ?? "your account"} ·{" "}
-        <button type="button" className="link" onClick={signOut}>
-          Sign out
+        <button type="button" className={`btn-ghost ${meme ? "on" : ""}`} aria-pressed={meme} onClick={() => setMeme((m) => !m)}>
+          Meme
         </button>
-      </p>
+      </div>
+      {meme && <MemeShare refName={s.handle ?? s.code} link={link} />}
+
+      <div className="mini-tabs" role="tablist">
+        {tabs.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "friends" && <Friends s={s} />}
+      {tab === "name" && <HandleField handle={s.handle} token={token} onSaved={onChange} />}
+      {tab === "invited" &&
+        (s.invitedBy ? (
+          <p className="note">
+            Invited by <b className="accent">{s.invitedBy}</b>
+          </p>
+        ) : (
+          <NameInviter last={s.claim} onDone={onChange} />
+        ))}
+
+      <div className="follow">
+        <span>Follow Kixo for the launch</span>
+        <Socials icons />
+      </div>
     </div>
   );
 }
+
+type Tab = "friends" | "name" | "invited";
 
 /** The share meme with the person's name and link: preview, share (with the caption,
  *  which is also copied for apps that drop shared text) and download. */
@@ -481,15 +498,11 @@ function Friends({ s }: { s: Status }) {
           <span className="live" aria-hidden="true" /> {fresh}
         </p>
       )}
-      <div className="friends-head">
-        <span>Friends who joined</span>
-        <b>{s.referrals.toLocaleString("en-US")}</b>
-      </div>
       {s.friends.length === 0 ? (
-        <p className="note">Nobody yet. Share your link below; each friend shows here, and you get an email when they join</p>
+        <p className="note">Nobody yet. Each friend who joins with your link shows here, and you get an email</p>
       ) : (
         <ol>
-          {s.friends.slice(0, 6).map((f, i) => (
+          {s.friends.slice(0, 3).map((f, i) => (
             <li key={`${f.name}-${f.at}-${i}`}>
               <span className="friend-dot" aria-hidden="true">
                 {f.name.replace("@", "").slice(0, 1).toUpperCase()}
@@ -498,7 +511,7 @@ function Friends({ s }: { s: Status }) {
               <span className="muted">{ago(f.at)}</span>
             </li>
           ))}
-          {s.friends.length > 6 && <li className="muted">and {s.friends.length - 6} more</li>}
+          {s.friends.length > 3 && <li className="muted">and {s.friends.length - 3} more</li>}
         </ol>
       )}
     </div>

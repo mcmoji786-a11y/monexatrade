@@ -2399,3 +2399,127 @@ html[data-signed-in="1"] .mobile-cta {
   color: var(--emerald);
   background: #0f1a15;
 }
+
+/* ---------- Round 5: the first screen fits without scrolling ---------- */
+
+.hero {
+  padding: 28px 0 36px;
+  row-gap: 18px;
+  column-gap: 48px;
+}
+.hero-head {
+  gap: 12px;
+}
+.hero h1 {
+  font-size: clamp(36px, 4.2vw, 54px);
+}
+.hero .lead {
+  font-size: 16px;
+}
+.hero-stats dd {
+  font-size: 22px;
+}
+.access-pass {
+  padding: 12px 0;
+}
+.pass {
+  max-width: 400px;
+  min-height: 0;
+  padding: 20px;
+  gap: 12px;
+}
+.pass-n {
+  font-size: clamp(44px, 5vw, 58px);
+}
+.panel {
+  padding: 20px;
+  gap: 12px;
+}
+.panel-sub {
+  margin-top: -6px;
+  font-size: 13px;
+}
+.btn-google {
+  height: 44px;
+}
+.email-row input,
+.link-row input,
+.btn-primary,
+.btn-ghost {
+  height: 40px;
+}
+.invited input {
+  height: 36px;
+}
+
+/* The pass panel, compact. */
+.panel-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.link.small {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.progress.slim {
+  padding: 10px 12px;
+  gap: 6px;
+}
+.progress.slim .progress-head {
+  font-size: 13px;
+}
+.share .btn-ghost {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.share .btn-ghost.on {
+  border-color: rgba(47, 211, 138, 0.6);
+  color: var(--emerald);
+}
+.mini-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.mini-tabs button {
+  margin-bottom: -1px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.mini-tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--emerald);
+}
+.panel.compact .friends {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.panel.compact .handle .field-label {
+  display: none;
+}
+.follow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.follow .social-icons a {
+  width: 30px;
+  height: 30px;
+}
+.meme {
+  padding: 10px;
+}

@@ -51,7 +51,7 @@ export default function Page() {
           <h1>
             The AI that trades <span className="accent">memecoins for you</span>
           </h1>
-          <p className="lead">Kixo&apos;s AI agent auto-trades Solana memecoins within your rules, choosing from 100,000+ strategies trained on 3 years of market data. On a fast engine, with every coin&apos;s risk in plain sight.</p>
+          <p className="lead">An AI agent that auto-trades Solana memecoins within your rules, with every coin&apos;s risk in plain sight.</p>
           <dl className="hero-stats">
             <div>
               <dt>AI strategies</dt>
