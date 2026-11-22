@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { GIFTS, offerByInvites } from "@/lib/offers";
+import { PassButton } from "./pass-button";
 
 type Row = { name: string; referrals: number; example?: boolean };
 
@@ -108,9 +109,7 @@ export function Leaderboard() {
             </li>
           ))}
         </ul>
-        <a href="#join" className="btn-primary">
-          Get tickets
-        </a>
+        <PassButton className="btn-primary">Get tickets</PassButton>
       </aside>
     </div>
   );

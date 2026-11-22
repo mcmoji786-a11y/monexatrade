@@ -6,6 +6,7 @@ import { Leaderboard } from "@/components/leaderboard";
 import { LiveBoard, LiveTicker } from "@/components/live";
 import { Count, Reveal } from "@/components/motion";
 import { MobileCta } from "@/components/mobile-cta";
+import { PassButton } from "@/components/pass-button";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 import { FAQ, jsonLd } from "@/lib/seo";
 
@@ -54,9 +55,7 @@ export default function Page() {
           <a href="#leaderboard">Leaderboard</a>
           <a href="#faq">FAQ</a>
         </nav>
-        <a href="#join" className="nav-cta">
-          Get your pass
-        </a>
+        <PassButton className="nav-cta">Get your pass</PassButton>
       </header>
 
       <section className="hero" id="top">
@@ -237,9 +236,7 @@ export default function Page() {
       <section className="final" data-reveal>
         <h2>Be first in</h2>
         <p className="lead">Claim your pass, share your link, move up the list.</p>
-        <a href="#join" className="btn-primary big">
-          Get your pass
-        </a>
+        <PassButton className="btn-primary big">Get your pass</PassButton>
       </section>
 
       {/* Phones: the way in stays one thumb away. */}

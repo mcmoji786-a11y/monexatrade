@@ -1,38 +1,12 @@
 import { ImageResponse } from "next/og";
-import { readFile } from "fs/promises";
-import path from "path";
 import { byCode } from "@/lib/members";
 import { offerFor } from "@/lib/offers";
+import { interFonts, logo } from "@/lib/og";
 
 /* `GET /api/card?code=` : a person's share card (1200x630), used as the preview image of
    their invite link on X, Telegram and others, and as a download. */
 
 export const runtime = "nodejs";
-
-let mark: string | null = null;
-/* Inter bold for the card, fetched once from Google Fonts; the default font if offline. */
-let fonts: { name: string; data: ArrayBuffer; weight: 400 | 700 | 800; style: "normal" }[] | null = null;
-async function interFonts() {
-  if (fonts) return fonts;
-  const get = async (w: 400 | 700 | 800) => {
-    const css = await (await fetch(`https://fonts.googleapis.com/css2?family=Inter:wght@${w}`, { headers: { "user-agent": "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/534.30 (KHTML, like Gecko) Safari/534.30" } })).text();
-    // The latin subset is the last block; ttf, otf or woff (not woff2) work here.
-    const latin = css.slice(Math.max(0, css.lastIndexOf("/* latin */")));
-    const url = latin.match(/src: url\((https:[^)]+)\) format\('(?:truetype|opentype|woff)'\)/)?.[1];
-    if (!url) throw new Error("font");
-    return { name: "Inter", data: await (await fetch(url)).arrayBuffer(), weight: w, style: "normal" as const };
-  };
-  try {
-    fonts = await Promise.all([get(400), get(700), get(800)]);
-  } catch {
-    fonts = [];
-  }
-  return fonts;
-}
-async function logo() {
-  if (!mark) mark = `data:image/png;base64,${(await readFile(path.join(process.cwd(), "public", "kixo-mark.png"))).toString("base64")}`;
-  return mark;
-}
 
 export async function GET(req: Request) {
   const code = new URL(req.url).searchParams.get("code")?.trim().toLowerCase() ?? "";

@@ -9,6 +9,7 @@ import { callbackUrl, rememberRef, savedRef, setRef, supabase } from "@/lib/supa
 import { AI_FREE, BASE_FEE_PCT, feeAfter, nextStep, offerFor, OFFERS } from "@/lib/offers";
 import { VideoMaker } from "./video-maker";
 import { PassCoins } from "./live";
+import { PASS_EVENT } from "./pass-button";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 const TURNSTILE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
@@ -88,9 +89,51 @@ export function Access() {
   const { ready, session } = useSession();
   const { status, error, reload } = useStatus(session);
   const signedIn = !!session;
+  const [popup, setPopup] = useState(false);
+
+  // The page knows whether someone is signed in (the phone pass button hides then).
+  useEffect(() => {
+    if (ready) document.documentElement.dataset.signedIn = signedIn ? "1" : "0";
+  }, [ready, signedIn]);
+
+  // "Get your pass" anywhere: the sign-in popup, or the pass when already signed in.
+  useEffect(() => {
+    const open = () => {
+      if (signedIn) document.getElementById("pass")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      else setPopup(true);
+    };
+    window.addEventListener(PASS_EVENT, open);
+    return () => window.removeEventListener(PASS_EVENT, open);
+  }, [signedIn]);
+
+  // Signed in from the popup (email code): close it and show the pass.
+  useEffect(() => {
+    if (!signedIn || !popup) return;
+    setPopup(false);
+    setTimeout(() => document.querySelector(".access-act")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+  }, [signedIn, popup]);
+
+  // Esc closes the popup.
+  useEffect(() => {
+    if (!popup) return;
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setPopup(false);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [popup]);
+
   return (
-    <div className="access" id="join">
-      <div className="access-act">
+    <div className="access">
+      {popup && !signedIn && (
+        <div className="signin-pop" role="dialog" aria-modal="true" aria-label="Get your early-access pass" onClick={() => setPopup(false)}>
+          <div className="signin-box" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="pop-close" onClick={() => setPopup(false)} aria-label="Close">
+              ×
+            </button>
+            <SignIn />
+          </div>
+        </div>
+      )}
+      <div className="access-act" id="join">
         {!ready ? (
           <div className="panel panel-wait" aria-busy="true" />
         ) : !signedIn ? (
@@ -334,6 +377,7 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
       ) : s.canName ? (
         <NameInviter last={s.claim} onDone={onChange} />
       ) : null}
+      <MemeShare refName={s.handle ?? s.code} link={link} />
       <HandleField handle={s.handle} token={token} onSaved={onChange} />
       <button type="button" className="btn-video" onClick={() => setVideo(true)}>
         <span className="live" aria-hidden="true" />
@@ -349,6 +393,58 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
           Sign out
         </button>
       </p>
+    </div>
+  );
+}
+
+/** The share meme with the person's name and link: preview, share (with the caption,
+ *  which is also copied for apps that drop shared text) and download. */
+function MemeShare({ refName, link }: { refName: string; link: string }) {
+  const src = `/api/meme?ref=${encodeURIComponent(refName)}`;
+  const [note, setNote] = useState<string | null>(null);
+  const caption = `Everyone else: aping in at the top. Me: letting Kixo's AI check it first. Join the Kixo waitlist and get the AI agent free for a year: ${link}`;
+  const file = async () => {
+    const blob = await (await fetch(src)).blob();
+    return new File([blob], `kixo-${refName}.png`, { type: "image/png" });
+  };
+  const share = async () => {
+    try {
+      await navigator.clipboard.writeText(caption);
+    } catch {}
+    try {
+      const f = await file();
+      if (navigator.canShare?.({ files: [f] })) {
+        await navigator.share({ files: [f], text: caption });
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(f);
+      a.download = f.name;
+      a.click();
+      setNote("Meme saved and caption copied: post it with the caption");
+    } catch {
+      setNote("Could not share here. Use Download and post it yourself");
+    }
+  };
+  return (
+    <div className="meme">
+      <a href={src} target="_blank" rel="noopener" className="meme-thumb" aria-label="Open your meme">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="Your Kixo meme with your name and link" loading="lazy" />
+      </a>
+      <div className="meme-side">
+        <p className="panel-title">Your meme</p>
+        <p className="note">Your name and link are on it. Share it anywhere; the caption with your link is copied for you</p>
+        <div className="share">
+          <button type="button" className="btn-primary" onClick={share}>
+            Share meme
+          </button>
+          <a href={src} download={`kixo-${refName}.png`} className="btn-ghost">
+            Download
+          </a>
+        </div>
+        {note && <p className="note">{note}</p>}
+      </div>
     </div>
   );
 }

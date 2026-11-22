@@ -18,21 +18,24 @@ export type Offer = {
   extra?: string;
 };
 
+/* Founder's tiers, 2026-11-22: half off for everyone on the list, three quarters with 3
+   friends, no Kixo fee at all with 10 (plus a badge and unlimited Kixo AI). */
 export const OFFERS: Offer[] = [
-  { key: "early", name: "Early Bird", how: "Join the waitlist", off: 25, months: 3 },
-  { key: "insider", name: "Insider", how: "3 friends join with your link", off: 50, months: 6 },
-  { key: "founding", name: "Founding Trader", how: "10 friends join, or be in the first 500", off: 50, months: 12, extra: "Founding Trader badge" },
+  { key: "early", name: "Early Bird", how: "Join the waitlist", off: 50, months: 3 },
+  { key: "insider", name: "Insider", how: "3 friends join with your link", off: 75, months: 6, extra: "Insider badge" },
+  { key: "founding", name: "Founding Trader", how: "10 friends join with your link", off: 100, months: 12, extra: "Founding Trader badge and unlimited Kixo AI" },
 ];
 
 export const INSIDER_REFS = 3;
 export const FOUNDING_REFS = 10;
-export const FOUNDING_FIRST = 500;
 
 export const feeAfter = (o: Offer) => +(BASE_FEE_PCT * (1 - o.off / 100)).toFixed(3);
 
-/** The best offer a person has: by invites, or by how early they joined. */
+/** The best offer a person has, by the friends who joined with their link. (`signupRank`
+ *  is kept for callers; joining early no longer changes the offer.) */
 export function offerFor(referrals: number, signupRank: number): Offer {
-  if (referrals >= FOUNDING_REFS || signupRank <= FOUNDING_FIRST) return OFFERS[2];
+  void signupRank;
+  if (referrals >= FOUNDING_REFS) return OFFERS[2];
   if (referrals >= INSIDER_REFS) return OFFERS[1];
   return OFFERS[0];
 }

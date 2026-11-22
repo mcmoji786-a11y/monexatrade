@@ -1,13 +1,14 @@
 "use client";
-/* Phones: a pass button at the bottom of the screen, shown only while the sign-in panel is
-   out of view (it would cover it otherwise). */
+/* Phones: a pass button at the bottom of the screen. Shown only to people not signed in
+   (html[data-signed-in] set by Access), and only while the sign-in panel is out of view.
+   It opens the sign-in popup. */
 
 import { useEffect, useState } from "react";
+import { openPass } from "./pass-button";
 
 export function MobileCta() {
   const [hidden, setHidden] = useState(true);
   useEffect(() => {
-    // The panel itself: #join has no box of its own (display: contents).
     const target = document.querySelector(".access-act");
     if (!target || !("IntersectionObserver" in window)) {
       setHidden(false);
@@ -18,8 +19,8 @@ export function MobileCta() {
     return () => io.disconnect();
   }, []);
   return (
-    <a href="#join" className={`mobile-cta ${hidden ? "hide" : ""}`} aria-hidden={hidden} tabIndex={hidden ? -1 : 0}>
+    <button type="button" onClick={openPass} className={`mobile-cta ${hidden ? "hide" : ""}`} aria-hidden={hidden} tabIndex={hidden ? -1 : 0}>
       <span className="live" aria-hidden="true" /> Get your early-access pass
-    </a>
+    </button>
   );
 }
