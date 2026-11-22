@@ -69,9 +69,11 @@ export async function GET(req: Request) {
   const s = ref ? await byCode(ref).catch(() => null) : null;
   const name = s?.handle ? `@${s.handle}` : null;
   const link = `${SITE.replace(/^https?:\/\//, "")}${s ? `/?ref=${s.handle ?? s.code}` : ""}`;
+  // Two memes: v=1 (default) the founder's picture, v=2 Kixo's two-panel one.
+  const v = new URL(req.url).searchParams.get("v") === "2" ? 2 : 1;
   const [icon, inter, own] = await Promise.all([logo(), interFonts(), baseMeme()]);
 
-  if (own) {
+  if (own && v === 1) {
     const W = 1080;
     const picH = Math.round((W * own.h) / own.w);
     const TOP = 130;

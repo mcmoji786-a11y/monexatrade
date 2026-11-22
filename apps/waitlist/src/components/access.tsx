@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { callbackUrl, rememberRef, savedRef, setRef, supabase } from "@/lib/supabase";
 import { AI_FREE, BASE_FEE_PCT, feeAfter, nextStep, offerFor, OFFERS } from "@/lib/offers";
-import { VideoMaker } from "./video-maker";
+import { Socials } from "./socials";
 import { PassCoins } from "./live";
 import { PASS_EVENT } from "./pass-button";
 
@@ -316,7 +316,6 @@ function GoogleMark() {
 
 export function Invite({ s, token, onChange }: { s: Status; token?: string; onChange?: () => void }) {
   const [copied, setCopied] = useState(false);
-  const [video, setVideo] = useState(false);
   const link = `${SITE || window.location.origin}/?ref=${s.handle ?? s.code}`;
   const next = nextStep(s.referrals, s.rank);
   const pitch = `I'm #${s.position.toLocaleString("en-US")} on the Kixo waitlist: the AI that trades Solana memecoins for you. Early list gets the AI agent free for a year`;
@@ -379,14 +378,7 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
       ) : null}
       <MemeShare refName={s.handle ?? s.code} link={link} />
       <HandleField handle={s.handle} token={token} onSaved={onChange} />
-      <button type="button" className="btn-video" onClick={() => setVideo(true)}>
-        <span className="live" aria-hidden="true" />
-        <span>
-          Make my share video
-          <small>A 9 second edit with your name and link</small>
-        </span>
-      </button>
-      {video && <VideoMaker info={{ name: s.handle ? `@${s.handle}` : (s.name?.split(" ")[0] ?? "a new trader"), handle: s.handle ? `@${s.handle}` : null, code: s.code, position: s.position, tier: offerFor(s.referrals, s.rank).name, link }} onClose={() => setVideo(false)} />}
+      <Socials />
       <p className="note">
         Signed in as {s.email ?? "your account"} ·{" "}
         <button type="button" className="link" onClick={signOut}>
@@ -400,7 +392,8 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
 /** The share meme with the person's name and link: preview, share (with the caption,
  *  which is also copied for apps that drop shared text) and download. */
 function MemeShare({ refName, link }: { refName: string; link: string }) {
-  const src = `/api/meme?ref=${encodeURIComponent(refName)}`;
+  const [v, setV] = useState<1 | 2>(1);
+  const src = `/api/meme?ref=${encodeURIComponent(refName)}&v=${v}`;
   const [note, setNote] = useState<string | null>(null);
   const caption = `Everyone else: aping in at the top. Me: letting Kixo's AI check it first. Join the Kixo waitlist and get the AI agent free for a year: ${link}`;
   const file = async () => {
@@ -433,7 +426,16 @@ function MemeShare({ refName, link }: { refName: string; link: string }) {
         <img src={src} alt="Your Kixo meme with your name and link" loading="lazy" />
       </a>
       <div className="meme-side">
-        <p className="panel-title">Your meme</p>
+        <div className="meme-head">
+          <p className="panel-title">Your meme</p>
+          <div className="meme-pick" role="group" aria-label="Choose a meme">
+            {([1, 2] as const).map((n) => (
+              <button key={n} type="button" aria-pressed={v === n} onClick={() => setV(n)}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="note">Your name and link are on it. Share it anywhere; the caption with your link is copied for you</p>
         <div className="share">
           <button type="button" className="btn-primary" onClick={share}>
@@ -532,7 +534,7 @@ function NameInviter({ last, onDone }: { last: Claim; onDone?: () => void }) {
   );
 }
 
-/** The public Kixo name: on the leaderboard, in the video, and the trader name in the app. */
+/** The public Kixo name: on the leaderboard, in the meme, and the trader name in the app. */
 function HandleField({ handle, token, onSaved }: { handle: string | null; token?: string; onSaved?: () => void }) {
   const [v, setV] = useState(handle ?? "");
   const [msg, setMsg] = useState<{ bad: boolean; text: string } | null>(null);

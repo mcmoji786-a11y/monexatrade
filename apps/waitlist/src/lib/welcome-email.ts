@@ -5,6 +5,7 @@
    colours set on every cell so Gmail's dark mode does not invert them. */
 
 import { AI_FREE, BASE_FEE_PCT, feeAfter, nextStep, offerFor, OFFERS } from "./offers";
+import { SOCIALS } from "./socials";
 
 const BG = "#050506";
 const CARD = "#0d0e10";
@@ -20,7 +21,7 @@ const MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-export type WelcomeData = { code: string; handle?: string | null; position: number; total: number; referrals: number; rank: number; name?: string | null };
+export type WelcomeData = { memeVariant?: 1 | 2; code: string; handle?: string | null; position: number; total: number; referrals: number; rank: number; name?: string | null };
 
 export function welcomeEmail(site: string, s: WelcomeData): { subject: string; text: string; html: string } {
   const link = `${site}/?ref=${s.handle ?? s.code}`;
@@ -35,6 +36,8 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
     { name: "WhatsApp", href: `https://wa.me/?text=${encodeURIComponent(`${pitch} ${link}`)}` },
   ];
   const progress = next ? Math.round((s.referrals / (s.referrals + next.invites)) * 100) : 100;
+  // One of the two memes, picked at random for each email.
+  const memeUrl = `${site}/api/meme?ref=${encodeURIComponent(s.handle ?? s.code)}&v=${s.memeVariant ?? (Math.random() < 0.5 ? 1 : 2)}`;
   const tierIndex = OFFERS.findIndex((x) => x.key === o.key);
 
   const subject = `${first ? `${first}, you're` : "You're"} ${place} on the Kixo waitlist`;
@@ -55,6 +58,8 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
     "1. Share your link. Watch your place climb.",
     "2. We open Kixo to the list first, by email.",
     "3. Sign in the same way you did today. Your offer is already on your account.",
+    "",
+    `Follow Kixo: ${SOCIALS.map((x) => `${x.name} ${x.href}`).join(" · ")}`,
     "",
     "Not financial advice: memecoins are very risky and most lose value.",
     "You get this because you joined the Kixo waitlist.",
@@ -143,12 +148,19 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
     </tr></table>
   </td></tr>
 
-  <tr><td style="padding:0 0 28px;background:${BG}"><a href="${link}"><img src="${site}/api/card?code=${s.code}" width="580" alt="Your Kixo card: ${esc(place)} on the waitlist" style="display:block;width:100%;max-width:580px;height:auto;border-radius:14px;border:1px solid ${LINE}"></a></td></tr>
+  <tr><td style="padding:4px 4px 10px;background:${BG};font-family:${FONT};font-size:20px;font-weight:700;color:${TEXT}">Your meme, with your link on it</td></tr>
+  <tr><td style="padding:0 4px 12px;background:${BG};font-family:${FONT};font-size:14px;color:${TEXT_2}">Save it and post it anywhere. Everyone who joins from it counts for you.</td></tr>
+  <tr><td style="padding:0 0 28px;background:${BG}"><a href="${memeUrl}"><img src="${memeUrl}" width="580" alt="Your Kixo meme with your name and link" style="display:block;width:100%;max-width:580px;height:auto;border-radius:14px;border:1px solid ${LINE}"></a></td></tr>
 
   <tr><td style="padding:0 4px 14px;background:${BG};font-family:${FONT};font-size:20px;font-weight:700;color:${TEXT}">What happens next</td></tr>
   <tr><td style="padding:0 4px 8px;background:${BG}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${steps}</table></td></tr>
 
   <tr><td align="center" style="padding:8px 0 30px;background:${BG}"><a href="${site}" style="display:inline-block;padding:14px 28px;border-radius:12px;background:${TEXT};color:${BG};font-family:${FONT};font-size:15px;font-weight:700;text-decoration:none">Open your pass</a></td></tr>
+
+  <tr><td align="center" style="padding:0 0 10px;background:${BG};font-family:${FONT};font-size:14px;color:${TEXT_2}">Follow Kixo for the launch</td></tr>
+  <tr><td align="center" style="padding:0 0 28px;background:${BG}"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
+    ${SOCIALS.map((x) => `<td style="padding:0 4px;background:${BG}"><a href="${x.href}" style="display:inline-block;padding:10px 16px;border-radius:10px;border:1px solid ${LINE};background:${CARD};color:${TEXT};font-family:${FONT};font-size:14px;font-weight:600;text-decoration:none">${x.name}</a></td>`).join("")}
+  </tr></table></td></tr>
 
   <tr><td style="padding:18px 4px 0;border-top:1px solid ${LINE};background:${BG};font-family:${FONT};font-size:12px;line-height:1.7;color:${MUTED}">
     Kixo is in development and opens to the waitlist first. Not financial advice: memecoins are very risky and most lose value.<br>

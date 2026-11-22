@@ -2307,3 +2307,95 @@ html[data-signed-in="1"] .mobile-cta {
     height: 110px;
   }
 }
+
+/* Kixo's X, Instagram and Discord. */
+.social-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.social-icons a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: var(--text-2);
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+.social-icons a:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.nav .social-icons {
+  margin-left: 4px;
+}
+.socials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.socials-title {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.socials-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.socials-row .btn-ghost {
+  height: 38px;
+  padding: 0 14px;
+  font-size: 14px;
+  gap: 8px;
+}
+.final .socials {
+  align-items: center;
+  margin-top: 8px;
+}
+.foot-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .nav .social-icons {
+    margin-left: auto;
+  }
+  .nav .social-icons a {
+    width: 32px;
+  }
+  .nav .nav-cta {
+    margin-left: 4px;
+    padding: 0 12px;
+  }
+}
+
+.meme-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.meme-pick {
+  display: flex;
+  gap: 4px;
+}
+.meme-pick button {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.meme-pick button[aria-pressed="true"] {
+  border-color: rgba(47, 211, 138, 0.6);
+  color: var(--emerald);
+  background: #0f1a15;
+}

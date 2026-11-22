@@ -7,6 +7,7 @@ import { LiveBoard, LiveTicker } from "@/components/live";
 import { Count, Reveal } from "@/components/motion";
 import { MobileCta } from "@/components/mobile-cta";
 import { PassButton } from "@/components/pass-button";
+import { Socials } from "@/components/socials";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 import { FAQ, jsonLd } from "@/lib/seo";
 
@@ -38,6 +39,7 @@ export default function Page() {
           <a href="#leaderboard">Leaderboard</a>
           <a href="#faq">FAQ</a>
         </nav>
+        <Socials icons />
         <PassButton className="nav-cta">Get your pass</PassButton>
       </header>
 
@@ -157,13 +159,17 @@ export default function Page() {
         <h2>Be first in</h2>
         <p className="lead">Claim your pass, share your link, move up the list.</p>
         <PassButton className="btn-primary big">Get your pass</PassButton>
+        <Socials />
       </section>
 
       {/* Phones: the way in stays one thumb away. */}
       <MobileCta />
 
       <footer className="foot">
-        <span>© 2026 Kixo</span>
+        <span className="foot-brand">
+          © 2026 Kixo
+          <Socials icons />
+        </span>
         <span>Kixo is in development and not open yet. Not financial advice. Memecoins are very risky and most lose value.</span>
       </footer>
     </main>
