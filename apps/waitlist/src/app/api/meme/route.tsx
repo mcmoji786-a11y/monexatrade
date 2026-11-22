@@ -29,22 +29,23 @@ function points(up: boolean) {
   return out.join(" ");
 }
 
-/* The founder's own meme, when there is one: public/share/meme.png or .jpg. It is used as
-   it is, uncropped, with a band above (Kixo and the person's name) and a band below (their
-   link), added outside the picture so nothing in it is covered. */
-let base: { src: string; w: number; h: number } | null | undefined;
-async function baseMeme() {
-  if (base !== undefined) return base;
-  base = null;
-  for (const f of ["meme.png", "meme.jpg", "meme.jpeg"]) {
+/* The founder's own memes: public/share/meme.jpg (meme 1) and meme2.jpg (meme 3), or .png.
+   Each is used as it is, uncropped, with a band above (Kixo and the person's name) and a
+   band below (their link), added outside the picture so nothing in it is covered. */
+const pictures = new Map<string, { src: string; w: number; h: number } | null>();
+async function picture(name: "meme" | "meme2") {
+  if (pictures.has(name)) return pictures.get(name)!;
+  let found: { src: string; w: number; h: number } | null = null;
+  for (const ext of ["jpg", "png", "jpeg"]) {
     try {
-      const buf = await readFile(path.join(process.cwd(), "public", "share", f));
+      const buf = await readFile(path.join(process.cwd(), "public", "share", `${name}.${ext}`));
       const size = imageSize(buf);
-      if (size) base = { src: `data:image/${f.endsWith("png") ? "png" : "jpeg"};base64,${buf.toString("base64")}`, ...size };
+      if (size) found = { src: `data:image/${ext === "png" ? "png" : "jpeg"};base64,${buf.toString("base64")}`, ...size };
       break;
     } catch {}
   }
-  return base;
+  pictures.set(name, found);
+  return found;
 }
 
 /** Width and height from a PNG or JPEG header. */
@@ -69,11 +70,12 @@ export async function GET(req: Request) {
   const s = ref ? await byCode(ref).catch(() => null) : null;
   const name = s?.handle ? `@${s.handle}` : null;
   const link = `${SITE.replace(/^https?:\/\//, "")}${s ? `/?ref=${s.handle ?? s.code}` : ""}`;
-  // Two memes: v=1 (default) the founder's picture, v=2 Kixo's two-panel one.
-  const v = new URL(req.url).searchParams.get("v") === "2" ? 2 : 1;
-  const [icon, inter, own] = await Promise.all([logo(), interFonts(), baseMeme()]);
+  // Three memes: v=1 (default) and v=3 the founder's pictures, v=2 Kixo's two-panel one.
+  const asked = new URL(req.url).searchParams.get("v");
+  const v = asked === "2" ? 2 : asked === "3" ? 3 : 1;
+  const [icon, inter, own] = await Promise.all([logo(), interFonts(), v === 2 ? null : picture(v === 3 ? "meme2" : "meme")]);
 
-  if (own && v === 1) {
+  if (own) {
     const W = 1080;
     const picH = Math.round((W * own.h) / own.w);
     const TOP = 130;

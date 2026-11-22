@@ -52,26 +52,26 @@ export default function Page() {
             The AI that trades <span className="accent">memecoins for you</span>
           </h1>
           <p className="lead">An AI agent that auto-trades Solana memecoins within your rules, with every coin&apos;s risk in plain sight.</p>
-          <dl className="hero-stats">
-            <div>
-              <dt>AI strategies</dt>
-              <dd>
-                <Count to={100000} suffix="+" />
-              </dd>
-            </div>
-            <div>
-              <dt>Years of market data</dt>
-              <dd>
-                <Count to={3} ms={900} />
-              </dd>
-            </div>
-            <div>
-              <dt>Launchpads watched</dt>
-              <dd>
-                <Count to={6} ms={900} />
-              </dd>
-            </div>
-          </dl>
+          {/* What joining gets you, before anything else. */}
+          <ol className="perks" aria-label="What you get for joining">
+            <li className="perk now">
+              <span className="perk-when">Join free</span>
+              <b>
+                <Count to={OFFERS[0].off} suffix="%" ms={900} /> off fees
+              </b>
+              <span>+ AI agent free for 1 year</span>
+            </li>
+            <li className="perk">
+              <span className="perk-when">3 friends</span>
+              <b>{OFFERS[1].off}% off</b>
+              <span>+ Insider badge</span>
+            </li>
+            <li className="perk top">
+              <span className="perk-when">10 friends</span>
+              <b>0 fees</b>
+              <span>+ badge + unlimited Kixo AI</span>
+            </li>
+          </ol>
           <ListCount />
         </div>
         <Access />

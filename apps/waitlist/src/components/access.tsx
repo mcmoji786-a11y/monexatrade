@@ -56,31 +56,55 @@ function useSession() {
   return state;
 }
 
+/** The signed-in account's pass. Kept per account, not per token: Supabase renews the
+ *  token every hour, and a failed refresh (network, server busy) keeps the last pass on
+ *  screen instead of blanking the panel. Retries soon after a failure. */
 function useStatus(session: Session | null) {
-  const [s, setS] = useState<{ token: string; status: Status | null; error: string | null }>({ token: "", status: null, error: null });
-  const token = session?.access_token ?? "";
+  const user = session?.user?.id ?? "";
+  const tokenRef = useRef("");
+  tokenRef.current = session?.access_token ?? "";
+  const [s, setS] = useState<{ user: string; status: Status | null; error: string | null }>({ user: "", status: null, error: null });
   const load = useCallback(async () => {
-    if (!token) return;
+    const token = tokenRef.current;
+    if (!token || !user) return;
     const { ref, source } = savedRef();
     try {
       const res = await fetch("/api/me", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ ref, source }) });
       const v = (await res.json()) as Status & { error?: string };
-      // An invite is sent once: whatever came of it, it is not sent again.
-      if (res.ok && v.claim !== "none") setRef("");
-      setS({ token, status: res.ok ? v : null, error: res.ok ? null : (v.error ?? "Could not load your pass") });
+      if (res.ok) {
+        // An invite is sent once: whatever came of it, it is not sent again.
+        if (v.claim !== "none") setRef("");
+        setS({ user, status: v, error: null });
+      } else {
+        setS((p) => ({ user, status: p.user === user ? p.status : null, error: v.error ?? "Could not load your pass" }));
+      }
     } catch {
-      setS({ token, status: null, error: "Could not load your pass, check your connection" });
+      setS((p) => ({ user, status: p.user === user ? p.status : null, error: "Could not load your pass, check your connection" }));
     }
-  }, [token]);
+  }, [user]);
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     void load();
     // Invites land while the page is open: the count follows every minute.
     const id = setInterval(load, 60_000);
-    return () => clearInterval(id);
-  }, [token, load]);
-  const view = s.token === token ? s : { token, status: null, error: null };
-  return { ...view, reload: load };
+    // Back on the tab or back online: refresh at once.
+    const wake = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", wake);
+    };
+  }, [user, load]);
+  // A failure with no pass yet: try again shortly.
+  useEffect(() => {
+    if (!s.error || s.status) return;
+    const id = setTimeout(load, 5_000);
+    return () => clearTimeout(id);
+  }, [s.error, s.status, load]);
+  const view = s.user === user ? s : { user, status: null, error: null };
+  return { status: view.status, error: view.error, reload: load };
 }
 
 /* ---------------- The hero block ---------------- */
@@ -409,10 +433,10 @@ type Tab = "friends" | "name" | "invited";
 /** The share meme with the person's name and link: preview, share (with the caption,
  *  which is also copied for apps that drop shared text) and download. */
 function MemeShare({ refName, link }: { refName: string; link: string }) {
-  const [v, setV] = useState<1 | 2>(1);
+  const [v, setV] = useState<1 | 2 | 3>(1);
   const src = `/api/meme?ref=${encodeURIComponent(refName)}&v=${v}`;
   const [note, setNote] = useState<string | null>(null);
-  const caption = `Everyone else: aping in at the top. Me: letting Kixo's AI check it first. Join the Kixo waitlist and get the AI agent free for a year: ${link}`;
+  const caption = `I just joined the Kixo team: the AI that trades Solana memecoins for you. Join the waitlist with my link and get the AI agent free for a year: ${link}`;
   const file = async () => {
     const blob = await (await fetch(src)).blob();
     return new File([blob], `kixo-${refName}.png`, { type: "image/png" });
@@ -446,7 +470,7 @@ function MemeShare({ refName, link }: { refName: string; link: string }) {
         <div className="meme-head">
           <p className="panel-title">Your meme</p>
           <div className="meme-pick" role="group" aria-label="Choose a meme">
-            {([1, 2] as const).map((n) => (
+            {([1, 2, 3] as const).map((n) => (
               <button key={n} type="button" aria-pressed={v === n} onClick={() => setV(n)}>
                 {n}
               </button>

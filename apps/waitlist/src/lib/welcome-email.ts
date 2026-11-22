@@ -21,7 +21,7 @@ const MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-export type WelcomeData = { memeVariant?: 1 | 2; code: string; handle?: string | null; position: number; total: number; referrals: number; rank: number; name?: string | null };
+export type WelcomeData = { memeVariant?: 1 | 2 | 3; code: string; handle?: string | null; position: number; total: number; referrals: number; rank: number; name?: string | null };
 
 export function welcomeEmail(site: string, s: WelcomeData): { subject: string; text: string; html: string } {
   const link = `${site}/?ref=${s.handle ?? s.code}`;
@@ -36,11 +36,27 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
     { name: "WhatsApp", href: `https://wa.me/?text=${encodeURIComponent(`${pitch} ${link}`)}` },
   ];
   const progress = next ? Math.round((s.referrals / (s.referrals + next.invites)) * 100) : 100;
-  // One of the two memes, picked at random for each email.
-  const memeUrl = `${site}/api/meme?ref=${encodeURIComponent(s.handle ?? s.code)}&v=${s.memeVariant ?? (Math.random() < 0.5 ? 1 : 2)}`;
+  // One of the three memes, picked at random for each email.
+  const memeUrl = `${site}/api/meme?ref=${encodeURIComponent(s.handle ?? s.code)}&v=${s.memeVariant ?? 1 + Math.floor(Math.random() * 3)}`;
   const tierIndex = OFFERS.findIndex((x) => x.key === o.key);
 
-  const subject = `${first ? `${first}, you're` : "You're"} ${place} on the Kixo waitlist`;
+  const subject = `Welcome to Kixo${first ? `, ${first}` : ""}: your early-access pass (${place})`;
+
+  // Every reward level: what it takes, what it gives, and where this person stands.
+  const reward = (t: (typeof OFFERS)[number]) => `${t.off === 100 ? "No Kixo fee" : `${t.off}% off fees`} for ${t.months} months${t.extra ? ` + ${t.extra}` : ""}`;
+  const rewardRows = OFFERS.map((t, i) => {
+    const on = i <= tierIndex;
+    const need = t.key === "insider" ? 3 : t.key === "founding" ? 10 : 0;
+    const status = on ? `<span style="color:${EMERALD}">&#10003; Unlocked</span>` : `${Math.max(0, need - s.referrals)} more friend${need - s.referrals === 1 ? "" : "s"}`;
+    const last = i === OFFERS.length - 1;
+    return `<tr>
+      <td style="padding:14px 16px;background:${CARD};${last ? "" : `border-bottom:1px solid ${LINE};`}${i === 0 ? "border-radius:14px 0 0 0;" : ""}${last ? "border-radius:0 0 0 14px;" : ""}font-family:${FONT}">
+        <div style="font-size:15px;font-weight:600;color:${on ? TEXT : TEXT_2}">${esc(t.name)} <span style="font-family:${MONO};font-size:12px;font-weight:400;color:${MUTED}">&middot; ${esc(t.how)}</span></div>
+        <div style="font-size:14px;color:${on ? EMERALD : TEXT_2};margin-top:3px">${esc(reward(t))}</div>
+      </td>
+      <td align="right" valign="middle" style="padding:14px 16px;background:${CARD};${last ? "" : `border-bottom:1px solid ${LINE};`}${i === 0 ? "border-radius:0 14px 0 0;" : ""}${last ? "border-radius:0 0 14px 0;" : ""}font-family:${FONT};font-size:13px;color:${TEXT_2};white-space:nowrap">${status}</td>
+    </tr>`;
+  }).join("");
 
   const text = [
     `${first ? `${first}, welcome` : "Welcome"} to Kixo. You're ${place} on the waitlist.`,
@@ -49,6 +65,9 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
     `- ${AI_FREE.title}`,
     `- ${o.off}% off Kixo's trading fee for ${o.months} months (${feeAfter(o)}% instead of ${BASE_FEE_PCT}%)${o.extra ? `, plus the ${o.extra}` : ""}`,
     next ? `\n${next.invites} more friend${next.invites === 1 ? "" : "s"} to unlock ${next.offer.name} (${next.offer.off}% off for ${next.offer.months} months).` : "\nYou have the top offer.",
+    "",
+    "Your rewards:",
+    ...OFFERS.map((t) => `- ${t.name} (${t.how}): ${t.off === 100 ? "no Kixo fee" : `${t.off}% off fees`} for ${t.months} months${t.extra ? ` + ${t.extra}` : ""}`),
     "",
     `Your invite link: ${link}`,
     `Your Kixo name: ${s.handle ? `@${s.handle}` : s.code.toUpperCase()}`,
@@ -127,6 +146,13 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
         <div style="font-family:${FONT};font-size:14px;color:${TEXT_2};margin-bottom:8px">${next ? `<b style="color:${TEXT}">${next.invites} more friend${next.invites === 1 ? "" : "s"}</b> to unlock <b style="color:${TEXT}">${esc(next.offer.name)}</b>: ${next.offer.off}% off for ${next.offer.months} months` : `<b style="color:${TEXT}">You have the top offer.</b>`}</div>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#1a1c20;border-radius:4px"><tr><td style="height:6px;line-height:6px;font-size:0;background:#1a1c20;border-radius:4px"><div style="width:${progress}%;height:6px;background:${EMERALD};border-radius:4px"></div></td></tr></table>
       </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:6px 4px 10px;background:${BG};font-family:${FONT};font-size:20px;font-weight:700;color:${TEXT}">Your rewards</td></tr>
+  <tr><td style="padding:0 0 22px;background:${BG}">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-radius:14px;background:${CARD}">
+      ${rewardRows}
     </table>
   </td></tr>
 

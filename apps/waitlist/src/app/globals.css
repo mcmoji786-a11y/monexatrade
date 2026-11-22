@@ -2523,3 +2523,59 @@ html[data-signed-in="1"] .mobile-cta {
 .meme {
   padding: 10px;
 }
+
+/* What joining gets you: right under the headline. */
+.perks {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 620px;
+}
+.perk {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 0;
+}
+.perk b {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+.perk-when {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.perk.now {
+  border-color: rgba(47, 211, 138, 0.55);
+  background: #0f1513;
+}
+.perk.now b {
+  color: var(--emerald);
+}
+.perk.top b {
+  color: var(--text);
+}
+@media (max-width: 640px) {
+  .perks {
+    gap: 6px;
+  }
+  .perk {
+    padding: 8px;
+    font-size: 11px;
+  }
+  .perk b {
+    font-size: 16px;
+  }
+}
