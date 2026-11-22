@@ -78,7 +78,10 @@ function TokenCardView({
   const curve = token.launchpad === "pump.fun" || token.launchpad === "letsbonk.fun" || token.launchpad === "raydium-launchlab";
   const ownWallets = !!m && token.launchpad !== "letsbonk.fun" && token.launchpad !== "raydium-launchlab";
   const own = m?.sol_quoted && !(m.complete && alt) ? m : null;
-  const graduating = !!m && !m.complete && m.curve_progress >= 85;
+  // A coin known from market data only (Almost graduating) brings its curve from the
+  // provider's "about to graduate" list.
+  const curvePct = curve && m ? m.curve_progress : m ? null : (alt?.curve_pct ?? null);
+  const graduating = curvePct != null && !m?.complete && curvePct >= 85;
 
   const mc = own?.mc_usd ?? alt?.mc_usd ?? null;
   const vol1h = own?.volume_1h_usd ?? alt?.volume_1h_usd ?? null;
@@ -236,11 +239,11 @@ function TokenCardView({
 
       {/* Footer: curve, trades, checks, safety and actions */}
       <div className="mt-auto flex items-center gap-2.5 border-t border-border px-2.5 py-1.5 font-mono text-[11px]">
-        <span className="flex items-center gap-1.5" title={m && curve ? `${m.complete ? "Graduated" : "Bonding curve"} ${m.curve_progress.toFixed(1)}%` : "No bonding curve data"}>
+        <span className="flex items-center gap-1.5" title={curvePct != null ? `${m?.complete ? "Graduated" : "Bonding curve"} ${curvePct.toFixed(1)}%` : "No bonding curve data"}>
           <span className="h-1 w-10 overflow-hidden rounded-full bg-surface-3">
-            {curve && m && <span className={`block h-full ${graduating || m.complete ? "bg-emerald" : "bg-cyan"}`} style={{ width: `${Math.max(2, Math.min(100, m.curve_progress))}%` }} />}
+            {curvePct != null && <span className={`block h-full ${graduating || m?.complete ? "bg-emerald" : "bg-cyan"}`} style={{ width: `${Math.max(2, Math.min(100, curvePct))}%` }} />}
           </span>
-          <span className={graduating || m?.complete ? "text-emerald" : "text-text-2"}>{curve && m ? `${m.curve_progress.toFixed(0)}%` : "—"}</span>
+          <span className={graduating || m?.complete ? "text-emerald" : "text-text-2"}>{curvePct != null ? `${curvePct.toFixed(0)}%` : "—"}</span>
         </span>
         <span className="flex items-center gap-1" title={buys != null ? `Last hour: ${buys} buys, ${sells ?? 0} sells` : "Trades"}>
           <span className="font-sans text-[10px] text-muted">TX</span>

@@ -782,7 +782,7 @@ async fn poll_markets(state: Arc<AppState>) {
                             board.sample(&t.mint, t.price_usd, now);
                         }
                     }
-                    let changed = board.markets.merge(items);
+                    let changed = board.markets.merge(items, category == jupiter::ABOUT_TO_GRADUATE);
                     let removed = board.markets.prune();
                     for m in &removed {
                         if !board.tokens.contains_key(m) {

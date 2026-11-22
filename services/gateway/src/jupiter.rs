@@ -24,14 +24,20 @@ const STALE_AFTER: Duration = Duration::from_secs(300);
 /// Category endpoints polled in rotation. The 6h lists and organic score widen the pool
 /// Top gainers ranks from, so it covers established memecoins and not only this hour's
 /// trending ones. A full rotation takes about 25 s, well inside STALE_AFTER.
-const CATEGORIES: [&str; 6] = [
+const CATEGORIES: [&str; 7] = [
     "toptrending/5m",
     "toptraded/1h",
     "toptrending/1h",
+    ABOUT_TO_GRADUATE,
     "toporganicscore/1h",
     "toptraded/6h",
     "toptrending/6h",
 ];
+/// Coins across the market close to the end of their launchpad curve (Jupiter's "about
+/// to graduate" list, about 30 coins at 70% or more), so Sol Radar's Almost graduating
+/// column shows more than the launches Kixo itself watched. Polled in the rotation.
+pub const ABOUT_TO_GRADUATE: &str = "gems/aboutToGraduate";
+const GEMS: &str = "https://datapi.jup.ag/v1/pools/gems";
 /// Every ENRICH_EVERY-th round enriches our own launches instead of polling a category.
 pub const ENRICH_EVERY: usize = 4;
 /// Max mints per search call.
@@ -85,6 +91,9 @@ pub struct MarketToken {
     pub created_at: Option<String>,
     /// When the coin left its launchpad curve for a pool (ISO time), if it did.
     pub graduated_at: Option<String>,
+    /// How far along its launchpad curve the coin is (0 to 100), for coins on the
+    /// "about to graduate" list only; None for everything else.
+    pub curve_pct: Option<f64>,
     /// The wallet that created the coin, its share now, how many coins it created and how
     /// many of them graduated (provider figures, for coins Kixo did not watch launch).
     pub dev: Option<String>,
@@ -190,6 +199,7 @@ impl From<RawToken> for MarketToken {
             launchpad: r.launchpad,
             created_at: r.created_at,
             graduated_at: r.graduated_at,
+            curve_pct: None,
             dev: r.dev.filter(|d| crate::account::is_solana_address(d)),
             dev_pct: round1(r.audit.as_ref().and_then(|a| a.dev_balance_percentage)),
             dev_mints: r.audit.as_ref().and_then(|a| a.dev_mints),
@@ -213,10 +223,25 @@ pub struct MarketBoard {
 
 impl MarketBoard {
     /// Merge one category response. Returns tokens that are new or changed.
-    pub fn merge(&mut self, items: Vec<MarketToken>) -> Vec<MarketToken> {
+    /// Only the "about to graduate" list knows curves (`curves`): other lists keep a
+    /// coin's last curve, and that list clears the curve of coins no longer on it
+    /// (graduated, or fell back below the list's threshold).
+    pub fn merge(&mut self, items: Vec<MarketToken>, curves: bool) -> Vec<MarketToken> {
         let now = Instant::now();
         let mut changed = Vec::new();
-        for t in items {
+        if curves {
+            let listed: std::collections::HashSet<&str> = items.iter().map(|t| t.mint.as_str()).collect();
+            for (t, _) in self.tokens.values_mut() {
+                if t.curve_pct.is_some() && !listed.contains(t.mint.as_str()) {
+                    t.curve_pct = None;
+                    changed.push(t.clone());
+                }
+            }
+        }
+        for mut t in items {
+            if !curves && t.graduated_at.is_none() {
+                t.curve_pct = self.tokens.get(&t.mint).and_then(|(old, _)| old.curve_pct);
+            }
             let differs = self.tokens.get(&t.mint).is_none_or(|(old, _)| old != &t);
             if differs {
                 changed.push(t.clone());
@@ -257,7 +282,69 @@ pub enum PollResult {
 
 /// One category, memecoins only.
 pub async fn fetch_category(http: &reqwest::Client, category: &str) -> PollResult {
+    if category == ABOUT_TO_GRADUATE {
+        return fetch_graduating(http).await;
+    }
     fetch(http, &format!("{BASE}/{category}?limit={LIMIT}"), category).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Gems {
+    about_to_graduate: GemsList,
+}
+
+#[derive(Deserialize)]
+struct GemsList {
+    #[serde(default)]
+    pools: Vec<GemPool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GemPool {
+    bonding_curve: Option<f64>,
+    base_asset: RawToken,
+}
+
+/// Memecoins near the end of their curve, with how far along they are.
+async fn fetch_graduating(http: &reqwest::Client) -> PollResult {
+    let body = serde_json::json!({ "aboutToGraduate": { "timeframe": "24h" } });
+    let res = match http.post(GEMS).json(&body).timeout(Duration::from_secs(8)).send().await {
+        Ok(r) => r,
+        Err(err) => {
+            tracing::warn!(err = %err.without_url(), "jupiter gems request failed");
+            return PollResult::Failed;
+        }
+    };
+    if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return PollResult::RateLimited;
+    }
+    if !res.status().is_success() {
+        tracing::warn!(status = %res.status(), "jupiter gems error status");
+        return PollResult::Failed;
+    }
+    match res.json::<Gems>().await {
+        Ok(g) => PollResult::Ok(graduating_tokens(g)),
+        Err(err) => {
+            tracing::warn!(%err, "jupiter gems response did not parse");
+            PollResult::Failed
+        }
+    }
+}
+
+fn graduating_tokens(g: Gems) -> Vec<MarketToken> {
+    g.about_to_graduate
+        .pools
+        .into_iter()
+        .filter(|p| p.base_asset.graduated_at.is_none() && is_memecoin(&p.base_asset.tags, p.base_asset.launchpad.as_deref()))
+        .filter_map(|p| {
+            let curve = p.bonding_curve.filter(|c| c.is_finite() && (0.0..=100.0).contains(c))?;
+            let mut t = MarketToken::from(p.base_asset);
+            t.curve_pct = round1(Some(curve));
+            Some(t)
+        })
+        .collect()
 }
 
 /// Exact holders, liquidity and verification for our own launches (by mint).
@@ -375,14 +462,39 @@ mod tests {
         let raw: Vec<RawToken> = serde_json::from_str(SAMPLE).unwrap();
         let t = MarketToken::from(raw.into_iter().next().unwrap());
         let mut b = MarketBoard::default();
-        assert_eq!(b.merge(vec![t.clone()]).len(), 1);
+        assert_eq!(b.merge(vec![t.clone()], false).len(), 1);
         assert!(
-            b.merge(vec![t.clone()]).is_empty(),
+            b.merge(vec![t.clone()], false).is_empty(),
             "unchanged token is not re-sent"
         );
         let mut moved = t;
         moved.price_usd = Some(1.6);
-        assert_eq!(b.merge(vec![moved]).len(), 1);
+        assert_eq!(b.merge(vec![moved], false).len(), 1);
+    }
+
+    #[test]
+    fn graduating_list_sets_and_clears_curves() {
+        let raw: RawToken = serde_json::from_str::<Vec<RawToken>>(SAMPLE).unwrap().into_iter().next().unwrap();
+        let gems: Gems = serde_json::from_value(serde_json::json!({ "aboutToGraduate": { "pools": [
+            { "bondingCurve": 91.26, "baseAsset": { "id": "MintG", "name": "Grad", "symbol": "GRD", "launchpad": "pump.fun", "tags": [] } },
+            { "bondingCurve": 150.0, "baseAsset": { "id": "MintX", "launchpad": "pump.fun", "tags": [] } }
+        ] } }))
+        .unwrap();
+        let list = graduating_tokens(gems);
+        assert_eq!(list.len(), 1, "a curve outside 0..=100 is dropped");
+        assert_eq!(list[0].curve_pct, Some(91.3));
+
+        let mut b = MarketBoard::default();
+        b.merge(list.clone(), true);
+        // Another list returns the same coin without a curve: the curve stays.
+        let mut plain = list[0].clone();
+        plain.curve_pct = None;
+        b.merge(vec![plain, MarketToken::from(raw)], false);
+        assert_eq!(b.get("MintG").unwrap().curve_pct, Some(91.3));
+        // The next graduating list no longer has it: its curve is cleared and re-sent.
+        let changed = b.merge(Vec::new(), true);
+        assert_eq!(changed.len(), 1);
+        assert_eq!(b.get("MintG").unwrap().curve_pct, None);
     }
 
     #[test]

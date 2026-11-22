@@ -105,6 +105,9 @@ export type MarketToken = {
   created_at: string | null;
   /** When it left its launchpad curve for a pool, if it did. */
   graduated_at?: string | null;
+  /** How far along its launchpad curve (0 to 100), for coins on the provider's "about to
+   *  graduate" list only. */
+  curve_pct?: number | null;
   twitter: string | null;
   telegram: string | null;
   website: string | null;

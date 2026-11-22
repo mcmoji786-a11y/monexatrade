@@ -280,6 +280,23 @@ export function RadarBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, markets, tokens, q, filter, watch, minute]);
 
+  // Almost graduating: coins from the radar past half their curve, then memecoins across
+  // the market on the provider's "about to graduate" list, furthest along first.
+  const almost = useMemo(() => {
+    const onRadar = visible.filter((t) => stageOf(t) === "final");
+    const have = new Set(onRadar.map((t) => t.mint));
+    const extra: RadarToken[] = [];
+    for (const m of Object.values(markets)) {
+      if (m.curve_pct == null || m.curve_pct < FINAL_PCT || m.graduated_at || !m.launchpad || have.has(m.mint) || tokens.some((t) => t.mint === m.mint)) continue;
+      if (q && !(m.mint === q || m.symbol.toLowerCase().includes(lower) || m.name.toLowerCase().includes(lower))) continue;
+      if (filter === "watch" && !watch.includes(m.mint)) continue;
+      extra.push(fromMarket(m));
+    }
+    const curveOf = (t: RadarToken) => t.market?.curve_progress ?? markets[t.mint]?.curve_pct ?? 0;
+    return [...onRadar, ...extra].sort((a, b) => curveOf(b) - curveOf(a));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, markets, tokens, q, filter, watch]);
+
   const card = (t: RadarToken) => (
     <TokenCard
       key={t.mint}
@@ -423,7 +440,7 @@ export function RadarBoard() {
         view === "columns" ? (
           <div className="mt-3 grid gap-3 lg:grid-cols-3">
             {STAGES.map((s) => {
-              const list = s.key === "graduated" ? graduated : visible.filter((t) => stageOf(t) === s.key);
+              const list = s.key === "graduated" ? graduated : s.key === "final" ? almost : visible.filter((t) => stageOf(t) === s.key);
               return (
                 <section key={s.key} aria-label={s.label} className="flex min-w-0 flex-col">
                   <div className="mb-2 flex h-7 items-center gap-2">
@@ -476,9 +493,12 @@ const STAGES = [
 /** How far back the Graduated column reaches for coins that graduated elsewhere. */
 const GRADUATED_WINDOW = 24 * 3600;
 
-/** A graduated memecoin known from market data only, in the radar's shape: no curve,
- *  its pool's live figures come in as the card's market data. */
-function fromMarket(m: MarketToken, graduatedAt: number): RadarToken & { graduatedAt: number } {
+/** Curve share from which a coin counts as almost graduating. */
+const FINAL_PCT = 50;
+
+/** A memecoin known from market data only, in the radar's shape: no curve of our own,
+ *  its live figures (and, near graduation, its curve) come in as the card's market data. */
+function fromMarket(m: MarketToken, graduatedAt?: number): RadarToken & { graduatedAt?: number } {
   return {
     signature: "",
     name: m.name,
@@ -487,7 +507,7 @@ function fromMarket(m: MarketToken, graduatedAt: number): RadarToken & { graduat
     mint: m.mint,
     bonding_curve: "",
     creator: "",
-    timestamp: m.created_at ? Date.parse(m.created_at) / 1000 : graduatedAt,
+    timestamp: m.created_at ? Date.parse(m.created_at) / 1000 : (graduatedAt ?? Date.now() / 1000),
     standard: "Spl",
     launchpad: m.launchpad ?? "other",
     meta: { image: m.image, description: null, twitter: m.twitter, telegram: m.telegram, website: m.website },
@@ -500,7 +520,7 @@ function fromMarket(m: MarketToken, graduatedAt: number): RadarToken & { graduat
 function stageOf(t: RadarToken): (typeof STAGES)[number]["key"] {
   const m = t.market;
   if (m?.complete) return "graduated";
-  if (m && m.curve_progress >= 50) return "final";
+  if (m && m.curve_progress >= FINAL_PCT) return "final";
   return "new";
 }
 
