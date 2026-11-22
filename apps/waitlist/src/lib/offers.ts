@@ -37,6 +37,21 @@ export function offerFor(referrals: number, signupRank: number): Offer {
   return OFFERS[0];
 }
 
+/** Printed Kixo gifts, drawn at random among people who invited friends: every friend
+ *  who joins with someone's link is one more ticket. Change the list here. */
+export const GIFTS: { name: string; note: string }[] = [
+  { name: "Kixo T-shirt", note: "Black, printed" },
+  { name: "Kixo mug", note: "For the late-night charts" },
+  { name: "Sticker pack", note: "For the laptop" },
+];
+
+/** The offer someone's invites alone have unlocked (for the leaderboard). */
+export function offerByInvites(referrals: number): Offer {
+  if (referrals >= FOUNDING_REFS) return OFFERS[2];
+  if (referrals >= INSIDER_REFS) return OFFERS[1];
+  return OFFERS[0];
+}
+
 /** What it takes to reach the next offer, or null at the top. */
 export function nextStep(referrals: number, signupRank: number): { offer: Offer; invites: number } | null {
   const now = offerFor(referrals, signupRank);

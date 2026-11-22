@@ -93,6 +93,8 @@ async function claim(u: User, p: Profile, ref: string | null) {
 
 export type Status = {
   code: string;
+  /** Public Kixo handle (the app's trader profile), when set. */
+  handle: string | null;
   /** Joining order, 1 = first (for the early offers). */
   rank: number;
   /** Place on the list after invites moved them up. */
@@ -108,8 +110,13 @@ export type Status = {
 async function placeOf(userId: string, code: string): Promise<Omit<Status, "name" | "avatar" | "email"> | null> {
   const me = (await rows<{ number: number; joined_at: string }>(`waitlist_members?user_id=eq.${userId}&select=number,joined_at`))[0];
   if (!me) return null;
-  const [rank, all, referrals] = await Promise.all([count("waitlist_members", `number=lte.${me.number}`), total(), count("profiles", `referred_by=eq.${userId}`)]);
-  return { code, rank, position: Math.max(1, rank - REF_BOOST * referrals), total: all, referrals, joinedAt: me.joined_at };
+  const [rank, all, referrals, handle] = await Promise.all([
+    count("waitlist_members", `number=lte.${me.number}`),
+    total(),
+    count("profiles", `referred_by=eq.${userId}`),
+    rows<{ handle: string }>(`trader_profiles?user_id=eq.${userId}&select=handle`).then((r) => r[0]?.handle ?? null),
+  ]);
+  return { code, handle, rank, position: Math.max(1, rank - REF_BOOST * referrals), total: all, referrals, joinedAt: me.joined_at };
 }
 
 /** Puts the account on the list (or finds it there) and returns its place, and whether it
@@ -123,6 +130,32 @@ export async function join(u: User, ref: string | null, source: string | null): 
   const place = await placeOf(u.id, p.ref_code!);
   if (!place) throw new Error("waitlist place missing");
   return { ...place, name: u.name, avatar: u.avatar, email: u.email, created };
+}
+
+export const validHandle = (h: string) => /^[a-z0-9_]{3,20}$/.test(h);
+
+/** Sets the account's public Kixo handle (the app's trader profile, so it carries over).
+ *  "taken" when someone else has it. */
+export async function setHandle(u: User, handle: string): Promise<"ok" | "taken" | "invalid"> {
+  if (!validHandle(handle)) return "invalid";
+  const res = await rest("trader_profiles?on_conflict=user_id", {
+    method: "POST",
+    prefer: "resolution=merge-duplicates,return=minimal",
+    body: JSON.stringify({ user_id: u.id, handle, display_name: (u.name ?? "").slice(0, 40), updated_at: new Date().toISOString() }),
+  });
+  if (res.ok) return "ok";
+  if (res.status === 409) return "taken";
+  throw new Error(`handle not saved (${res.status})`);
+}
+
+export type BoardRow = { name: string; referrals: number };
+
+/** The top inviters: public handle, or a shortened invite code without one. */
+export async function board(limit = 20): Promise<BoardRow[]> {
+  const res = await rest("rpc/waitlist_board", { method: "POST", body: JSON.stringify({ p_limit: limit }) });
+  if (!res.ok) return [];
+  const list = (await res.json()) as { handle: string | null; code: string | null; referrals: number }[];
+  return list.map((r) => ({ name: r.handle ? `@${r.handle}` : `${(r.code ?? "kixo").slice(0, 3)}••••`, referrals: Number(r.referrals) }));
 }
 
 /** A person's public place by invite code, for their share card. */

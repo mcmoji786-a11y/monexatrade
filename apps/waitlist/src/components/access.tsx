@@ -7,11 +7,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { callbackUrl, rememberRef, savedRef, supabase } from "@/lib/supabase";
 import { AI_FREE, BASE_FEE_PCT, feeAfter, nextStep, offerFor, OFFERS } from "@/lib/offers";
+import { VideoMaker } from "./video-maker";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 const TURNSTILE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
-type Status = { code: string; rank: number; position: number; total: number; referrals: number; joinedAt: string; name: string | null; avatar: string | null; email: string | null };
+type Status = { code: string; handle: string | null; rank: number; position: number; total: number; referrals: number; joinedAt: string; name: string | null; avatar: string | null; email: string | null };
 
 /* ---------------- Turnstile (only when the site key is set) ---------------- */
 
@@ -72,14 +73,15 @@ function useStatus(session: Session | null) {
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, [token, load]);
-  return s.token === token ? s : { token, status: null, error: null };
+  const view = s.token === token ? s : { token, status: null, error: null };
+  return { ...view, reload: load };
 }
 
 /* ---------------- The hero block ---------------- */
 
 export function Access() {
   const { ready, session } = useSession();
-  const { status, error } = useStatus(session);
+  const { status, error, reload } = useStatus(session);
   const signedIn = !!session;
   return (
     <div className="access" id="join">
@@ -89,7 +91,7 @@ export function Access() {
         ) : !signedIn ? (
           <SignIn />
         ) : status ? (
-          <Invite s={status} />
+          <Invite s={status} token={session.access_token} onChange={reload} />
         ) : (
           <div className="panel">
             <p className="panel-title">{error ? "Your pass did not load" : "Getting your pass"}</p>
@@ -223,8 +225,9 @@ function GoogleMark() {
 
 /* ---------------- Signed in: invite tools ---------------- */
 
-export function Invite({ s }: { s: Status }) {
+export function Invite({ s, token, onChange }: { s: Status; token?: string; onChange?: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [video, setVideo] = useState(false);
   const link = `${SITE || window.location.origin}/?ref=${s.code}`;
   const next = nextStep(s.referrals, s.rank);
   const pitch = `I'm #${s.position.toLocaleString("en-US")} on the Kixo waitlist: the AI that trades Solana memecoins for you. Early list gets the AI agent free for a year`;
@@ -277,6 +280,15 @@ export function Invite({ s }: { s: Status }) {
           Card image
         </a>
       </div>
+      <HandleField handle={s.handle} token={token} onSaved={onChange} />
+      <button type="button" className="btn-video" onClick={() => setVideo(true)}>
+        <span className="live" aria-hidden="true" />
+        <span>
+          Make my share video
+          <small>A 9 second edit with your name and link</small>
+        </span>
+      </button>
+      {video && <VideoMaker info={{ name: s.handle ? `@${s.handle}` : (s.name?.split(" ")[0] ?? "a new trader"), position: s.position, tier: offerFor(s.referrals, s.rank).name, link }} onClose={() => setVideo(false)} />}
       <p className="note">
         Signed in as {s.email ?? "your account"} ·{" "}
         <button type="button" className="link" onClick={signOut}>
@@ -284,6 +296,43 @@ export function Invite({ s }: { s: Status }) {
         </button>
       </p>
     </div>
+  );
+}
+
+/** The public Kixo name: on the leaderboard, in the video, and the trader name in the app. */
+function HandleField({ handle, token, onSaved }: { handle: string | null; token?: string; onSaved?: () => void }) {
+  const [v, setV] = useState(handle ?? "");
+  const [msg, setMsg] = useState<{ bad: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const h = v.trim().replace(/^@/, "").toLowerCase();
+    if (!/^[a-z0-9_]{3,20}$/.test(h)) return setMsg({ bad: true, text: "3 to 20 letters, numbers or _" });
+    setBusy(true);
+    try {
+      const res = await fetch("/api/handle", { method: "POST", headers: { authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" }, body: JSON.stringify({ handle: h }) });
+      const r = (await res.json()) as { error?: string };
+      setMsg(res.ok ? { bad: false, text: "Saved" } : { bad: true, text: r.error ?? "Not saved" });
+      if (res.ok) onSaved?.();
+    } catch {
+      setMsg({ bad: true, text: "Not saved, check your connection" });
+    }
+    setBusy(false);
+  };
+  return (
+    <form className="handle" onSubmit={save}>
+      <label className="field-label" htmlFor="handle">
+        Your Kixo name{handle ? "" : ", for the leaderboard and your video"}
+      </label>
+      <div className="link-row">
+        <span className="at">@</span>
+        <input id="handle" value={v} onChange={(e) => setV(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20))} placeholder="yourname" autoComplete="off" />
+        <button type="submit" className="btn-ghost" disabled={busy || v === (handle ?? "")}>
+          Save
+        </button>
+      </div>
+      {msg && <p className={`note ${msg.bad ? "bad" : ""}`}>{msg.text}</p>}
+    </form>
   );
 }
 

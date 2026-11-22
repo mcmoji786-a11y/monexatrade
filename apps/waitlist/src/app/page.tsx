@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { Access } from "@/components/access";
 import { ListCount } from "@/components/list-count";
+import { Leaderboard } from "@/components/leaderboard";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 import { FAQ, jsonLd } from "@/lib/seo";
 
@@ -54,6 +55,7 @@ export default function Page() {
         <nav className="nav-links" aria-label="Sections">
           <a href="#inside">Inside</a>
           <a href="#offers">Offers</a>
+          <a href="#leaderboard">Leaderboard</a>
           <a href="#faq">FAQ</a>
         </nav>
         <a href="#join" className="nav-cta">
@@ -160,6 +162,17 @@ export default function Page() {
           ))}
         </ol>
         <p className="terms">The discount is on Kixo&apos;s own trading fee, not Solana network fees, and starts when real trading opens on your Kixo account. One fee offer per person: the best one you reach. The free year of the AI agent starts the day it opens on your account.</p>
+      </section>
+
+      <section className="leaders" id="leaderboard">
+        <div className="section-head">
+          <p className="eyebrow">
+            <span className="live" aria-hidden="true" /> Leaderboard
+          </p>
+          <h2>Bring the most friends, win the most</h2>
+          <p className="lead">Every friend who joins with your link moves you up 3 places, unlocks bigger offers and is a ticket in the gift draw.</p>
+        </div>
+        <Leaderboard />
       </section>
 
       <section className="features">
