@@ -3,6 +3,8 @@ import Image from "next/image";
 import { Access } from "@/components/access";
 import { ListCount } from "@/components/list-count";
 import { Leaderboard } from "@/components/leaderboard";
+import { LiveBoard, LiveTicker } from "@/components/live";
+import { Count, Reveal } from "@/components/motion";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 import { FAQ, jsonLd } from "@/lib/seo";
 
@@ -47,6 +49,7 @@ export default function Page() {
   return (
     <main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd()).replace(/</g, "\\u003c") }} />
+      <Reveal />
       <header className="nav">
         <a href="#top" className="brand">
           <Image src="/kixo-mark.png" alt="" width={28} height={28} priority />
@@ -72,9 +75,45 @@ export default function Page() {
             The AI that trades <span className="accent">memecoins for you</span>
           </h1>
           <p className="lead">Kixo&apos;s AI agent auto-trades Solana memecoins within your rules, choosing from 100,000+ strategies trained on 3 years of market data. On a fast engine, with every coin&apos;s risk in plain sight.</p>
+          <dl className="hero-stats">
+            <div>
+              <dt>AI strategies</dt>
+              <dd>
+                <Count to={100000} suffix="+" />
+              </dd>
+            </div>
+            <div>
+              <dt>Years of market data</dt>
+              <dd>
+                <Count to={3} ms={900} />
+              </dd>
+            </div>
+            <div>
+              <dt>Launchpads watched</dt>
+              <dd>
+                <Count to={6} ms={900} />
+              </dd>
+            </div>
+          </dl>
           <ListCount />
         </div>
         <Access />
+      </section>
+
+      <LiveTicker />
+
+      <section className="live-section" id="live">
+        <div className="section-head" data-reveal>
+          <p className="eyebrow">
+            <span className="live" aria-hidden="true" /> Solana, right now
+          </p>
+          <h2>Every coin, the second it moves</h2>
+          <p className="lead">The newest launches and the memecoins moving this minute, with the quick checks Kixo runs on every one. Live data, refreshed every 15 seconds.</p>
+        </div>
+        <div data-reveal>
+          <LiveBoard />
+        </div>
+        <p className="terms">Live Solana data via Jupiter. Mint and freeze show whether the creator can still print or lock tokens; top 10 is the share the ten biggest wallets hold. Not advice: most new coins go to zero.</p>
       </section>
 
       <div className="tape" aria-hidden="true">
@@ -93,22 +132,22 @@ export default function Page() {
       </div>
 
       <section className="inside" id="inside">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <p className="eyebrow">Inside Kixo</p>
           <h2>A terminal built for the trenches</h2>
           <p className="lead">The chart, the safety read and copy trading, as they look in Kixo today.</p>
         </div>
-        <div className="shot">
+        <div className="shot" data-reveal>
           <Image src="/hero.png" alt="The Kixo terminal: a live chart, a safety read of a coin, copy-trading settings and a new launch card" width={1800} height={1520} sizes="(max-width: 900px) 100vw, 1100px" />
         </div>
       </section>
 
       <section className="pillars" id="ai">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <p className="eyebrow">What is coming</p>
           <h2>Three things Kixo is built on. One of them trades for you</h2>
         </div>
-        <div className="pillar-grid">
+        <div className="pillar-grid stagger" data-reveal>
           <article className="pillar big">
             <span className="p-n">01 · The AI agent</span>
             <h3>An AI agent that auto-trades for you</h3>
@@ -116,11 +155,15 @@ export default function Page() {
             <dl className="p-stats">
               <div>
                 <dt>Strategies</dt>
-                <dd>100,000+</dd>
+                <dd>
+                  <Count to={100000} suffix="+" />
+                </dd>
               </div>
               <div>
                 <dt>Market data</dt>
-                <dd>3 years</dd>
+                <dd>
+                  <Count to={3} suffix=" years" ms={900} />
+                </dd>
               </div>
               <div>
                 <dt>Watching the chain</dt>
@@ -142,18 +185,18 @@ export default function Page() {
       </section>
 
       <section className="offers" id="offers">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <p className="eyebrow">Early access</p>
           <h2>Join early. Get the AI free for a year</h2>
           <p className="lead">{AI_FREE.body} On top of that, a discount on every trade: invite friends to unlock more.</p>
         </div>
-        <ol className="ladder">
+        <ol className="ladder stagger" data-reveal>
           {OFFERS.map((o, i) => (
             <li key={o.key} className={i === 2 ? "top" : ""}>
               <span className="l-step">{o.how}</span>
               <h3>{o.name}</h3>
               <p className="l-off">
-                {o.off}% <span>off fees</span>
+                <Count to={o.off} suffix="%" ms={1100} /> <span>off fees</span>
               </p>
               <p className="l-detail">
                 {feeAfter(o)}% instead of {BASE_FEE_PCT}% for {o.months} months{o.extra ? `, plus the ${o.extra}` : ""}
@@ -165,21 +208,23 @@ export default function Page() {
       </section>
 
       <section className="leaders" id="leaderboard">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <p className="eyebrow">
             <span className="live" aria-hidden="true" /> Leaderboard
           </p>
           <h2>Bring the most friends, win the most</h2>
           <p className="lead">Every friend who joins with your link moves you up 3 places, unlocks bigger offers and is a ticket in the gift draw.</p>
         </div>
-        <Leaderboard />
+        <div data-reveal>
+          <Leaderboard />
+        </div>
       </section>
 
       <section className="features">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <h2>Made to keep you out of the traps</h2>
         </div>
-        <ul>
+        <ul className="stagger" data-reveal>
           {FEATURES.map((f) => (
             <li key={f.title}>
               <span className="f-icon">
@@ -196,10 +241,10 @@ export default function Page() {
       </section>
 
       <section className="steps">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <h2>From launch to trade in four moves</h2>
         </div>
-        <ol>
+        <ol className="stagger" data-reveal>
           {STEPS.map(([t, b], i) => (
             <li key={t}>
               <span className="s-n">{String(i + 1).padStart(2, "0")}</span>
@@ -211,10 +256,10 @@ export default function Page() {
       </section>
 
       <section className="faq" id="faq">
-        <div className="section-head">
+        <div className="section-head" data-reveal>
           <h2>Questions</h2>
         </div>
-        <div className="faq-list">
+        <div className="faq-list" data-reveal>
           {FAQ.map((f) => (
             <details key={f.q}>
               <summary>{f.q}</summary>
@@ -224,7 +269,7 @@ export default function Page() {
         </div>
       </section>
 
-      <section className="final">
+      <section className="final" data-reveal>
         <h2>Be first in</h2>
         <p className="lead">Claim your pass, share your link, move up the list.</p>
         <a href="#join" className="btn-primary big">
