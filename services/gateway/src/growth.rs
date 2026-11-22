@@ -42,6 +42,11 @@ pub fn valid_code(c: &str) -> bool {
     (6..=12).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
+/// A Kixo name (trader_profiles.handle): 3 to 20 of a-z, 0-9 and _.
+pub fn valid_handle(h: &str) -> bool {
+    (3..=20).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 /// Monday 00:00 UTC of the week holding `ts`.
 pub fn week_start(ts: i64) -> i64 {
     let days = ts.div_euclid(86_400);
@@ -93,16 +98,21 @@ pub struct ClaimIn {
 pub async fn claim(State(a): State<Arc<AccountState>>, headers: HeaderMap, Json(i): Json<ClaimIn>) -> Result<Json<Value>, (StatusCode, String)> {
     let u = a.user(&headers).await?;
     let code = i.code.trim().to_ascii_lowercase();
-    if !valid_code(&code) {
+    let name = code.trim_start_matches('@').to_string();
+    if !valid_code(&code) && !valid_handle(&name) {
         return Err((StatusCode::BAD_REQUEST, "not a referral code".into()));
     }
-    let owner = a.rest(reqwest::Method::GET, &format!("profiles?ref_code=eq.{code}&select=id"), None).await?;
-    let owner = owner
-        .as_array()
-        .and_then(|r| r.first())
-        .and_then(|r| r["id"].as_str())
-        .map(String::from)
-        .ok_or((StatusCode::NOT_FOUND, "unknown referral code".into()))?;
+    let first_id = |v: Value, key: &str| v.as_array().and_then(|r| r.first()).and_then(|r| r[key].as_str()).map(String::from);
+    // A code first, then a Kixo name: the waitlist's invite links end with the person's
+    // name (kixo.trade/?ref=aliraza), and they keep working in the app.
+    let mut owner = None;
+    if !code.starts_with('@') && valid_code(&code) {
+        owner = first_id(a.rest(reqwest::Method::GET, &format!("profiles?ref_code=eq.{code}&select=id"), None).await?, "id");
+    }
+    if owner.is_none() && valid_handle(&name) {
+        owner = first_id(a.rest(reqwest::Method::GET, &format!("trader_profiles?handle=eq.{name}&select=user_id"), None).await?, "user_id");
+    }
+    let owner = owner.ok_or((StatusCode::NOT_FOUND, "unknown referral code".into()))?;
     if owner == u.id {
         return Err((StatusCode::BAD_REQUEST, "you cannot refer yourself".into()));
     }
@@ -212,6 +222,12 @@ mod tests {
         assert_eq!(a, make_code("user-1", 0));
         assert_ne!(a, make_code("user-1", 1));
         assert!(!valid_code("AB12CD") && !valid_code("abc") && !valid_code("abc-123"));
+    }
+
+    #[test]
+    fn kixo_names_work_as_invites() {
+        assert!(valid_handle("aliraza") && valid_handle("ali_99") && valid_handle("abc"));
+        assert!(!valid_handle("ab") && !valid_handle("Ali") && !valid_handle("ali-raza") && !valid_handle("a234567890123456789012"));
     }
 
     #[test]

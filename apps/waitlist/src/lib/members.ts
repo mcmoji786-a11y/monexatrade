@@ -190,6 +190,9 @@ export async function join(u: User, ref: string | null, source: string | null): 
   const ins = await rest("waitlist_members?on_conflict=user_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=representation", body: JSON.stringify({ user_id: u.id, source }) });
   if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status})`);
   const created = ((await ins.json()) as unknown[]).length > 0;
+  // Everyone gets a name, so their invite link ends with it.
+  const named = (await rows<{ handle: string }>(`trader_profiles?user_id=eq.${u.id}&select=handle`))[0];
+  if (!named) await autoHandle(u);
   const [place, by, friends] = await Promise.all([placeOf(u.id, p.ref_code!), invitedBy(u.id), friendsOf(u.id)]);
   if (!place) throw new Error("waitlist place missing");
   return {
@@ -207,6 +210,23 @@ export async function join(u: User, ref: string | null, source: string | null): 
 }
 
 export const validHandle = (h: string) => /^[a-z0-9_]{3,20}$/.test(h);
+
+/** A first Kixo name for an account that has none, so its invite link ends with its name
+ *  (kixo.trade/?ref=aliraza): from the Google name, or the part of the email before @.
+ *  Taken names get a number. The person can change it on their pass. */
+async function autoHandle(u: User): Promise<string | null> {
+  const fromName = (u.name ?? "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
+  const fromEmail = (u.email ?? "").split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+  let base = (fromName.length >= 3 ? fromName : fromEmail).slice(0, 16);
+  if (base.length < 3) base = `trader${base}`;
+  for (let i = 0; i < 6; i++) {
+    const h = i === 0 ? base : `${base.slice(0, 15)}${Math.floor(10 + Math.random() * 9990)}`;
+    if (!validHandle(h)) continue;
+    const r = await setHandle(u, h).catch(() => "taken" as const);
+    if (r === "ok") return h;
+  }
+  return null;
+}
 
 /** Sets the account's public Kixo handle (the app's trader profile, so it carries over).
  *  "taken" when someone else has it. */
@@ -232,9 +252,12 @@ export async function board(limit = 20): Promise<BoardRow[]> {
   return list.map((r) => ({ name: r.handle ? `@${r.handle}` : `${(r.code ?? "kixo").slice(0, 3)}••••`, referrals: Number(r.referrals) }));
 }
 
-/** A person's public place by invite code, for their share card. */
-export async function byCode(code: string): Promise<Place | null> {
-  if (!validCode(code)) return null;
-  const owner = (await rows<{ id: string }>(`profiles?ref_code=eq.${code}&select=id`))[0];
-  return owner ? placeOf(owner.id, code) : null;
+/** A person's public place by their invite (a code or their Kixo name), for their share
+ *  card. */
+export async function byCode(ref: string): Promise<Place | null> {
+  const owner = await referrer(ref);
+  return owner ? placeById(owner) : null;
 }
+
+/** The invite link's ending: the Kixo name when there is one, else the code. */
+export const inviteRef = (s: { handle: string | null; code: string }) => s.handle ?? s.code;

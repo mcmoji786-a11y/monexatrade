@@ -30,8 +30,9 @@ function Icon({ children }: { children: React.ReactNode }) {
  *  Telegram and the rest. */
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ ref?: string }> }): Promise<Metadata> {
   const ref = (await searchParams).ref?.trim().toLowerCase();
-  if (!ref || !/^[a-z0-9]{6,12}$/.test(ref)) return {};
-  const image = { url: `/api/card?code=${ref}`, width: 1200, height: 630 };
+  // A code or a Kixo name (kixo.trade/?ref=aliraza).
+  if (!ref || !/^@?[a-z0-9_]{3,20}$/.test(ref)) return {};
+  const image = { url: `/api/card?code=${encodeURIComponent(ref)}`, width: 1200, height: 630 };
   const title = "Join me on the Kixo waitlist";
   const description = "Kixo AI auto-trades Solana memecoins for you. Join early: the AI agent free for 1 year.";
   return { title, description, openGraph: { title, description, images: [image] }, twitter: { card: "summary_large_image", title, description, images: [image.url] } };

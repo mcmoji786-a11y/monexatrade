@@ -274,7 +274,7 @@ function GoogleMark() {
 export function Invite({ s, token, onChange }: { s: Status; token?: string; onChange?: () => void }) {
   const [copied, setCopied] = useState(false);
   const [video, setVideo] = useState(false);
-  const link = `${SITE || window.location.origin}/?ref=${s.code}`;
+  const link = `${SITE || window.location.origin}/?ref=${s.handle ?? s.code}`;
   const next = nextStep(s.referrals, s.rank);
   const pitch = `I'm #${s.position.toLocaleString("en-US")} on the Kixo waitlist: the AI that trades Solana memecoins for you. Early list gets the AI agent free for a year`;
   const copy = async () => {
@@ -459,7 +459,7 @@ function HandleField({ handle, token, onSaved }: { handle: string | null; token?
   return (
     <form className="handle" onSubmit={save}>
       <label className="field-label" htmlFor="handle">
-        Your Kixo name{handle ? "" : ", for the leaderboard and your video"}
+        Your Kixo name: your invite link ends with it
       </label>
       <div className="link-row">
         <span className="at">@</span>

@@ -34,11 +34,11 @@ export async function sendWelcome(email: string, s: Status): Promise<void> {
 /** "A friend joined with your link": who, how many friends now, the place they moved to
  *  and what the next offer needs. Sent to the inviter the moment the friend's account is
  *  made. Skipped without SMTP. */
-export async function sendFriendJoined(email: string, friend: string, s: { code: string; position: number; referrals: number; rank: number }): Promise<void> {
+export async function sendFriendJoined(email: string, friend: string, s: { code: string; handle?: string | null; position: number; referrals: number; rank: number }): Promise<void> {
   const t = transport();
   if (!t) return;
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!;
-  const link = `${SITE}/?ref=${s.code}`;
+  const link = `${SITE}/?ref=${s.handle ?? s.code}`;
   const o = offerFor(s.referrals, s.rank);
   const next = nextStep(s.referrals, s.rank);
   const friends = `${s.referrals} friend${s.referrals === 1 ? "" : "s"}`;

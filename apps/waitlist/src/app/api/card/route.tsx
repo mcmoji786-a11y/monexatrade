@@ -63,7 +63,7 @@ export async function GET(req: Request) {
         <div style={{ display: "flex", flexDirection: "column" }}>
           {s ? (
             <div style={{ display: "flex", flexDirection: "column" }}>
-              <span style={{ fontSize: 32, color: "#a1a1aa" }}>I&apos;m on the Kixo waitlist</span>
+              <span style={{ fontSize: 32, color: "#a1a1aa" }}>{s.handle ? `@${s.handle} is on the Kixo waitlist` : "I'm on the Kixo waitlist"}</span>
               <span style={{ fontSize: 200, fontWeight: 800, letterSpacing: -10, lineHeight: 1, marginTop: 4, display: "flex" }}>
                 <span style={{ color: green }}>#</span>
                 {s.position.toLocaleString("en-US")}

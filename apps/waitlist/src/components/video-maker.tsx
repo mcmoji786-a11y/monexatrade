@@ -273,7 +273,7 @@ function frame(g: CanvasRenderingContext2D, t: number, v: VideoInfo, mark: HTMLI
       g.font = font(size, 600, true);
     }
     centered(g, url, 714, size, "#22d3ee", 600, true);
-    centered(g, `code ${v.code.toUpperCase()}`, 860, 40, EMERALD, 700, true);
+    centered(g, v.handle ? `invited by ${v.handle}` : `code ${v.code.toUpperCase()}`, 860, 40, EMERALD, 700, true);
     g.globalAlpha = 1;
   }
 
@@ -326,7 +326,7 @@ function overlay(g: CanvasRenderingContext2D, t: number, v: VideoInfo, mark: HTM
   g.fillStyle = TEXT;
   g.fillText("Kixo", 94 * u, ty + 72 * u);
   // The code chip.
-  const label = `CODE ${v.code.toUpperCase()}`;
+  const label = v.handle ?? `CODE ${v.code.toUpperCase()}`;
   g.font = font(30 * u, 700, true);
   const cw = g.measureText(label).width + 40 * u;
   const cx = w - 32 * u - cw;
@@ -386,7 +386,7 @@ function overlay(g: CanvasRenderingContext2D, t: number, v: VideoInfo, mark: HTM
   g.fillText(shown + (Math.floor(t * 2) % 2 === 0 && shown.length < url.length ? "_" : ""), 32 * u, by + 118 * u);
   g.font = font(26 * u, 600);
   g.fillStyle = MUTED;
-  g.fillText(`AI agent free for 1 year · use my code ${v.code.toUpperCase()}`, 32 * u, by + 168 * u);
+  g.fillText(`AI agent free for 1 year · invite ${v.handle ?? v.code.toUpperCase()}`, 32 * u, by + 168 * u);
 }
 
 /** Draws the video to fill the canvas (cropping the edges if its shape differs). */
@@ -413,7 +413,7 @@ function pickType(): { mime: string; ext: string } {
 
 /** The caption that goes with the video: the code and the link, ready to paste. */
 export function captionFor(v: VideoInfo) {
-  return `I'm on the Kixo waitlist: the AI that trades Solana memecoins for you. Use my code ${v.code.toUpperCase()} or join with my link: ${v.link}`;
+  return `I'm on the Kixo waitlist: the AI that trades Solana memecoins for you. Join with my link and get the AI agent free for a year: ${v.link}`;
 }
 
 type Mode = "checking" | "base" | "edit";

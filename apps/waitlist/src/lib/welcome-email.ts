@@ -20,15 +20,15 @@ const MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-export type WelcomeData = { code: string; position: number; total: number; referrals: number; rank: number; name?: string | null };
+export type WelcomeData = { code: string; handle?: string | null; position: number; total: number; referrals: number; rank: number; name?: string | null };
 
 export function welcomeEmail(site: string, s: WelcomeData): { subject: string; text: string; html: string } {
-  const link = `${site}/?ref=${s.code}`;
+  const link = `${site}/?ref=${s.handle ?? s.code}`;
   const o = offerFor(s.referrals, s.rank);
   const next = nextStep(s.referrals, s.rank);
   const place = `#${s.position.toLocaleString("en-US")}`;
   const first = s.name?.split(" ")[0];
-  const pitch = `I'm ${place} on the Kixo waitlist: the AI that trades Solana memecoins for you. Join early and get the AI agent free for a year. Use my code ${s.code.toUpperCase()}`;
+  const pitch = `I'm ${place} on the Kixo waitlist: the AI that trades Solana memecoins for you. Join with my link and get the AI agent free for a year`;
   const share = [
     { name: "X", href: `https://x.com/intent/post?text=${encodeURIComponent(pitch)}&url=${encodeURIComponent(link)}` },
     { name: "Telegram", href: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(pitch)}` },
@@ -48,7 +48,7 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
     next ? `\n${next.invites} more friend${next.invites === 1 ? "" : "s"} to unlock ${next.offer.name} (${next.offer.off}% off for ${next.offer.months} months).` : "\nYou have the top offer.",
     "",
     `Your invite link: ${link}`,
-    `Your code: ${s.code.toUpperCase()}`,
+    `Your Kixo name: ${s.handle ? `@${s.handle}` : s.code.toUpperCase()}`,
     "Every friend who joins with it moves you up 3 places and is a ticket in the gift draw.",
     "",
     "What happens next:",
@@ -107,7 +107,7 @@ export function welcomeEmail(site: string, s: WelcomeData): { subject: string; t
         </tr></table>
       </td></tr>
       <tr><td style="padding:0 22px;background:${CARD_2};font-family:${MONO};font-size:64px;line-height:1.05;font-weight:700;color:${TEXT};letter-spacing:-2px"><span style="color:${EMERALD}">#</span>${s.position.toLocaleString("en-US")}</td></tr>
-      <tr><td style="padding:6px 22px 18px;background:${CARD_2};font-family:${MONO};font-size:13px;color:${TEXT_2}">of ${s.total.toLocaleString("en-US")} on the list &middot; code ${s.code.toUpperCase()}</td></tr>
+      <tr><td style="padding:6px 22px 18px;background:${CARD_2};font-family:${MONO};font-size:13px;color:${TEXT_2}">of ${s.total.toLocaleString("en-US")} on the list${s.handle ? ` &middot; @${esc(s.handle)}` : ""}</td></tr>
       <tr><td style="padding:0 18px 20px;background:${CARD_2};border-radius:0 0 18px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${tierCells}</tr></table></td></tr>
     </table>
   </td></tr>

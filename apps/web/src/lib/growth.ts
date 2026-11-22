@@ -35,7 +35,8 @@ export function useReferralCapture() {
   useEffect(() => {
     try {
       const code = new URLSearchParams(window.location.search).get("ref")?.trim().toLowerCase();
-      if (code && /^[a-z0-9]{6,12}$/.test(code)) localStorage.setItem(REF_KEY, JSON.stringify({ code, at: Date.now() }));
+      // A code, or a Kixo name as the waitlist's links use (?ref=aliraza or ?ref=@aliraza).
+      if (code && /^@?[a-z0-9_]{3,20}$/.test(code)) localStorage.setItem(REF_KEY, JSON.stringify({ code, at: Date.now() }));
     } catch {}
   }, []);
   const ready = account.status === "signed-in" && !!account.me;
