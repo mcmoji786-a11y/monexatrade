@@ -12,6 +12,9 @@ after launch, so their place, invite link, invited friends and offer are already
 - Share video: put the one video everyone shares at `public/share/base.mp4` (vertical,
   up to 60 s). Each person's copy gets animated bands with their code, name and link, made
   in their browser. Without the file, a short made-up edit is used instead.
+- Share meme: put the founder's meme at `public/share/meme.png` (or .jpg). Each person's
+  copy gets a band above (Kixo, their @name) and below (their link), outside the picture.
+  Without the file, Kixo's own two-panel meme is used.
 - Invites: a link (`/?ref=code` or `/?ref=@name`), or typed in when signing up or within
   the first day after (a code, or the @name seen in someone's video).
 
