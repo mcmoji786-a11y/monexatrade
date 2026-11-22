@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 import { byCode } from "@/lib/members";
 import { interFonts, logo } from "@/lib/og";
+import { readFile } from "fs/promises";
+import path from "path";
 
 /* `GET /api/meme?ref=` : a share meme (1080x1350, the size Instagram, X and WhatsApp show
    best) with the person's Kixo name and invite link on it. Two panels: everyone else
@@ -27,12 +29,75 @@ function points(up: boolean) {
   return out.join(" ");
 }
 
+/* The founder's own meme, when there is one: public/share/meme.png or .jpg. It is used as
+   it is, uncropped, with a band above (Kixo and the person's name) and a band below (their
+   link), added outside the picture so nothing in it is covered. */
+let base: { src: string; w: number; h: number } | null | undefined;
+async function baseMeme() {
+  if (base !== undefined) return base;
+  base = null;
+  for (const f of ["meme.png", "meme.jpg", "meme.jpeg"]) {
+    try {
+      const buf = await readFile(path.join(process.cwd(), "public", "share", f));
+      const size = imageSize(buf);
+      if (size) base = { src: `data:image/${f.endsWith("png") ? "png" : "jpeg"};base64,${buf.toString("base64")}`, ...size };
+      break;
+    } catch {}
+  }
+  return base;
+}
+
+/** Width and height from a PNG or JPEG header. */
+function imageSize(b: Buffer): { w: number; h: number } | null {
+  if (b.length > 24 && b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) return null;
+      const marker = b[i + 1];
+      const len = b.readUInt16BE(i + 2);
+      // SOF0..SOF15 except DHT (C4), JPG (C8) and DAC (CC) carry the size.
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+
 export async function GET(req: Request) {
   const ref = new URL(req.url).searchParams.get("ref")?.trim().toLowerCase() ?? "";
   const s = ref ? await byCode(ref).catch(() => null) : null;
   const name = s?.handle ? `@${s.handle}` : null;
   const link = `${SITE.replace(/^https?:\/\//, "")}${s ? `/?ref=${s.handle ?? s.code}` : ""}`;
-  const [icon, inter] = await Promise.all([logo(), interFonts()]);
+  const [icon, inter, own] = await Promise.all([logo(), interFonts(), baseMeme()]);
+
+  if (own) {
+    const W = 1080;
+    const picH = Math.round((W * own.h) / own.w);
+    const TOP = 130;
+    const BOTTOM = 190;
+    return new ImageResponse(
+      (
+        <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: "#050506", color: "#ededef", fontFamily: inter.length ? "Inter" : "sans-serif" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: TOP, padding: "0 48px", borderBottom: `3px solid ${GREEN}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={icon} width={50} height={50} alt="" />
+              <span style={{ fontSize: 44, fontWeight: 800 }}>Kixo</span>
+            </div>
+            {name && <span style={{ fontSize: 40, fontWeight: 800, color: GREEN }}>{name}</span>}
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={own.src} width={W} height={picH} alt="" style={{ display: "flex" }} />
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, height: BOTTOM, padding: "0 48px", borderTop: `3px solid ${GREEN}` }}>
+            <span style={{ fontSize: 28, color: "#a1a1aa" }}>Join the Kixo waitlist · AI agent free for 1 year</span>
+            <span style={{ fontSize: 40, fontWeight: 800, color: "#22d3ee" }}>{link}</span>
+          </div>
+        </div>
+      ),
+      { width: W, height: TOP + picH + BOTTOM, fonts: inter.length ? inter : undefined, headers: { "cache-control": "public, max-age=300" } },
+    );
+  }
 
   const pill = (text: string, color: string) => (
     <span style={{ display: "flex", alignSelf: "flex-start", padding: "8px 18px", borderRadius: 999, border: `2px solid ${color}`, color, fontSize: 26, fontWeight: 800, letterSpacing: 3 }}>{text}</span>
