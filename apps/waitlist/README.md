@@ -8,7 +8,12 @@ after launch, so their place, invite link, invited friends and offer are already
   someone's link moves them up 3 places.
 - Invite codes and who invited whom: the app's own `profiles.ref_code` / `referred_by`,
   so a link shared now (`/?ref=code`) keeps working in the app.
-- Offers: `src/lib/offers.ts`.
+- Offers and the gift list: `src/lib/offers.ts`.
+- Share video: put the one video everyone shares at `public/share/base.mp4` (vertical,
+  up to 60 s). Each person's copy gets animated bands with their code, name and link, made
+  in their browser. Without the file, a short made-up edit is used instead.
+- Invites: a link (`/?ref=code` or `/?ref=@name`), or typed in when signing up or within
+  the first day after (a code, or the @name seen in someone's video).
 
 ## Put it online
 1. Supabase, SQL Editor: run `supabase/migrations/0019_waitlist_accounts.sql` once

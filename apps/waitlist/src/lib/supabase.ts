@@ -27,9 +27,19 @@ export function rememberRef() {
   try {
     const q = new URLSearchParams(window.location.search);
     const ref = q.get("ref")?.trim().toLowerCase();
-    if (ref && /^[a-z0-9]{6,12}$/.test(ref)) localStorage.setItem(REF_KEY, ref);
+    // A code (?ref=k7pxq2m) or a Kixo name (?ref=@name).
+    if (ref && /^@?[a-z0-9_]{3,20}$/.test(ref)) localStorage.setItem(REF_KEY, ref);
     const src = (q.get("utm_source") ?? q.get("src"))?.trim().slice(0, 64);
     if (src) localStorage.setItem(SRC_KEY, src);
+  } catch {}
+}
+
+/** An invite typed in by hand: a code, or someone's @name from their video. */
+export function setRef(ref: string) {
+  try {
+    const v = ref.trim().toLowerCase();
+    if (v) localStorage.setItem(REF_KEY, v);
+    else localStorage.removeItem(REF_KEY);
   } catch {}
 }
 

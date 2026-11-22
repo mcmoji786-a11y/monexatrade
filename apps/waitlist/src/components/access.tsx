@@ -5,14 +5,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { callbackUrl, rememberRef, savedRef, supabase } from "@/lib/supabase";
+import { callbackUrl, rememberRef, savedRef, setRef, supabase } from "@/lib/supabase";
 import { AI_FREE, BASE_FEE_PCT, feeAfter, nextStep, offerFor, OFFERS } from "@/lib/offers";
 import { VideoMaker } from "./video-maker";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 const TURNSTILE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
-type Status = { code: string; handle: string | null; rank: number; position: number; total: number; referrals: number; joinedAt: string; name: string | null; avatar: string | null; email: string | null };
+type Claim = "ok" | "none" | "unknown" | "self" | "closed";
+type Status = { invitedBy: string | null; canName: boolean; claim: Claim; code: string; handle: string | null; rank: number; position: number; total: number; referrals: number; joinedAt: string; name: string | null; avatar: string | null; email: string | null };
 
 /* ---------------- Turnstile (only when the site key is set) ---------------- */
 
@@ -61,6 +62,8 @@ function useStatus(session: Session | null) {
     try {
       const res = await fetch("/api/me", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ ref, source }) });
       const v = (await res.json()) as Status & { error?: string };
+      // An invite is sent once: whatever came of it, it is not sent again.
+      if (res.ok && v.claim !== "none") setRef("");
       setS({ token, status: res.ok ? v : null, error: res.ok ? null : (v.error ?? "Could not load your pass") });
     } catch {
       setS({ token, status: null, error: "Could not load your pass, check your connection" });
@@ -179,6 +182,7 @@ function SignIn() {
       <p className="panel-sub">Your Kixo account opens now. On launch day, sign in the same way and everything is waiting</p>
       {step === "start" ? (
         <>
+          <InvitedBy />
           <button type="button" className="btn-google" onClick={google} disabled={busy}>
             <GoogleMark />
             Continue with Google
@@ -209,6 +213,29 @@ function SignIn() {
         </button>
       )}
     </div>
+  );
+}
+
+/** Who sent them: filled from their invite link, or typed in from a video they saw (a
+ *  code, or the @name shown in it). Kept until the account is made, then sent once. */
+function InvitedBy() {
+  const [v, setV] = useState(() => savedRef().ref ?? "");
+  const [fromLink] = useState(() => !!savedRef().ref);
+  return (
+    <label className="invited">
+      <span>{fromLink ? "Invited by" : "Invited by someone? Optional"}</span>
+      <input
+        value={v}
+        onChange={(e) => {
+          const next = e.target.value.toLowerCase().replace(/[^a-z0-9_@]/g, "").slice(0, 21);
+          setV(next);
+          setRef(next);
+        }}
+        placeholder="Their code or @name"
+        autoComplete="off"
+        aria-label="Invite code or name"
+      />
+    </label>
   );
 }
 
@@ -280,6 +307,13 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
           Card image
         </a>
       </div>
+      {s.invitedBy ? (
+        <p className="note">
+          Invited by <b className="accent">{s.invitedBy}</b>
+        </p>
+      ) : s.canName ? (
+        <NameInviter last={s.claim} onDone={onChange} />
+      ) : null}
       <HandleField handle={s.handle} token={token} onSaved={onChange} />
       <button type="button" className="btn-video" onClick={() => setVideo(true)}>
         <span className="live" aria-hidden="true" />
@@ -288,7 +322,7 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
           <small>A 9 second edit with your name and link</small>
         </span>
       </button>
-      {video && <VideoMaker info={{ name: s.handle ? `@${s.handle}` : (s.name?.split(" ")[0] ?? "a new trader"), position: s.position, tier: offerFor(s.referrals, s.rank).name, link }} onClose={() => setVideo(false)} />}
+      {video && <VideoMaker info={{ name: s.handle ? `@${s.handle}` : (s.name?.split(" ")[0] ?? "a new trader"), handle: s.handle ? `@${s.handle}` : null, code: s.code, position: s.position, tier: offerFor(s.referrals, s.rank).name, link }} onClose={() => setVideo(false)} />}
       <p className="note">
         Signed in as {s.email ?? "your account"} ·{" "}
         <button type="button" className="link" onClick={signOut}>
@@ -296,6 +330,35 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
         </button>
       </p>
     </div>
+  );
+}
+
+/** After sign-in, for someone who came on their own: name who sent them (code or @name),
+ *  within a day of opening the account. */
+function NameInviter({ last, onDone }: { last: Claim; onDone?: () => void }) {
+  const [v, setV] = useState("");
+  const [sent, setSent] = useState(false);
+  const why: Partial<Record<Claim, string>> = { unknown: "No one has that code or name. Check it and try again", self: "That is your own code", closed: "An invite can only be added in the first day" };
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!v.trim()) return;
+    setRef(v);
+    setSent(true);
+    onDone?.();
+  };
+  return (
+    <form className="handle" onSubmit={submit}>
+      <label className="field-label" htmlFor="inviter">
+        Invited by someone? Enter their code or @name
+      </label>
+      <div className="link-row">
+        <input id="inviter" value={v} onChange={(e) => (setV(e.target.value.toLowerCase().replace(/[^a-z0-9_@]/g, "").slice(0, 21)), setSent(false))} placeholder="k7pxq2m or @name" autoComplete="off" />
+        <button type="submit" className="btn-ghost" disabled={!v.trim()}>
+          Add
+        </button>
+      </div>
+      {sent && why[last] && <p className="note bad">{why[last]}</p>}
+    </form>
   );
 }
 

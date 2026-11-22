@@ -82,13 +82,41 @@ async function ensureProfile(u: User): Promise<Profile> {
   throw new Error("could not make an invite code");
 }
 
-/** Records who invited a new account: once, only within a day of opening it, never itself. */
-async function claim(u: User, p: Profile, ref: string | null) {
-  if (!ref || !validCode(ref) || p.referred_by || ref === p.ref_code) return;
-  if (Date.now() - u.createdAt > CLAIM_WINDOW_MS) return;
-  const owner = (await rows<{ id: string }>(`profiles?ref_code=eq.${ref}&select=id`))[0];
-  if (!owner || owner.id === u.id) return;
-  await rest(`profiles?id=eq.${u.id}&referred_by=is.null`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ referred_by: owner.id, referred_at: new Date().toISOString() }) });
+/** The account behind an invite: its code, or its public Kixo name (with or without @),
+ *  as seen in someone's share video. */
+async function referrer(ref: string): Promise<string | null> {
+  const r = ref.trim().toLowerCase();
+  const name = r.replace(/^@/, "");
+  if (!r.startsWith("@") && validCode(r)) {
+    const byCode = (await rows<{ id: string }>(`profiles?ref_code=eq.${r}&select=id`))[0];
+    if (byCode) return byCode.id;
+  }
+  if (!/^[a-z0-9_]{3,20}$/.test(name)) return null;
+  const byName = (await rows<{ user_id: string }>(`trader_profiles?handle=eq.${name}&select=user_id`))[0];
+  return byName?.user_id ?? null;
+}
+
+/** May this account still name who invited it: not yet, and opened within a day. */
+const canName = (u: User, p: Profile) => !p.referred_by && Date.now() - u.createdAt <= CLAIM_WINDOW_MS;
+
+/** Records who invited a new account: once, only within a day of opening it, never itself.
+ *  "ok", or why not. */
+async function claim(u: User, p: Profile, ref: string | null): Promise<"ok" | "none" | "unknown" | "self" | "closed"> {
+  if (!ref) return "none";
+  if (!canName(u, p)) return "closed";
+  const owner = await referrer(ref);
+  if (!owner) return "unknown";
+  if (owner === u.id) return "self";
+  const res = await rest(`profiles?id=eq.${u.id}&referred_by=is.null`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ referred_by: owner, referred_at: new Date().toISOString() }) });
+  return res.ok ? "ok" : "closed";
+}
+
+/** Who invited the account, as shown to it: their Kixo name, or a shortened code. */
+async function invitedBy(userId: string): Promise<string | null> {
+  const me = (await rows<{ referred_by: string | null }>(`profiles?id=eq.${userId}&select=referred_by`))[0];
+  if (!me?.referred_by) return null;
+  const [tp, p] = await Promise.all([rows<{ handle: string }>(`trader_profiles?user_id=eq.${me.referred_by}&select=handle`), rows<{ ref_code: string | null }>(`profiles?id=eq.${me.referred_by}&select=ref_code`)]);
+  return tp[0]?.handle ? `@${tp[0].handle}` : `${(p[0]?.ref_code ?? "kixo").slice(0, 3)}••••`;
 }
 
 export type Status = {
@@ -102,12 +130,20 @@ export type Status = {
   total: number;
   referrals: number;
   joinedAt: string;
+  /** Who invited them (Kixo name or short code), if anyone. */
+  invitedBy: string | null;
+  /** They can still enter who invited them. */
+  canName: boolean;
+  /** What happened to the invite sent with this request. */
+  claim: "ok" | "none" | "unknown" | "self" | "closed";
   name: string | null;
   avatar: string | null;
   email: string | null;
 };
 
-async function placeOf(userId: string, code: string): Promise<Omit<Status, "name" | "avatar" | "email"> | null> {
+type Place = Omit<Status, "name" | "avatar" | "email" | "invitedBy" | "canName" | "claim">;
+
+async function placeOf(userId: string, code: string): Promise<Place | null> {
   const me = (await rows<{ number: number; joined_at: string }>(`waitlist_members?user_id=eq.${userId}&select=number,joined_at`))[0];
   if (!me) return null;
   const [rank, all, referrals, handle] = await Promise.all([
@@ -123,13 +159,13 @@ async function placeOf(userId: string, code: string): Promise<Omit<Status, "name
  *  just joined (the welcome email goes only then). */
 export async function join(u: User, ref: string | null, source: string | null): Promise<Status & { created: boolean }> {
   const p = await ensureProfile(u);
-  await claim(u, p, ref);
+  const claimed = await claim(u, p, ref);
   const ins = await rest("waitlist_members?on_conflict=user_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=representation", body: JSON.stringify({ user_id: u.id, source }) });
   if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status})`);
   const created = ((await ins.json()) as unknown[]).length > 0;
-  const place = await placeOf(u.id, p.ref_code!);
+  const [place, by] = await Promise.all([placeOf(u.id, p.ref_code!), invitedBy(u.id)]);
   if (!place) throw new Error("waitlist place missing");
-  return { ...place, name: u.name, avatar: u.avatar, email: u.email, created };
+  return { ...place, invitedBy: by, canName: !by && Date.now() - u.createdAt <= CLAIM_WINDOW_MS, claim: claimed, name: u.name, avatar: u.avatar, email: u.email, created };
 }
 
 export const validHandle = (h: string) => /^[a-z0-9_]{3,20}$/.test(h);
@@ -159,7 +195,7 @@ export async function board(limit = 20): Promise<BoardRow[]> {
 }
 
 /** A person's public place by invite code, for their share card. */
-export async function byCode(code: string): Promise<Omit<Status, "name" | "avatar" | "email"> | null> {
+export async function byCode(code: string): Promise<Place | null> {
   if (!validCode(code)) return null;
   const owner = (await rows<{ id: string }>(`profiles?ref_code=eq.${code}&select=id`))[0];
   return owner ? placeOf(owner.id, code) : null;

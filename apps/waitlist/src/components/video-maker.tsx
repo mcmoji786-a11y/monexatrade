@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type VideoInfo = { name: string; position: number; tier: string; link: string };
+export type VideoInfo = { name: string; handle: string | null; code: string; position: number; tier: string; link: string };
 
 const W = 720;
 const H = 1280;
@@ -273,7 +273,7 @@ function frame(g: CanvasRenderingContext2D, t: number, v: VideoInfo, mark: HTMLI
       g.font = font(size, 600, true);
     }
     centered(g, url, 714, size, "#22d3ee", 600, true);
-    centered(g, "link in bio", 860, 34, MUTED, 600, true);
+    centered(g, `code ${v.code.toUpperCase()}`, 860, 40, EMERALD, 700, true);
     g.globalAlpha = 1;
   }
 
@@ -292,6 +292,113 @@ function frame(g: CanvasRenderingContext2D, t: number, v: VideoInfo, mark: HTMLI
   g.fillText(v.link.replace(/^https?:\/\//, "").split("/?")[0], W - 48, H - 50);
 }
 
+/* ---------------- The founder's video with the person's code on it ---------------- */
+
+/** The shared video everyone posts (public/share/base.mp4). Without it, the made-up edit
+ *  above is used instead. */
+const BASE_VIDEO = "/share/base.mp4";
+/** Longest video recorded, in seconds. */
+const MAX_BASE = 60;
+
+function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  g.beginPath();
+  g.roundRect(x, y, w, h, r);
+}
+
+/** The bands over the shared video: Kixo and the person's code on top, their name and link
+ *  below. They slide in, the link types itself out, and a sheen crosses the code every
+ *  few seconds so the eye goes to it. */
+function overlay(g: CanvasRenderingContext2D, t: number, v: VideoInfo, mark: HTMLImageElement | null, w: number, h: number) {
+  const u = w / 720;
+  const inTop = ease(t / 0.45);
+  const inBottom = ease((t - 0.15) / 0.5);
+
+  // Top band.
+  const topH = 118 * u;
+  const ty = -topH * (1 - inTop);
+  g.fillStyle = "rgba(5,5,6,0.84)";
+  g.fillRect(0, ty, w, topH);
+  g.fillStyle = EMERALD;
+  g.fillRect(0, ty + topH - 3 * u, w * inTop, 3 * u);
+  if (mark) g.drawImage(mark, 32 * u, ty + 33 * u, 50 * u, 50 * u);
+  g.textAlign = "left";
+  g.font = font(38 * u, 800);
+  g.fillStyle = TEXT;
+  g.fillText("Kixo", 94 * u, ty + 72 * u);
+  // The code chip.
+  const label = `CODE ${v.code.toUpperCase()}`;
+  g.font = font(30 * u, 700, true);
+  const cw = g.measureText(label).width + 40 * u;
+  const cx = w - 32 * u - cw;
+  const cy = ty + 30 * u;
+  const ch = 56 * u;
+  g.save();
+  roundRect(g, cx, cy, cw, ch, 14 * u);
+  g.fillStyle = "rgba(47,211,138,0.16)";
+  g.fill();
+  g.lineWidth = 2.5 * u;
+  g.strokeStyle = EMERALD;
+  g.stroke();
+  g.clip();
+  const sweep = (t % 3) / 0.7;
+  if (sweep < 1) {
+    const sx = cx - 80 * u + (cw + 160 * u) * sweep;
+    const grad = g.createLinearGradient(sx - 60 * u, 0, sx + 60 * u, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0.35)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(cx, cy, cw, ch);
+  }
+  g.restore();
+  g.font = font(30 * u, 700, true);
+  g.fillStyle = EMERALD;
+  g.fillText(label, cx + 20 * u, cy + 38 * u);
+
+  // Bottom band.
+  const botH = 210 * u;
+  const by = h - botH * inBottom;
+  g.fillStyle = "rgba(5,5,6,0.86)";
+  g.fillRect(0, by, w, botH);
+  g.fillStyle = EMERALD;
+  g.fillRect(0, by, w * inBottom, 3 * u);
+  g.textAlign = "left";
+  g.font = font(40 * u, 800);
+  g.fillStyle = TEXT;
+  g.fillText("Join me on Kixo", 32 * u, by + 62 * u);
+  if (v.handle) {
+    g.textAlign = "right";
+    g.font = font(34 * u, 800);
+    g.fillStyle = EMERALD;
+    g.fillText(v.handle, w - 32 * u, by + 62 * u);
+  }
+  // The link types itself out.
+  const url = v.link.replace(/^https?:\/\//, "");
+  const shown = url.slice(0, Math.ceil(url.length * ease((t - 0.5) / 1.2)));
+  let size = 34 * u;
+  g.font = font(size, 700, true);
+  while (g.measureText(url).width > w - 64 * u && size > 16 * u) {
+    size -= 1;
+    g.font = font(size, 700, true);
+  }
+  g.textAlign = "left";
+  g.fillStyle = "#22d3ee";
+  g.fillText(shown + (Math.floor(t * 2) % 2 === 0 && shown.length < url.length ? "_" : ""), 32 * u, by + 118 * u);
+  g.font = font(26 * u, 600);
+  g.fillStyle = MUTED;
+  g.fillText(`AI agent free for 1 year · use my code ${v.code.toUpperCase()}`, 32 * u, by + 168 * u);
+}
+
+/** Draws the video to fill the canvas (cropping the edges if its shape differs). */
+function cover(g: CanvasRenderingContext2D, el: HTMLVideoElement, w: number, h: number) {
+  const s = Math.max(w / el.videoWidth, h / el.videoHeight);
+  const dw = el.videoWidth * s;
+  const dh = el.videoHeight * s;
+  g.fillStyle = "#050506";
+  g.fillRect(0, 0, w, h);
+  g.drawImage(el, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
 /* ---------------- Recording ---------------- */
 
 function pickType(): { mime: string; ext: string } {
@@ -304,21 +411,66 @@ function pickType(): { mime: string; ext: string } {
   return list.find((x) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(x.mime)) ?? { mime: "", ext: "webm" };
 }
 
+/** The caption that goes with the video: the code and the link, ready to paste. */
+export function captionFor(v: VideoInfo) {
+  return `I'm on the Kixo waitlist: the AI that trades Solana memecoins for you. Use my code ${v.code.toUpperCase()} or join with my link: ${v.link}`;
+}
+
+type Mode = "checking" | "base" | "edit";
+
 export function VideoMaker({ info, onClose }: { info: VideoInfo; onClose: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const mark = useRef<HTMLImageElement | null>(null);
+  const base = useRef<HTMLVideoElement | null>(null);
+  const [mode, setMode] = useState<Mode>("checking");
+  const [size, setSize] = useState({ w: W, h: H });
+  const [copied, setCopied] = useState(false);
   const [state, setState] = useState<{ kind: "idle" } | { kind: "rec"; left: number } | { kind: "done"; url: string; file: File } | { kind: "error"; text: string }>({ kind: "idle" });
 
-  // The first frame shows straight away, as a preview.
+  // Kixo's mark, then the shared video if there is one; the preview frame follows.
   useEffect(() => {
+    let gone = false;
     const img = new Image();
     img.src = "/kixo-mark.png";
-    img.onload = () => {
-      mark.current = img;
-      const g = canvas.current?.getContext("2d");
-      if (g) frame(g, 1.6, info, img);
+    img.onload = () => (mark.current = img);
+    const el = document.createElement("video");
+    el.src = BASE_VIDEO;
+    el.playsInline = true;
+    el.preload = "auto";
+    el.onloadeddata = () => {
+      if (gone) return;
+      const scale = Math.min(1, 1280 / Math.max(el.videoWidth, el.videoHeight));
+      base.current = el;
+      setSize({ w: Math.round((el.videoWidth * scale) / 2) * 2, h: Math.round((el.videoHeight * scale) / 2) * 2 });
+      setMode("base");
+      el.currentTime = Math.min(1.5, (el.duration || 2) / 2);
     };
-  }, [info]);
+    el.onerror = () => !gone && setMode("edit");
+    return () => {
+      gone = true;
+      el.removeAttribute("src");
+    };
+  }, []);
+
+  // The preview frame.
+  useEffect(() => {
+    const g = canvas.current?.getContext("2d");
+    if (!g || mode === "checking" || state.kind !== "idle") return;
+    const draw = () => {
+      if (mode === "base" && base.current) {
+        cover(g, base.current, size.w, size.h);
+        overlay(g, 2.5, info, mark.current, size.w, size.h);
+      } else frame(g, 1.6, info, mark.current);
+    };
+    draw();
+    const el = base.current;
+    el?.addEventListener("seeked", draw);
+    const id = setTimeout(draw, 400);
+    return () => {
+      el?.removeEventListener("seeked", draw);
+      clearTimeout(id);
+    };
+  }, [mode, size, info, state.kind]);
 
   useEffect(() => () => (state.kind === "done" ? URL.revokeObjectURL(state.url) : undefined), [state]);
 
@@ -329,44 +481,75 @@ export function VideoMaker({ info, onClose }: { info: VideoInfo; onClose: () => 
     const type = pickType();
     const ctx = new AudioContext();
     await ctx.resume();
-    const out = ctx.createGain();
-    out.gain.value = 0.8;
     const dest = ctx.createMediaStreamDestination();
-    out.connect(dest);
-    out.connect(ctx.destination);
+    const el = mode === "base" ? base.current : null;
+    let length = LENGTH;
+    if (el) {
+      // The shared video's own sound goes into the recording (and to the speakers).
+      const src = ctx.createMediaElementSource(el);
+      src.connect(dest);
+      src.connect(ctx.destination);
+      el.muted = false;
+      el.currentTime = 0;
+      length = Math.min(MAX_BASE, el.duration || MAX_BASE);
+    } else {
+      const out = ctx.createGain();
+      out.gain.value = 0.8;
+      out.connect(dest);
+      out.connect(ctx.destination);
+      scheduleBeat(ctx, out, ctx.currentTime + 0.1);
+    }
     const stream = new MediaStream([...c.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-    const rec = new MediaRecorder(stream, { ...(type.mime ? { mimeType: type.mime } : {}), videoBitsPerSecond: 5_000_000 });
+    const rec = new MediaRecorder(stream, { ...(type.mime ? { mimeType: type.mime } : {}), videoBitsPerSecond: 6_000_000 });
     const chunks: Blob[] = [];
     rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     rec.onstop = () => {
+      el?.pause();
       void ctx.close();
       const blob = new Blob(chunks, { type: type.mime.split(";")[0] || "video/webm" });
-      const file = new File([blob], `kixo-${info.name.replace(/[^a-z0-9_]/gi, "") || "pass"}.${type.ext}`, { type: blob.type });
+      const file = new File([blob], `kixo-${info.code}.${type.ext}`, { type: blob.type });
       setState({ kind: "done", url: URL.createObjectURL(blob), file });
     };
-    const start = ctx.currentTime + 0.1;
-    scheduleBeat(ctx, out, start);
     rec.start(250);
-    const t0 = performance.now() + 100;
-    const tick = () => {
-      const t = (performance.now() - t0) / 1000;
-      if (t >= LENGTH) {
+    const t0 = performance.now() + (el ? 0 : 100);
+    if (el) await el.play().catch(() => {});
+    let stopped = false;
+    const stop = () => {
+      if (!stopped) {
+        stopped = true;
         rec.stop();
-        return;
       }
-      frame(g, Math.max(0, t), info, mark.current);
-      setState({ kind: "rec", left: Math.ceil(LENGTH - t) });
+    };
+    if (el) el.onended = stop;
+    const tick = () => {
+      if (stopped) return;
+      const t = el ? el.currentTime : (performance.now() - t0) / 1000;
+      if (t >= length - 0.02) return stop();
+      if (el) {
+        cover(g, el, size.w, size.h);
+        overlay(g, t, info, mark.current, size.w, size.h);
+      } else frame(g, Math.max(0, t), info, mark.current);
+      setState({ kind: "rec", left: Math.max(1, Math.ceil(length - t)) });
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   };
 
+  const caption = captionFor(info);
+  const copyCaption = async () => {
+    try {
+      await navigator.clipboard.writeText(caption);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
   const share = async () => {
     if (state.kind !== "done") return;
-    const text = `I'm #${info.position.toLocaleString("en-US")} on the Kixo waitlist. Get your pass: ${info.link}`;
+    // The caption is copied too: apps that drop shared text (TikTok, Instagram) can paste it.
+    void copyCaption();
     if (navigator.canShare?.({ files: [state.file] })) {
       try {
-        await navigator.share({ files: [state.file], text });
+        await navigator.share({ files: [state.file], text: caption });
         return;
       } catch {}
     }
@@ -385,13 +568,15 @@ export function VideoMaker({ info, onClose }: { info: VideoInfo; onClose: () => 
             Close
           </button>
         </div>
-        <div className="vm-stage">{state.kind === "done" ? <video src={state.url} controls autoPlay loop playsInline /> : <canvas ref={canvas} width={W} height={H} />}</div>
+        <div className="vm-stage" style={{ aspectRatio: `${size.w} / ${size.h}` }}>
+          {state.kind === "done" ? <video src={state.url} controls autoPlay loop playsInline /> : <canvas ref={canvas} width={size.w} height={size.h} />}
+        </div>
         {state.kind === "idle" && (
-          <button type="button" className="btn-primary" onClick={record}>
+          <button type="button" className="btn-primary" onClick={record} disabled={mode === "checking"}>
             Make my video
           </button>
         )}
-        {state.kind === "rec" && <p className="vm-note">Making your video, {state.left}s. Keep this tab open</p>}
+        {state.kind === "rec" && <p className="vm-note">Making your video, {state.left}s left. Keep this tab open</p>}
         {state.kind === "error" && <p className="note bad">{state.text}</p>}
         {state.kind === "done" && (
           <div className="vm-actions">
@@ -401,12 +586,18 @@ export function VideoMaker({ info, onClose }: { info: VideoInfo; onClose: () => 
             <a className="btn-ghost" href={state.url} download={state.file.name}>
               Download
             </a>
-            <a className="btn-ghost" href={`https://x.com/intent/post?text=${encodeURIComponent(`I'm #${info.position.toLocaleString("en-US")} on the Kixo waitlist. The AI that trades memecoins for you`)}&url=${encodeURIComponent(info.link)}`} target="_blank" rel="noopener noreferrer">
+            <a className="btn-ghost" href={`https://x.com/intent/post?text=${encodeURIComponent(caption)}`} target="_blank" rel="noopener noreferrer">
               Post on X
             </a>
           </div>
         )}
-        <p className="vm-note">Post it on TikTok, Reels, Shorts or X with your link. Every friend who joins with it moves you up and is a ticket in the gift draw</p>
+        <div className="caption">
+          <p>{caption}</p>
+          <button type="button" className="link" onClick={copyCaption}>
+            {copied ? "Copied" : "Copy caption"}
+          </button>
+        </div>
+        <p className="vm-note">Your code and link are on the video and in the caption. Every friend who joins with them moves you up and is a ticket in the gift draw</p>
       </div>
     </div>
   );
