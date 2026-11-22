@@ -2579,3 +2579,17 @@ html[data-signed-in="1"] .mobile-cta {
     font-size: 16px;
   }
 }
+
+/* Phones: the pass button stays above the iPhone home bar and Safari's bottom toolbar, and
+   reacts at once to a tap. */
+@media (max-width: 640px) {
+  button.mobile-cta {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 55;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .foot {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -31,7 +31,8 @@ export const metadata: Metadata = {
   icons: { icon: "/kixo-mark.png" },
 };
 
-export const viewport: Viewport = { themeColor: "#050506" };
+// viewport-fit=cover: the phone pass button can sit above the iPhone home bar (safe area).
+export const viewport: Viewport = { themeColor: "#050506", viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
