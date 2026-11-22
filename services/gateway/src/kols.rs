@@ -64,7 +64,7 @@ fn seen() -> &'static Mutex<Seen> {
     S.get_or_init(|| Mutex::new(Seen::default()))
 }
 
-fn addresses() -> HashSet<String> {
+pub(crate) fn addresses() -> HashSet<String> {
     list().read().expect("kols lock").iter().map(|k| k.address.clone()).collect()
 }
 

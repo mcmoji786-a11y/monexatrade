@@ -54,6 +54,7 @@ mod launch_tx;
 mod solana_tx;
 mod trade;
 mod txdecode;
+mod wallet_watch;
 
 use anyhow::Result;
 use axum::{
@@ -498,6 +499,7 @@ async fn main() -> Result<()> {
 
     let kol_ctx = kols::KolCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(kols::run(state.clone()));
+    tokio::spawn(wallet_watch::run(state.clone()));
     let kol_routes: Router<Arc<AppState>> = Router::new()
         .route("/kols", get(kols::kols))
         .route("/kols/coins", get(kols::coins))
@@ -2194,12 +2196,17 @@ async fn ws_wallets(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>, Qu
 /// then each new trade as it is decoded. No extra RPC calls: it reads the trade books.
 async fn stream_wallets(mut socket: WebSocket, state: Arc<AppState>, wallets: std::collections::HashSet<String>) {
     let mut rx = state.trades.subscribe();
-    let symbol = |state: &AppState, mint: &str| state.board.lock().expect("board lock").tokens.get(mint).map(|t| t.token.symbol.clone());
-    let history: Vec<serde_json::Value> = state
-        .books
-        .lock()
-        .expect("books lock")
-        .trades_by(&wallets, 200)
+    // While this page is open its wallets are followed on every coin (wallet_watch.rs).
+    let _follow = wallet_watch::hold(&wallets);
+    let symbol = |state: &AppState, mint: &str| {
+        let b = state.board.lock().expect("board lock");
+        b.tokens.get(mint).map(|t| t.token.symbol.clone()).or_else(|| b.markets.get(mint).map(|m| m.symbol)).filter(|s| !s.is_empty()).or_else(|| wallet_watch::symbol(mint))
+    };
+    let mut past = state.books.lock().expect("books lock").trades_by(&wallets, 200);
+    past.extend(wallet_watch::recent_by(&wallets, 200));
+    past.sort_by(|a, b| b.1.ts.cmp(&a.1.ts));
+    past.truncate(200);
+    let history: Vec<serde_json::Value> = past
         .into_iter()
         .map(|(mint, row)| json!({ "mint": mint, "symbol": symbol(&state, &mint), "trade": row }))
         .collect();
@@ -2652,6 +2659,7 @@ async fn metrics_handler(State(state): State<Arc<AppState>>) -> Json<serde_json:
             "coins_on_discover": coins_on_discover,
             "smart_wallets": smart_wallets,
             "stream_connected": s.connected,
+            "wallet_watch": wallet_watch::stats(),
         },
         "business": { "trading_live": false, "traders": 0, "volume_usd": 0, "fees_usd": 0, "revenue_usd": 0 },
     }))

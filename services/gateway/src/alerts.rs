@@ -304,7 +304,12 @@ fn alert(c: &AlertsCtx, row: Row, title: String, body: String, link: Option<Stri
 
 fn symbol_of(state: &AppState, mint: &str) -> String {
     let b = state.board.lock().expect("board lock");
-    b.tokens.get(mint).map(|t| t.token.symbol.clone()).or_else(|| b.markets.get(mint).map(|m| m.symbol)).filter(|s| !s.is_empty()).unwrap_or_else(|| short(mint))
+    b.tokens.get(mint).map(|t| t.token.symbol.clone()).or_else(|| b.markets.get(mint).map(|m| m.symbol)).filter(|s| !s.is_empty()).or_else(|| crate::wallet_watch::symbol(mint)).unwrap_or_else(|| short(mint))
+}
+
+/// Every wallet some user gets alerts for (followed on-chain by wallet_watch.rs).
+pub fn watched_wallets() -> HashSet<String> {
+    mem().lock().expect("alerts lock").by_wallet.keys().cloned().collect()
 }
 
 /// The live market cap in USD: our own engine first, then the market board.

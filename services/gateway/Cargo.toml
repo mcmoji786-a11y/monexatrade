@@ -26,6 +26,8 @@ tracing-subscriber.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 feed-rs = "2"
 futures-util = "0.3"
+# Wallet watcher (wallet_watch.rs): its own logsSubscribe stream, same version as ingest.
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 ring = "0.17"
 rcgen = { version = "0.13", default-features = false, features = ["ring"] }
