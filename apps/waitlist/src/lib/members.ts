@@ -101,14 +101,39 @@ const canName = (u: User, p: Profile) => !p.referred_by && Date.now() - u.create
 
 /** Records who invited a new account: once, only within a day of opening it, never itself.
  *  "ok", or why not. */
-async function claim(u: User, p: Profile, ref: string | null): Promise<"ok" | "none" | "unknown" | "self" | "closed"> {
-  if (!ref) return "none";
-  if (!canName(u, p)) return "closed";
+async function claim(u: User, p: Profile, ref: string | null): Promise<{ result: "ok" | "none" | "unknown" | "self" | "closed"; owner?: string }> {
+  if (!ref) return { result: "none" };
+  if (!canName(u, p)) return { result: "closed" };
   const owner = await referrer(ref);
-  if (!owner) return "unknown";
-  if (owner === u.id) return "self";
-  const res = await rest(`profiles?id=eq.${u.id}&referred_by=is.null`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ referred_by: owner, referred_at: new Date().toISOString() }) });
-  return res.ok ? "ok" : "closed";
+  if (!owner) return { result: "unknown" };
+  if (owner === u.id) return { result: "self" };
+  // `return=representation` tells whether this request is the one that set it.
+  const res = await rest(`profiles?id=eq.${u.id}&referred_by=is.null`, { method: "PATCH", prefer: "return=representation", body: JSON.stringify({ referred_by: owner, referred_at: new Date().toISOString() }) });
+  const changed = res.ok && ((await res.json()) as unknown[]).length > 0;
+  return changed ? { result: "ok", owner } : { result: "closed" };
+}
+
+/** The friends who joined with someone's link, newest first: their Kixo name, or
+ *  "A new trader" without one, and when. */
+async function friendsOf(userId: string): Promise<{ name: string; at: string | null }[]> {
+  const list = await rows<{ id: string; referred_at: string | null }>(`profiles?referred_by=eq.${userId}&select=id,referred_at&order=referred_at.desc.nullslast&limit=50`);
+  if (!list.length) return [];
+  const names = await rows<{ user_id: string; handle: string }>(`trader_profiles?user_id=in.(${list.map((r) => r.id).join(",")})&select=user_id,handle`);
+  const by = new Map(names.map((n) => [n.user_id, n.handle]));
+  return list.map((r) => ({ name: by.get(r.id) ? `@${by.get(r.id)}` : "A new trader", at: r.referred_at }));
+}
+
+/** An account's email, for telling it a friend joined (Supabase admin API). */
+export async function emailOf(userId: string): Promise<string | null> {
+  const res = await fetch(`${URL_}/auth/v1/admin/users/${userId}`, { headers: { apikey: KEY, authorization: `Bearer ${KEY}` }, cache: "no-store" });
+  if (!res.ok) return null;
+  return ((await res.json()) as { email?: string }).email ?? null;
+}
+
+/** Someone's place, by account (for the friend-joined email). */
+export async function placeById(userId: string): Promise<Place | null> {
+  const p = (await rows<{ ref_code: string | null }>(`profiles?id=eq.${userId}&select=ref_code`))[0];
+  return p?.ref_code ? placeOf(userId, p.ref_code) : null;
 }
 
 /** Who invited the account, as shown to it: their Kixo name, or a shortened code. */
@@ -136,12 +161,14 @@ export type Status = {
   canName: boolean;
   /** What happened to the invite sent with this request. */
   claim: "ok" | "none" | "unknown" | "self" | "closed";
+  /** The friends who joined with their link, newest first. */
+  friends: { name: string; at: string | null }[];
   name: string | null;
   avatar: string | null;
   email: string | null;
 };
 
-type Place = Omit<Status, "name" | "avatar" | "email" | "invitedBy" | "canName" | "claim">;
+type Place = Omit<Status, "name" | "avatar" | "email" | "invitedBy" | "canName" | "claim" | "friends">;
 
 async function placeOf(userId: string, code: string): Promise<Place | null> {
   const me = (await rows<{ number: number; joined_at: string }>(`waitlist_members?user_id=eq.${userId}&select=number,joined_at`))[0];
@@ -157,15 +184,26 @@ async function placeOf(userId: string, code: string): Promise<Place | null> {
 
 /** Puts the account on the list (or finds it there) and returns its place, and whether it
  *  just joined (the welcome email goes only then). */
-export async function join(u: User, ref: string | null, source: string | null): Promise<Status & { created: boolean }> {
+export async function join(u: User, ref: string | null, source: string | null): Promise<Status & { created: boolean; newInviter: string | null }> {
   const p = await ensureProfile(u);
   const claimed = await claim(u, p, ref);
   const ins = await rest("waitlist_members?on_conflict=user_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=representation", body: JSON.stringify({ user_id: u.id, source }) });
   if (!ins.ok) throw new Error(`waitlist insert failed (${ins.status})`);
   const created = ((await ins.json()) as unknown[]).length > 0;
-  const [place, by] = await Promise.all([placeOf(u.id, p.ref_code!), invitedBy(u.id)]);
+  const [place, by, friends] = await Promise.all([placeOf(u.id, p.ref_code!), invitedBy(u.id), friendsOf(u.id)]);
   if (!place) throw new Error("waitlist place missing");
-  return { ...place, invitedBy: by, canName: !by && Date.now() - u.createdAt <= CLAIM_WINDOW_MS, claim: claimed, name: u.name, avatar: u.avatar, email: u.email, created };
+  return {
+    ...place,
+    invitedBy: by,
+    canName: !by && Date.now() - u.createdAt <= CLAIM_WINDOW_MS,
+    claim: claimed.result,
+    friends,
+    name: u.name,
+    avatar: u.avatar,
+    email: u.email,
+    created,
+    newInviter: claimed.owner ?? null,
+  };
 }
 
 export const validHandle = (h: string) => /^[a-z0-9_]{3,20}$/.test(h);

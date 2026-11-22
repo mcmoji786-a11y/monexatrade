@@ -28,18 +28,41 @@ export function Leaderboard() {
     <div className="board-grid">
       <div className="board">
         <div className="board-head">
-          <span>Top inviters</span>
-          <span className="muted">Live</span>
+          <span>
+            <span className="live" aria-hidden="true" /> Top inviters
+          </span>
+          <span className="muted">updates every minute</span>
         </div>
-        {rows === null ? (
-          <p className="board-empty">Loading</p>
-        ) : rows.length === 0 ? (
-          <p className="board-empty">Nobody has invited a friend yet. The first invite puts you at the top</p>
-        ) : (
-          <ol>
-            {rows.map((r, i) => (
-              <li key={`${r.name}-${i}`} className={i < 3 ? "podium" : ""}>
-                <span className="b-rank">{String(i + 1).padStart(2, "0")}</span>
+        {/* The podium: first in the middle. A free place says what it takes. */}
+        <ol className="podium-row" aria-label="Top three">
+          {[1, 0, 2].map((i) => {
+            const r = rows?.[i];
+            return (
+              <li key={i} className={`step step-${i + 1} ${r ? "taken" : "open"}`}>
+                <span className="medal">{i + 1}</span>
+                {r ? (
+                  <>
+                    <b className="step-name">{r.name}</b>
+                    <span className="step-n">
+                      {r.referrals.toLocaleString("en-US")} friend{r.referrals === 1 ? "" : "s"}
+                    </span>
+                    <span className="step-tier">{offerByInvites(r.referrals).name}</span>
+                  </>
+                ) : (
+                  <>
+                    <b className="step-name">Open spot</b>
+                    <span className="step-n">{rows === null ? "Loading" : "Invite 1 friend to take it"}</span>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+        {rows && rows.length > 3 && (
+          <ol className="board-list" start={4}>
+            {rows.slice(3).map((r, i) => (
+              <li key={`${r.name}-${i}`}>
+                <span className="b-rank">{String(i + 4).padStart(2, "0")}</span>
                 <span className="b-name">{r.name}</span>
                 <span className="b-tier">{offerByInvites(r.referrals).name}</span>
                 <span className="b-n">
@@ -50,6 +73,7 @@ export function Leaderboard() {
             ))}
           </ol>
         )}
+        {rows && rows.length <= 3 && <p className="board-empty">The list is just starting: one invite puts you on the podium</p>}
       </div>
 
       <aside className="gifts">

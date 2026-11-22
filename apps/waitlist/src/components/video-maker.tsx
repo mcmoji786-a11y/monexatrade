@@ -594,7 +594,7 @@ export function VideoMaker({ info, onClose }: { info: VideoInfo; onClose: () => 
         <div className="caption">
           <p>{caption}</p>
           <button type="button" className="link" onClick={copyCaption}>
-            {copied ? "Copied" : "Copy caption"}
+            {copied ? "Caption copied: paste it with your video" : "Copy caption"}
           </button>
         </div>
         <p className="vm-note">Your code and link are on the video and in the caption. Every friend who joins with them moves you up and is a ticket in the gift draw</p>

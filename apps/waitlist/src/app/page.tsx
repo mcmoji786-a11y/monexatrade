@@ -277,6 +277,11 @@ export default function Page() {
         </a>
       </section>
 
+      {/* Phones: the way in stays one thumb away. */}
+      <a href="#join" className="mobile-cta">
+        <span className="live" aria-hidden="true" /> Get your early-access pass
+      </a>
+
       <footer className="foot">
         <span>© 2026 Kixo</span>
         <span>Kixo is in development and not open yet. Not financial advice. Memecoins are very risky and most lose value.</span>

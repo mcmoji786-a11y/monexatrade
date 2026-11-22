@@ -185,3 +185,26 @@ export function LiveBoard() {
     </div>
   );
 }
+
+/* ---------------- Coins around the pass ---------------- */
+
+/** Three of the coins trending right now, floating around the pass in the hero: the
+ *  market the pass gets you into, live. */
+export function PassCoins() {
+  const live = useLive();
+  const coins = (live?.trending ?? []).slice(0, 3);
+  if (!coins.length) return null;
+  return (
+    <div className="orbit" aria-hidden="true">
+      {coins.map((c, i) => (
+        <span key={c.id} className={`orbit-coin o${i + 1}`}>
+          <Logo c={c} size={26} />
+          <span className="orbit-text">
+            <b>{c.symbol}</b>
+            <span className={tone(c.change5m)}>{pct(c.change5m)}</span>
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}

@@ -1629,3 +1629,322 @@ button:disabled {
     scroll-behavior: auto;
   }
 }
+
+/* ---------- Round 3: friends, podium, coins around the pass, phones ---------- */
+
+/* The hero gets depth: a faint grid behind it, fading out. */
+.hero {
+  position: relative;
+}
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -64px -24px 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 70% 40%, #000 20%, transparent 75%);
+  pointer-events: none;
+}
+.hero h1 {
+  font-size: clamp(42px, 4.9vw, 64px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+/* Live coins floating around the pass. */
+.access-pass {
+  position: relative;
+}
+.orbit {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.orbit-coin {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(18, 19, 22, 0.92);
+  box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9);
+  font-size: 13px;
+  animation: drift 7s ease-in-out infinite;
+}
+.orbit-coin .coin-logo {
+  width: 26px;
+  height: 26px;
+}
+.orbit-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+.orbit-text b {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 13px;
+}
+.o1 {
+  top: 0;
+  left: 2%;
+}
+.o2 {
+  top: 38%;
+  right: -2%;
+  animation-delay: -2.3s;
+}
+.o3 {
+  bottom: 0;
+  left: 14%;
+  animation-delay: -4.6s;
+}
+@keyframes drift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Friends who joined. */
+.friends {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.friends-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 14px;
+}
+.friends-head b {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--emerald);
+}
+.friends ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.friends li {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  animation: row-in 0.45s var(--ease) both;
+}
+.friend-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(47, 211, 138, 0.14);
+  color: var(--emerald);
+  font-size: 12px;
+  font-weight: 600;
+}
+.friends li .muted {
+  font-size: 12px;
+}
+.friend-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(47, 211, 138, 0.4);
+  background: #0f1513;
+  font-size: 14px;
+  animation: rise 0.3s var(--ease) both;
+}
+
+/* The podium. */
+.board-head > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.podium-row {
+  list-style: none;
+  margin: 0;
+  padding: 24px 20px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr 1fr;
+  align-items: end;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 20px 12px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  text-align: center;
+  min-width: 0;
+}
+.step-1 {
+  padding-top: 32px;
+  border-color: rgba(47, 211, 138, 0.45);
+  background: linear-gradient(180deg, #111816 0%, var(--surface) 100%);
+}
+.step.open {
+  border-style: dashed;
+}
+.medal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-weight: 600;
+  color: #111;
+  background: linear-gradient(145deg, #d9dade, #8d8f96);
+}
+.step-1 .medal {
+  width: 42px;
+  height: 42px;
+  background: linear-gradient(145deg, #f3d77a, #b8892c);
+}
+.step-3 .medal {
+  background: linear-gradient(145deg, #e0a477, #8f5a33);
+}
+.step-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+}
+.step.open .step-name {
+  color: var(--text-2);
+}
+.step-n {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.step-1 .step-n {
+  color: var(--emerald);
+}
+.step-tier {
+  margin-top: 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.board-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.board-list li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  height: 52px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.board-list li:last-child {
+  border-bottom: 0;
+}
+
+/* Phones: a pass button that stays at the bottom. */
+.mobile-cta {
+  display: none;
+}
+@media (max-width: 640px) {
+  .mobile-cta {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 52px;
+    border-radius: 14px;
+    background: var(--emerald);
+    color: var(--emerald-ink);
+    font-weight: 600;
+    font-size: 16px;
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.8);
+  }
+  .mobile-cta .live {
+    background: var(--emerald-ink);
+  }
+  .mobile-cta .live::after {
+    border-color: var(--emerald-ink);
+  }
+  .foot {
+    padding-bottom: 88px;
+  }
+  .hero h1 {
+    font-size: 40px;
+  }
+  .orbit-coin {
+    padding: 6px 10px 6px 6px;
+  }
+  .o2 {
+    right: 0;
+  }
+  .podium-row {
+    padding: 16px 12px;
+    gap: 8px;
+  }
+  .step {
+    padding: 14px 6px;
+  }
+  .step-1 {
+    padding-top: 22px;
+  }
+  .step-name {
+    font-size: 14px;
+  }
+  .step-n {
+    font-size: 12px;
+  }
+  .board-list li {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 0 14px;
+  }
+  .access-pass {
+    padding: 48px 0;
+  }
+}

@@ -21,8 +21,11 @@ cd "$REL"
 sudo -u kixo bash -c "set -a; . /etc/kixo/waitlist.env; set +a; pnpm install --frozen-lockfile && pnpm build"
 
 # The standalone server needs its static files and public folder beside it.
-cp -r "$REL/.next/static" "$REL/.next/standalone/.next/static"
-cp -r "$REL/public" "$REL/.next/standalone/public"
+# (Into the folders, not inside them: the build may already have made them, and
+# `cp -r a b` into an existing b would nest it as b/a and every image would 404.)
+mkdir -p "$REL/.next/standalone/.next/static" "$REL/.next/standalone/public"
+cp -r "$REL/.next/static/." "$REL/.next/standalone/.next/static/"
+cp -r "$REL/public/." "$REL/.next/standalone/public/"
 chown -R kixo:kixo "$REL"
 
 ln -sfn "$REL/.next/standalone" "$APP/current"

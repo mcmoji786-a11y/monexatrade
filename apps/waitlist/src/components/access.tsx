@@ -8,12 +8,14 @@ import type { Session } from "@supabase/supabase-js";
 import { callbackUrl, rememberRef, savedRef, setRef, supabase } from "@/lib/supabase";
 import { AI_FREE, BASE_FEE_PCT, feeAfter, nextStep, offerFor, OFFERS } from "@/lib/offers";
 import { VideoMaker } from "./video-maker";
+import { PassCoins } from "./live";
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 const TURNSTILE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 type Claim = "ok" | "none" | "unknown" | "self" | "closed";
-type Status = { invitedBy: string | null; canName: boolean; claim: Claim; code: string; handle: string | null; rank: number; position: number; total: number; referrals: number; joinedAt: string; name: string | null; avatar: string | null; email: string | null };
+type Friend = { name: string; at: string | null };
+type Status = { friends: Friend[]; invitedBy: string | null; canName: boolean; claim: Claim; code: string; handle: string | null; rank: number; position: number; total: number; referrals: number; joinedAt: string; name: string | null; avatar: string | null; email: string | null };
 
 /* ---------------- Turnstile (only when the site key is set) ---------------- */
 
@@ -119,6 +121,7 @@ export function Access() {
           e.currentTarget.style.setProperty("--rx", "0deg");
         }}
       >
+        <PassCoins />
         <Pass s={status} />
       </div>
     </div>
@@ -296,8 +299,8 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
 
       <div className="progress">
         <div className="progress-head">
-          <span>{s.referrals.toLocaleString("en-US")} friend{s.referrals === 1 ? "" : "s"} joined</span>
-          <span className="muted">{next ? `${next.invites} more for ${next.offer.name}` : "Top offer reached"}</span>
+          <span>{next ? `Next: ${next.offer.name}, ${next.offer.off}% off` : "Top offer reached"}</span>
+          <span className="muted">{next ? `${next.invites} more friend${next.invites === 1 ? "" : "s"}` : offerFor(s.referrals, s.rank).name}</span>
         </div>
         <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={next ? s.referrals + next.invites : 1} aria-valuenow={next ? s.referrals : 1}>
           <i style={{ width: `${next ? Math.min(100, (s.referrals / (s.referrals + next.invites)) * 100) : 100}%` }} />
@@ -323,6 +326,7 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
           Card image
         </a>
       </div>
+      <Friends s={s} />
       {s.invitedBy ? (
         <p className="note">
           Invited by <b className="accent">{s.invitedBy}</b>
@@ -345,6 +349,60 @@ export function Invite({ s, token, onChange }: { s: Status; token?: string; onCh
           Sign out
         </button>
       </p>
+    </div>
+  );
+}
+
+function ago(iso: string | null) {
+  if (!iso) return "";
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+/** The friends who joined with this person's link, and a note the moment a new one lands
+ *  while the page is open. */
+function Friends({ s }: { s: Status }) {
+  const [seen, setSeen] = useState(s.referrals);
+  const [fresh, setFresh] = useState<string | null>(null);
+  if (s.referrals !== seen) {
+    if (s.referrals > seen && s.friends[0]) setFresh(`${s.friends[0].name} just joined with your link`);
+    setSeen(s.referrals);
+  }
+  useEffect(() => {
+    if (!fresh) return;
+    const id = setTimeout(() => setFresh(null), 6000);
+    return () => clearTimeout(id);
+  }, [fresh]);
+  return (
+    <div className="friends">
+      {fresh && (
+        <p className="friend-toast" role="status">
+          <span className="live" aria-hidden="true" /> {fresh}
+        </p>
+      )}
+      <div className="friends-head">
+        <span>Friends who joined</span>
+        <b>{s.referrals.toLocaleString("en-US")}</b>
+      </div>
+      {s.friends.length === 0 ? (
+        <p className="note">Nobody yet. Share your link below; each friend shows here, and you get an email when they join</p>
+      ) : (
+        <ol>
+          {s.friends.slice(0, 6).map((f, i) => (
+            <li key={`${f.name}-${f.at}-${i}`}>
+              <span className="friend-dot" aria-hidden="true">
+                {f.name.replace("@", "").slice(0, 1).toUpperCase()}
+              </span>
+              <span>{f.name}</span>
+              <span className="muted">{ago(f.at)}</span>
+            </li>
+          ))}
+          {s.friends.length > 6 && <li className="muted">and {s.friends.length - 6} more</li>}
+        </ol>
+      )}
     </div>
   );
 }
