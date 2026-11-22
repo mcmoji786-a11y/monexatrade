@@ -55,6 +55,7 @@ export type Features = {
   dev_api: boolean;
   strategy_library: boolean;
   alert_delivery: boolean;
+  helius_saver: boolean;
   weekly_recap: boolean;
   pnl_calendar: boolean;
   rug_exit: boolean;
@@ -120,6 +121,7 @@ export const ALL_ON: Features = {
   dev_api: true,
   strategy_library: true,
   alert_delivery: true,
+  helius_saver: false,
   weekly_recap: true,
   pnl_calendar: true,
   rug_exit: true,
@@ -162,6 +164,7 @@ export const FEATURE_LIST: { key: keyof Features; label: string; hint: string }[
   { key: "rug_exit", label: "Rug exit", hint: "Users can have a demo position sold by itself when the coin's dev sells or Kixo AI calls it Danger (Settings, Safety). Runs on the gateway around the clock. Needs migration 0018 to show as Rug exit in history" },
   { key: "pnl_calendar", label: "Profit calendar", hint: "Portfolio page: profit or loss taken on each day of the month, with winning and losing days" },
   { key: "alert_delivery", label: "Alerts by Email, Telegram, Discord", hint: "Price alerts, Wallet Monitor trades and dev sells on starred coins reach users when Kixo is closed. Telegram needs TELEGRAM_BOT_TOKEN, email needs RESEND_API_KEY (Admin, Keys)" },
+  { key: "helius_saver", label: "Helius saver", hint: "Saves Helius credits: when nobody has been on the site for 3 minutes, new launches, trades and live data run on the backup nodes (a little slower). The first visitor brings Helius back within seconds. Trading always uses Helius, and wallet alerts keep running" },
   { key: "dev_record", label: "Creator record", hint: "Trade page: the creator's earlier coins in plain words (launched, rugged, died fast, graduated)" },
   { key: "danger_warning", label: "Danger warning", hint: "A warning toast when a user buys a coin Kixo AI calls Danger. The buy goes out at once, never held up. Users can turn it off for themselves" },
   { key: "loss_limit", label: "Daily loss limit", hint: "Users set a daily loss; after it, buying stops until their midnight (selling always works). Off here: no limit is enforced" },

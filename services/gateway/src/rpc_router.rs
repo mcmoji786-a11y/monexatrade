@@ -181,7 +181,8 @@ fn lane<'a>(ups: &'a [Upstream], background: bool, helius_only: bool) -> Vec<&'a
     let helius = ups.iter().filter(|u| u.primary);
     let shyft = ups.iter().filter(|u| u.name == "shyft").filter(usable);
     let free = ups.iter().filter(|u| !u.primary && u.name != "shyft");
-    if helius_only || !background {
+    // While the Helius saver runs (nobody on the site), live work also saves Helius.
+    if helius_only || (!background && !monexa_common::helius_saving()) {
         helius.chain(shyft).chain(free).collect()
     } else {
         shyft.chain(free).chain(helius).collect()
@@ -268,6 +269,7 @@ pub fn status(r: &RouterState) -> Value {
         "active": active,
         "background": background,
         "shyft": shyft_url().is_some(),
+        "helius_saving": monexa_common::helius_saving(),
         "nodes": r.upstreams.iter().map(|u| json!({
             "name": u.name,
             "skipped": u.benched(),

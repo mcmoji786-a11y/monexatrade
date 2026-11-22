@@ -195,6 +195,9 @@ pub struct FeatureFlags {
     pub social: bool,
     /// Alerts by Email, Telegram and Discord when Kixo is closed (alerts.rs).
     pub alert_delivery: bool,
+    /// Helius saver: with nobody on the site for a few minutes, live data runs on the
+    /// backup nodes and Helius waits (main.rs helius_saver).
+    pub helius_saver: bool,
     /// The welcome tour for new users (web components/tour).
     pub tour: bool,
     pub dev_record: bool,
@@ -267,6 +270,7 @@ impl Default for FeatureFlags {
             ai_chat: true,
             social: true,
             alert_delivery: true,
+            helius_saver: false,
             tour: true,
             dev_record: true,
             danger_warning: true,
@@ -405,6 +409,11 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
+    }
+
+    /// Whether the Helius saver may run.
+    pub fn helius_saver(&self) -> bool {
+        self.features.lock().expect("features lock").helius_saver
     }
 
     /// Whether alerts go out by Email, Telegram and Discord.

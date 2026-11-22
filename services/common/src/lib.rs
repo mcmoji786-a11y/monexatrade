@@ -30,6 +30,16 @@ pub fn set_primary_up(up: bool) {
     PRIMARY_UP.store(up, Ordering::Relaxed);
 }
 
+/// Helius saver (admin switch): nobody is on the site, so live data runs on the backup
+/// nodes and Helius is kept for what cannot wait (trades, Helius-only methods).
+static HELIUS_SAVING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn helius_saving() -> bool {
+    HELIUS_SAVING.load(Ordering::Relaxed)
+}
+pub fn set_helius_saving(on: bool) {
+    HELIUS_SAVING.store(on, Ordering::Relaxed);
+}
+
 /* API keys can be set from the admin (stored by the gateway in data/secrets.json) as
    well as in .env. A key set in the admin wins, and takes effect without a restart
    wherever the code reads it through `secret`. */

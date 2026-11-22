@@ -398,9 +398,14 @@ type WatchStats = { following: number; swaps: number };
 function AlertChannels() {
   const [st, setSt] = useState<AlertStatus | null>(null);
   const [watch, setWatch] = useState<WatchStats | null>(null);
+  const [rpc, setRpc] = useState<{ helius_saving: boolean; shyft: boolean } | null>(null);
   useEffect(() => {
     let alive = true;
     const load = () => {
+      fetch(`${GATEWAY_HTTP}/health`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((v) => alive && v?.rpc && setRpc(v.rpc))
+        .catch(() => {});
       fetch(`${GATEWAY_HTTP}/alerts/status`)
         .then((r) => (r.ok ? r.json() : null))
         .then((v) => alive && v && setSt(v))
@@ -437,6 +442,8 @@ function AlertChannels() {
           {row("Telegram", !!st.telegram_bot, st.telegram_bot ? `Connected as @${st.telegram_bot}` : st.telegram ? "Token set but Telegram did not accept it" : "Not set: add TELEGRAM_BOT_TOKEN below")}
           {row("Discord", st.discord, "Ready. Each user pastes their own channel webhook in Settings, Alerts")}
           {row("Email", st.email, st.email ? "Ready" : "Not set: add RESEND_API_KEY below")}
+          {rpc && row("Shyft", rpc.shyft, rpc.shyft ? "In use for wallet tracking and background work" : "Not set: add SHYFT_API_KEY below (free, unlimited)")}
+          {rpc && row("Helius", true, rpc.helius_saving ? "Saving: nobody on the site, live data on the backup nodes" : "In use (Helius saver in Features turns it off when the site is empty)")}
         </div>
       )}
       {st && !st.telegram_bot && (

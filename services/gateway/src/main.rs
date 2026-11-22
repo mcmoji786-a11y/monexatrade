@@ -328,6 +328,7 @@ async fn main() -> Result<()> {
 
     // Rewards settings and creator applications (admin.rs), with their own state.
     let admin_state = admin::AdminState::load();
+    tokio::spawn(helius_saver(admin_state.clone()));
     let admin_routes: Router<Arc<AppState>> = Router::new()
         .route("/rewards/config", get(admin::get_rewards))
         .route("/features", get(admin::get_features))
@@ -745,6 +746,32 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
                 }
             }
         }
+    }
+}
+
+/// Nobody on the site for this long starts the Helius saver.
+const SAVER_IDLE: Duration = Duration::from_secs(180);
+
+/// Helius saver (admin switch, off by default): once nobody has been on the site for
+/// SAVER_IDLE, the live stream and live RPC calls move to the backup nodes; the first
+/// visitor brings Helius back within seconds. Wallet tracking and alerts keep running
+/// (they already use Shyft and the backup nodes first).
+async fn helius_saver(admin: Arc<admin::AdminState>) {
+    let mut empty_since: Option<std::time::Instant> = None;
+    loop {
+        let live = presence::snapshot().live_users;
+        empty_since = if live == 0 { Some(empty_since.unwrap_or_else(std::time::Instant::now)) } else { None };
+        let save = admin.helius_saver() && empty_since.is_some_and(|t| t.elapsed() >= SAVER_IDLE);
+        if save != monexa_common::helius_saving() {
+            monexa_common::set_helius_saving(save);
+            if save {
+                tracing::info!("Helius saver on: nobody on the site, live data moves to the backup nodes");
+            } else {
+                tracing::info!(live, "Helius saver off: back on Helius");
+            }
+        }
+        // Faster while saving, so a visitor gets Helius back quickly.
+        tokio::time::sleep(Duration::from_secs(if save { 5 } else { 30 })).await;
     }
 }
 

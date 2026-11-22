@@ -168,6 +168,10 @@ pub async fn run_forever(
     let mut idx = 0usize;
     loop {
         let mut subscribed = false;
+        // Helius saver: nobody on the site, so the live stream starts on a backup node.
+        if monexa_common::helius_saving() && nodes > 1 && idx % nodes == 0 {
+            idx = 1;
+        }
         let on_fallback = idx % nodes != 0;
         let url = ws_urls.get(idx % nodes).cloned().unwrap_or_default();
         if on_fallback {
@@ -194,7 +198,7 @@ pub async fn run_forever(
             Ok(()) => tracing::warn!(?backoff, "stream ended, reconnecting"),
             Err(err) => tracing::error!(error = %err, ?backoff, "stream error, reconnecting"),
         }
-        if on_fallback && monexa_common::primary_up() {
+        if on_fallback && monexa_common::primary_up() && !monexa_common::helius_saving() {
             // Helius answers again: go back to it.
             idx = 0;
             backoff = Duration::from_secs(1);
@@ -327,10 +331,16 @@ impl Engine {
                 }
                 _ = ping.tick() => tx.send(Message::Ping(Vec::new().into())).await?,
 
-                // On a fallback node, hand back to Helius once it answers again.
-                _ = primary_check.tick(), if on_fallback => {
-                    if monexa_common::primary_up() {
+                // On a fallback node, hand back to Helius once it answers again (and the
+                // saver is not holding it back); on Helius, leave it when the saver starts.
+                _ = primary_check.tick() => {
+                    let saving = monexa_common::helius_saving();
+                    if on_fallback && monexa_common::primary_up() && !saving {
                         tracing::info!("Helius is back: moving the live stream to it");
+                        return Ok(());
+                    }
+                    if !on_fallback && saving {
+                        tracing::info!("Helius saver: nobody on the site, moving the live stream to a backup node");
                         return Ok(());
                     }
                 },
