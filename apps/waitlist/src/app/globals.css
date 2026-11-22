@@ -1948,3 +1948,220 @@ button:disabled {
     padding: 48px 0;
   }
 }
+
+/* ---------- Round 4: tighter page, phones without endless scrolling ---------- */
+
+section {
+  padding: 72px 0;
+}
+.section-head {
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.section-head h2 {
+  font-size: clamp(26px, 3.2vw, 38px);
+}
+.lead {
+  font-size: 17px;
+}
+.hero {
+  padding: 48px 0 56px;
+  row-gap: 24px;
+}
+.hero-head {
+  gap: 16px;
+}
+.pillar {
+  padding: 24px;
+}
+.pillar.big h3 {
+  font-size: 26px;
+}
+.features li {
+  padding: 22px;
+}
+.final {
+  padding: 56px 0;
+}
+.faq summary {
+  padding: 16px 0;
+  font-size: 16px;
+}
+
+@media (max-width: 960px) {
+  .hero {
+    padding: 28px 0 40px;
+  }
+}
+
+@media (max-width: 640px) {
+  section {
+    padding: 44px 0;
+  }
+  .section-head {
+    margin-bottom: 20px;
+  }
+  .section-head h2 {
+    font-size: 26px;
+    line-height: 1.15;
+  }
+  .lead {
+    font-size: 15px;
+  }
+  .hero {
+    padding: 20px 0 32px;
+    row-gap: 18px;
+  }
+  .hero h1 {
+    font-size: 36px;
+  }
+  .hero-stats {
+    gap: 18px;
+  }
+  .hero-stats dd {
+    font-size: 20px;
+  }
+  .hero-stats dt {
+    font-size: 12px;
+  }
+  .access-pass {
+    padding: 36px 0 24px;
+  }
+  .pass {
+    padding: 18px;
+    gap: 12px;
+  }
+  .pass-n {
+    font-size: 48px;
+  }
+
+  /* Card rows swipe sideways instead of stacking into a long page. */
+  .pillar-grid,
+  .ladder,
+  .features ul {
+    display: flex;
+    gap: 12px;
+    margin: 0 -16px;
+    padding: 0 16px 4px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    border: 0;
+    border-radius: 0;
+    overflow-y: hidden;
+  }
+  .pillar-grid::-webkit-scrollbar,
+  .ladder::-webkit-scrollbar,
+  .features ul::-webkit-scrollbar {
+    display: none;
+  }
+  .pillar-grid > *,
+  .ladder > *,
+  .features li {
+    flex: 0 0 82%;
+    scroll-snap-align: start;
+  }
+  .features li {
+    border: 1px solid var(--line) !important;
+    border-radius: var(--r-card);
+  }
+  .pillar.big {
+    grid-row: auto;
+  }
+  .pillar.big h3 {
+    font-size: 21px;
+  }
+  .p-stats dd {
+    font-size: 18px;
+  }
+  .l-off {
+    font-size: 32px;
+  }
+
+  /* Five of each on the live board. */
+  .live-col .coin-row:nth-child(n + 6) {
+    display: none;
+  }
+  .live-head .muted {
+    display: none;
+  }
+  .coin-row {
+    min-height: 56px;
+  }
+
+  .shot {
+    padding: 8px;
+    border-radius: 14px;
+  }
+  .gifts {
+    padding: 18px;
+  }
+  .final {
+    padding: 40px 0 48px;
+  }
+  .final h2 {
+    font-size: 32px;
+  }
+  .faq summary {
+    font-size: 15px;
+  }
+}
+
+/* The podium is a list inside .board: undo the plain row styling it would inherit. */
+.board .podium-row li.step {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  padding: 18px 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-size: inherit;
+}
+.board .podium-row li.step-1 {
+  padding-top: 26px;
+  border-color: rgba(47, 211, 138, 0.45);
+}
+.board .podium-row li.step.open {
+  border-style: dashed;
+}
+.board .podium-row li.step:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.board .podium-row li.step.open:last-child {
+  border-bottom-style: dashed;
+}
+.mobile-cta.hide {
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+}
+.mobile-cta {
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+}
+@media (max-width: 640px) {
+  .board .podium-row li.step {
+    padding: 12px 6px;
+  }
+  .board .podium-row li.step-1 {
+    padding-top: 18px;
+  }
+  .step .medal {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+  .step-1 .medal {
+    width: 34px;
+    height: 34px;
+  }
+  .step.open .step-n {
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .step-tier {
+    display: none;
+  }
+  .hero-stats {
+    gap: 14px 22px;
+  }
+}

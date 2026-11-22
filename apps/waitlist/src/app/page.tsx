@@ -5,10 +5,9 @@ import { ListCount } from "@/components/list-count";
 import { Leaderboard } from "@/components/leaderboard";
 import { LiveBoard, LiveTicker } from "@/components/live";
 import { Count, Reveal } from "@/components/motion";
+import { MobileCta } from "@/components/mobile-cta";
 import { AI_FREE, BASE_FEE_PCT, OFFERS, feeAfter } from "@/lib/offers";
 import { FAQ, jsonLd } from "@/lib/seo";
-
-const TAPE = ["AI agent that auto-trades", "100,000+ strategies", "3 years of market data", "Every launch in a second", "Safety score on every coin", "Dev · sniper · bundler labels", "$10,000 demo at live prices"];
 
 const FEATURES: { title: string; body: string; icon: React.ReactNode; soon?: boolean }[] = [
   { title: "Every launch, the second it happens", body: "pump.fun, letsbonk.fun, Bags, Moonshot, Meteora and more on one radar, priced from on-chain trades.", icon: <path d="M12 12 19 5M21 12a9 9 0 1 1-9-9M16.5 12A4.5 4.5 0 1 1 12 7.5" /> },
@@ -17,13 +16,6 @@ const FEATURES: { title: string; body: string; icon: React.ReactNode; soon?: boo
   { title: "Copy trading that protects you", body: "Backtest a wallet before you copy it, start on demo, and get warned about wallets that win while their copiers lose.", icon: <path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v1" /> },
   { title: "Practise with $10,000, free", body: "A demo account at live prices with real fees and price impact, so your results are honest before you risk a single SOL.", icon: <path d="M3 17l6-6 4 4 8-8M15 7h6v6" /> },
   { title: "Kixo AI", body: "An agent that reads every coin and wallet and auto-trades within your limits, choosing from 100,000+ strategies.", icon: <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2M9 9h6v6H9z" />, soon: true },
-];
-
-const STEPS = [
-  ["Spot it", "A new coin launches. Kixo has it on the radar in a second."],
-  ["Check it", "Safety score, dev history, bundlers and snipers, before you click buy."],
-  ["Practise it", "Try the trade on your free demo account at the live price."],
-  ["Trade it", "When you are ready, or let the AI agent trade within your rules."],
 ];
 
 function Icon({ children }: { children: React.ReactNode }) {
@@ -116,20 +108,6 @@ export default function Page() {
         <p className="terms">Live Solana data via Jupiter. Mint and freeze show whether the creator can still print or lock tokens; top 10 is the share the ten biggest wallets hold. Not advice: most new coins go to zero.</p>
       </section>
 
-      <div className="tape" aria-hidden="true">
-        <div className="tape-track">
-          {[0, 1].map((k) => (
-            <span key={k}>
-              {TAPE.map((t) => (
-                <span key={t}>
-                  {t}
-                  <i />
-                </span>
-              ))}
-            </span>
-          ))}
-        </div>
-      </div>
 
       <section className="inside" id="inside">
         <div className="section-head" data-reveal>
@@ -240,20 +218,6 @@ export default function Page() {
         </ul>
       </section>
 
-      <section className="steps">
-        <div className="section-head" data-reveal>
-          <h2>From launch to trade in four moves</h2>
-        </div>
-        <ol className="stagger" data-reveal>
-          {STEPS.map(([t, b], i) => (
-            <li key={t}>
-              <span className="s-n">{String(i + 1).padStart(2, "0")}</span>
-              <h3>{t}</h3>
-              <p>{b}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
 
       <section className="faq" id="faq">
         <div className="section-head" data-reveal>
@@ -278,9 +242,7 @@ export default function Page() {
       </section>
 
       {/* Phones: the way in stays one thumb away. */}
-      <a href="#join" className="mobile-cta">
-        <span className="live" aria-hidden="true" /> Get your early-access pass
-      </a>
+      <MobileCta />
 
       <footer className="foot">
         <span>© 2026 Kixo</span>

@@ -17,13 +17,15 @@ export async function POST(req: Request) {
   try {
     const { created, newInviter, ...status } = await join(user, ref, source);
     const mails: Promise<unknown>[] = [];
-    if (created && user.email) mails.push(sendWelcome(user.email, status).catch(() => {}));
+    // Test accounts (@example.com) get no mail: it would only bounce and hurt the sender.
+    const real = (e: string | null): e is string => !!e && !/@example\.(com|org|net)$/i.test(e);
+    if (created && real(user.email)) mails.push(sendWelcome(user.email, status).catch(() => {}));
     if (newInviter) {
       // The friend is named by first name only (or their Kixo name), never their email.
       const friend = status.handle ? `@${status.handle}` : (user.name?.split(" ")[0] ?? "A new trader");
       mails.push(
         Promise.all([emailOf(newInviter), placeById(newInviter)])
-          .then(([to, place]) => (to && place ? sendFriendJoined(to, friend, place) : undefined))
+          .then(([to, place]) => (real(to) && place ? sendFriendJoined(to, friend, place) : undefined))
           .catch(() => {}),
       );
     }
