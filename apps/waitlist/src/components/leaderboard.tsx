@@ -5,7 +5,21 @@
 import { useEffect, useState } from "react";
 import { GIFTS, offerByInvites } from "@/lib/offers";
 
-type Row = { name: string; referrals: number };
+type Row = { name: string; referrals: number; example?: boolean };
+
+/** While the list is new, sample rows show how the board works. Each is marked "Example"
+ *  on the page; real inviters always come first and push them out, one by one, as they
+ *  arrive. They are never counted for gifts or offers. */
+const EXAMPLES: Row[] = [
+  { name: "Adam", referrals: 12 },
+  { name: "Kevin", referrals: 9 },
+  { name: "Sara", referrals: 7 },
+  { name: "Omar", referrals: 5 },
+  { name: "Lina", referrals: 4 },
+  { name: "Bilal", referrals: 3 },
+  { name: "Mia", referrals: 2 },
+].map((r) => ({ ...r, example: true }));
+const SHOWN = 8;
 
 export function Leaderboard() {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -24,6 +38,9 @@ export function Leaderboard() {
     };
   }, []);
 
+  // Real inviters first, in their order; examples fill the places nobody has taken yet.
+  const shown = rows === null ? null : [...rows, ...EXAMPLES].slice(0, SHOWN);
+  const examples = !!shown?.some((r) => r.example);
   return (
     <div className="board-grid">
       <div className="board">
@@ -33,16 +50,18 @@ export function Leaderboard() {
           </span>
           <span className="muted">updates every minute</span>
         </div>
-        {/* The podium: first in the middle. A free place says what it takes. */}
+        {examples && <p className="board-note">Rows marked Example show how it works. Real inviters take their places as invites come in, and only real accounts win gifts</p>}
+        {/* The podium: first in the middle. */}
         <ol className="podium-row" aria-label="Top three">
           {[1, 0, 2].map((i) => {
-            const r = rows?.[i];
+            const r = shown?.[i];
             return (
-              <li key={i} className={`step step-${i + 1} ${r ? "taken" : "open"}`}>
+              <li key={i} className={`step step-${i + 1} ${r ? "taken" : "open"} ${r?.example ? "example" : ""}`}>
                 <span className="medal">{i + 1}</span>
                 {r ? (
                   <>
                     <b className="step-name">{r.name}</b>
+                    {r.example && <span className="ex-tag">Example</span>}
                     <span className="step-n">
                       {r.referrals.toLocaleString("en-US")} friend{r.referrals === 1 ? "" : "s"}
                     </span>
@@ -58,12 +77,15 @@ export function Leaderboard() {
             );
           })}
         </ol>
-        {rows && rows.length > 3 && (
+        {shown && shown.length > 3 && (
           <ol className="board-list" start={4}>
-            {rows.slice(3).map((r, i) => (
-              <li key={`${r.name}-${i}`}>
+            {shown.slice(3).map((r, i) => (
+              <li key={`${r.name}-${i}`} className={r.example ? "example" : ""}>
                 <span className="b-rank">{String(i + 4).padStart(2, "0")}</span>
-                <span className="b-name">{r.name}</span>
+                <span className="b-name">
+                  {r.name}
+                  {r.example && <span className="ex-tag">Example</span>}
+                </span>
                 <span className="b-tier">{offerByInvites(r.referrals).name}</span>
                 <span className="b-n">
                   {r.referrals.toLocaleString("en-US")}
@@ -73,7 +95,6 @@ export function Leaderboard() {
             ))}
           </ol>
         )}
-        {rows && rows.length <= 3 && <p className="board-empty">The list is just starting: one invite puts you on the podium</p>}
       </div>
 
       <aside className="gifts">
