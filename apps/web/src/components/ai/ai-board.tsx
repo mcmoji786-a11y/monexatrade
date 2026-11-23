@@ -12,6 +12,7 @@ import { answer, type ChatReply } from "@/lib/ai-chat";
 import { tokenHref } from "@/lib/open-token";
 import { TokenLogo } from "@/components/token/token-bits";
 import { StarButton } from "@/components/token/star-button";
+import { SafetyBadge } from "@/components/token/safety-badge";
 import { QuickBuy } from "@/components/trade/quick-buy";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 import { Tick } from "@/components/token/tick";
@@ -396,7 +397,7 @@ function CheckCoin() {
 
       {!res ? (
         <p className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-muted">
-          Paste any new Solana coin. Kixo AI answers in one word, with the reasons, in a second
+          Paste any Solana coin. New coins get Kixo AI&apos;s word, older ones Kixo&apos;s safety score, each with the reasons
         </p>
       ) : !coin ? (
         <div className="rounded-xl border border-border bg-surface px-5 py-4 text-sm text-text-2">
@@ -416,6 +417,15 @@ function CheckCoin() {
               <div className="flex flex-col items-start gap-1 sm:items-end">
                 <span className={`inline-flex h-9 items-center rounded-full border px-4 text-base font-medium ${v.className}`}>{v.label}</span>
                 <span className="text-xs text-text-2">{v.sentence}</span>
+              </div>
+            ) : coin.safety ? (
+              <div className="flex flex-col items-start gap-1 sm:items-end">
+                <span className="flex items-center gap-2 text-sm text-text-2">
+                  Safety score <SafetyBadge safety={coin.safety} size="md" align="right" />
+                </span>
+                <span className="text-xs text-muted">
+                  {coin.safety.level === "higher" ? "Fewer red flags" : coin.safety.level === "medium" ? "Some red flags" : "Many red flags"}. Not a guarantee
+                </span>
               </div>
             ) : (
               <span className="text-sm text-muted">No AI word yet</span>

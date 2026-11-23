@@ -3,8 +3,9 @@
    language model sees the question, and nothing is made up: every coin figure comes from
    the radar feed or the AI's score, and every explanation is written here. English and
    Roman Urdu questions both work. A language model can replace `answer` later. */
-import { GATEWAY_HTTP, usd, type FeedToken } from "./gateway";
+import { GATEWAY_HTTP, usd, type FeedToken, type MarketToken } from "./gateway";
 import { pct, verdict, type AiRisk, type Verdict } from "./ai-risk";
+import { safetyScore, type Safety } from "./safety";
 
 const ADVICE: Record<Verdict["key"], string> = {
   danger: "Best to stay away. If you still buy, keep it tiny and set a tight stop loss",
@@ -13,7 +14,8 @@ const ADVICE: Record<Verdict["key"], string> = {
   good: "Worth a look. It is still a memecoin: buy small and set a stop loss",
 };
 
-export type ChatCoin = { mint: string; symbol: string; image: string | null; risk: AiRisk | null; line: string };
+/** safety: Kixo's safety score, given when there is no AI word (older coins). */
+export type ChatCoin = { mint: string; symbol: string; image: string | null; risk: AiRisk | null; line: string; safety?: Safety | null };
 export type ChatReply = { text: string[]; coins?: ChatCoin[]; suggestions?: string[] };
 export type ChatContext = { tokens: FeedToken[]; overview: AiOverview | null; nowSecs: number };
 export type ChatInput = Omit<ChatContext, "nowSecs">;
@@ -110,11 +112,103 @@ async function scoreOf(mint: string): Promise<{ risk: AiRisk | null; waiting: bo
   }
 }
 
+/** The gateway's market record for any coin (older ones too), with its dev's launch counts. */
+type CoinInfo = MarketToken & { dev?: string | null; dev_pct?: number | null; dev_mints?: number | null; dev_migrations?: number | null };
+
+async function infoOf(mint: string): Promise<CoinInfo | null> {
+  try {
+    const r = await fetch(`${GATEWAY_HTTP}/token/${mint}`, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    const v = r.ok ? ((await r.json()) as CoinInfo | null) : null;
+    return v?.mint ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+const signed = (v: number) => `${v >= 0 ? "+" : ""}${Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)}%`;
+
+function ageOf(iso: string | null, nowSecs: number) {
+  if (!iso) return null;
+  const s = nowSecs - Date.parse(iso) / 1000;
+  if (!Number.isFinite(s) || s < 0) return null;
+  return s < 3600 ? `${Math.floor(s / 60)}m` : s < 86_400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86_400)}d`;
+}
+
+/** A coin that is no longer on Sol Radar: its market figures, Kixo's safety score and
+ *  the red flags it found, all from the gateway's record of the coin. */
+function marketReport(c: CoinInfo, nowSecs: number): { text: string[]; safety: Safety; line: string } {
+  const created = c.created_at ? Date.parse(c.created_at) / 1000 : null;
+  const safety = safetyScore({
+    mintRevoked: c.mint_authority_disabled,
+    freezeRevoked: c.freeze_authority_disabled,
+    top10Pct: c.top_holders_pct,
+    devPct: c.dev_pct ?? null,
+    devSoldAll: null,
+    devSelling: null,
+    devReport: null,
+    bundlePct: null,
+    earlyPct: null,
+    copyOfReal: false,
+    sameXAccount: false,
+    sameSymbol: false,
+    hasSocials: !!(c.twitter || c.telegram || c.website),
+    buys1h: c.buys_1h,
+    sells1h: c.sells_1h,
+    change5m: c.change_5m_pct,
+    change1h: c.change_1h_pct,
+    liquidityUsd: c.liquidity_usd,
+    holders: c.holders,
+    ageSecs: created != null && Number.isFinite(created) ? nowSecs - created : null,
+    organicScore: c.organic_score,
+    smartHolders: 0,
+    verified: c.verified,
+  });
+  const text: string[] = [];
+  const age = ageOf(c.created_at, nowSecs);
+  text.push(
+    `${c.symbol}${c.name && c.name !== c.symbol ? ` (${c.name})` : ""}: ${age ? `${age} old, ` : ""}market cap ${usd(c.mc_usd)}, liquidity ${usd(c.liquidity_usd)}${c.holders != null ? `, ${c.holders.toLocaleString()} holders` : ""}`,
+  );
+  const moves = [
+    c.change_5m_pct != null ? `5m ${signed(c.change_5m_pct)}` : null,
+    c.change_1h_pct != null ? `1h ${signed(c.change_1h_pct)}` : null,
+    c.change_24h_pct != null ? `24h ${signed(c.change_24h_pct)}` : null,
+  ].filter(Boolean);
+  if (moves.length) text.push(`Price: ${moves.join(", ")}${c.volume_1h_usd != null ? `. Volume ${usd(c.volume_1h_usd)} in the last hour` : ""}`);
+  if (c.buys_1h != null && c.sells_1h != null) {
+    text.push(`Last hour: ${c.buys_1h.toLocaleString()} buys and ${c.sells_1h.toLocaleString()} sells${c.traders_1h != null ? ` from ${c.traders_1h.toLocaleString()} traders` : ""}`);
+  }
+  const holds = [
+    c.top_holders_pct != null ? `top 10 hold ${c.top_holders_pct.toFixed(0)}%` : null,
+    c.dev_pct != null ? `dev holds ${c.dev_pct.toFixed(1)}%` : null,
+    c.organic_score != null ? `organic score ${c.organic_score.toFixed(0)}` : null,
+  ].filter(Boolean);
+  if (holds.length) text.push(`Holders: ${holds.join(", ")}`);
+  text.push(
+    `Contract: mint authority ${c.mint_authority_disabled ? "revoked" : "active (more can be created)"}, freeze ${c.freeze_authority_disabled === false ? "active (wallets can be frozen)" : c.freeze_authority_disabled ? "revoked" : "unknown"}`,
+  );
+  if (c.dev_mints != null && c.dev_mints > 0) {
+    text.push(`Dev: made ${c.dev_mints} coins, ${c.dev_migrations ?? 0} of them graduated${c.dev_mints >= 10 && (c.dev_migrations ?? 0) <= 1 ? ". A serial launcher: most of its coins went nowhere" : ""}`);
+  }
+  const flags = safety.factors.filter((f) => f.points <= -8).slice(0, 4);
+  if (flags.length) text.push(`Watch out: ${flags.map((f) => (f.detail ? `${f.label.toLowerCase()} (${f.detail})` : f.label.toLowerCase())).join(", ")}`);
+  const line = `${usd(c.mc_usd)} · ${c.holders != null ? `${c.holders.toLocaleString()} holders` : "holders unknown"}${c.launchpad ? ` · ${c.launchpad}` : ""}`;
+  return { text, safety, line };
+}
+
 /** A coin's report: live facts from the radar, the AI's score, and a plain verdict. */
 async function coinReport(mint: string, ctx: ChatContext): Promise<ChatReply> {
   const t = ctx.tokens.find((x) => x.mint === mint) ?? null;
-  const { risk, waiting } = await scoreOf(mint);
-  const sym = t?.symbol || mint.slice(0, 6);
+  const [{ risk, waiting }, info] = await Promise.all([scoreOf(mint), t ? Promise.resolve(null) : infoOf(mint)]);
+  if (!t && info && !risk) {
+    const r = marketReport(info, ctx.nowSecs);
+    r.text.push("No Kixo AI word: it judges new coins from their first 2 minutes, so older coins get Kixo's safety score instead");
+    return {
+      text: r.text,
+      coins: [{ mint, symbol: info.symbol || mint.slice(0, 6), image: info.image, risk: null, line: r.line, safety: r.safety }],
+      suggestions: ["Best coins right now", "Which coins may rug?", "What is a rug pull?"],
+    };
+  }
+  const sym = t?.symbol || info?.symbol || mint.slice(0, 6);
   const text: string[] = [];
   const m = t?.market;
   if (t) {
@@ -130,8 +224,10 @@ async function coinReport(mint: string, ctx: ChatContext): Promise<ChatReply> {
     }
     const d = t.dev_report;
     if (d) text.push(d.coins === 0 ? "New dev: no earlier coins seen" : `Dev history: ${d.coins} earlier coins, ${d.rugged} rugged, ${d.died_fast} died fast, ${d.graduated} graduated`);
+  } else if (info) {
+    text.push(...marketReport(info, ctx.nowSecs).text);
   } else {
-    text.push(`${sym}: not on the live radar right now, so I only have the AI's view`);
+    text.push(`${sym}: Kixo has no market data on this coin. Check the address, or it may have no pool yet`);
   }
   if (risk) {
     const v = verdict(risk);
@@ -145,7 +241,7 @@ async function coinReport(mint: string, ctx: ChatContext): Promise<ChatReply> {
   }
   return {
     text,
-    coins: [{ mint, symbol: sym, image: t?.meta?.image ?? null, risk, line: m ? `${usd(m.mc_usd)} · ${m.holders} holders` : "" }],
+    coins: [{ mint, symbol: sym, image: t?.meta?.image ?? info?.image ?? null, risk, line: m ? `${usd(m.mc_usd)} · ${m.holders} holders` : info ? `${usd(info.mc_usd)} · ${info.holders ?? "?"} holders` : "" }],
     suggestions: ["Best coins right now", "Which coins may rug?", "What is dump risk?"],
   };
 }
