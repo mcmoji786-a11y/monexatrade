@@ -19,6 +19,8 @@ import {
 import { dispose, init, registerYAxis, type Chart, type KLineData } from "klinecharts";
 import { price, usd, type Candle } from "@/lib/gateway";
 import { continuous } from "@/lib/candles";
+import { useFollowedTrades } from "@/lib/followed-trades";
+import { TraderPins } from "./trader-pins";
 import type { BookState } from "./use-token-book";
 import { useSmartWallets } from "@/lib/labels";
 import { useFeatures } from "@/lib/features";
@@ -126,6 +128,8 @@ export function PriceChart({
   const root = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<Chart | null>(null);
+  // The same chart as state, for the trader pins layer (it re-renders when the chart is made).
+  const [chartObj, setChartObj] = useState<Chart | null>(null);
   const drawn = useRef<{ key: string; len: number }>({ key: "", len: 0 });
   const [interval, setInterval_] = useState(15);
   const [mode, setMode] = useState<Mode>("mc");
@@ -137,6 +141,9 @@ export function PriceChart({
   const smartSet = useSmartWallets();
   const [marksOn, setMarksOn] = useState(true);
   const showMarks = feat.chart_marks && marksOn;
+  // Followed traders (Wallet Monitor, KOLs, Community follows) where they bought and sold.
+  const [tradersOn, setTradersOn] = useState(true);
+  const pins = useFollowedTrades(mint, tradersOn);
   const [indicators, setIndicators] = useState<string[]>([]);
   const [menu, setMenu] = useState(false);
   const [hover, setHover] = useState<KLineData | null>(null);
@@ -285,6 +292,7 @@ export function PriceChart({
       setHover((d as { kLineData?: KLineData } | undefined)?.kLineData ?? null);
     });
     chart.current = c;
+    setChartObj(c);
     const onResize = () => c.resize();
     const ro = new ResizeObserver(onResize);
     ro.observe(box.current);
@@ -292,6 +300,7 @@ export function PriceChart({
       ro.disconnect();
       dispose(c);
       chart.current = null;
+      setChartObj(null);
       drawn.current = { key: "", len: 0 };
     };
   }, []);
@@ -431,6 +440,12 @@ export function PriceChart({
           </>
         )}
         <Divider />
+        <span title="Traders you follow (Wallet Monitor, KOLs, Community) where they bought (under the candle) and sold (over it)">
+          <Toggle on={tradersOn} onClick={() => setTradersOn((v) => !v)}>
+            Traders{pins.length ? ` ${pins.length}` : ""}
+          </Toggle>
+        </span>
+        <Divider />
         <Pair a="MC" b="Price" on={mode === "mc" ? 0 : 1} onChange={(i) => setMode(i === 0 ? "mc" : "price")} />
         {(live || dex) && solUsd != null && (
           <>
@@ -522,6 +537,7 @@ export function PriceChart({
             <p className="absolute inset-0 z-10 flex items-center justify-center text-sm text-muted">Waiting for the first trade</p>
           )}
           <div ref={box} className="relative h-full w-full" />
+          {tradersOn && <TraderPins chart={chartObj} data={data} tf={tf} pins={pins} />}
         </div>
       </div>
     </div>
