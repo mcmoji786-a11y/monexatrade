@@ -549,7 +549,11 @@ pub async fn put_features(State(a): State<Arc<AdminState>>, ConnectInfo(addr): C
 }
 
 pub async fn get_rewards(State(a): State<Arc<AdminState>>) -> Json<RewardsConfig> {
-    Json(a.rewards.lock().expect("rewards lock").clone())
+    let mut cfg = a.rewards.lock().expect("rewards lock").clone();
+    // The fee users really pay is the platform's (Settings, Fees); the rewards pages show
+    // that one, not an older copy kept here.
+    cfg.trading_fee_pct = crate::platform::trade_fee_bps() as f64 / 100.0;
+    Json(cfg)
 }
 
 pub async fn put_rewards(State(a): State<Arc<AdminState>>, headers: HeaderMap, Json(cfg): Json<RewardsConfig>) -> Result<Json<RewardsConfig>, (StatusCode, String)> {

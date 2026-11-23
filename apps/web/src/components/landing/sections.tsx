@@ -289,6 +289,7 @@ export function SiteFooter() {
             <Link href="/#security" className="hover:text-text">Security</Link>
             <Link href="/#fees" className="hover:text-text">Fees</Link>
             <Link href="/learn" className="hover:text-text">Learn</Link>
+            <Link href="/creators" className="hover:text-text">Creators</Link>
             <Link href="/#faq" className="hover:text-text">FAQ</Link>
           </nav>
         </div>

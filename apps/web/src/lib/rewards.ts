@@ -4,8 +4,9 @@
 
 export const REWARDS_STATUS = {
   draft: true,
-  /** Kixo's trading fee the programmes share, in % of each trade. */
-  tradingFeePct: 1,
+  /** Kixo's trading fee the programmes share, in % of each trade (the gateway sends the
+   *  platform's real fee; this is only the fallback while it is unreachable). */
+  tradingFeePct: 0.5,
 };
 
 export type Tier = { name: string; /** Unlock condition, shown as text. */ unlock: string; /** Minimum for this tier in USD (volume or referred volume). */ minUsd: number; pct: number };
