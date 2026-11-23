@@ -180,12 +180,54 @@ export function isSpeaking() {
 
 let recorder: MediaRecorder | null = null;
 let chunks: Blob[] = [];
+let meter: AnalyserNode | null = null;
+let meterCtx: AudioContext | null = null;
+/** Why the last start failed, in words for the user. */
+export let micProblem: string | null = null;
+
+/** How loud the microphone is right now, 0 to 1 (0 when not listening). */
+export function micLevel(): number {
+  if (!meter) return 0;
+  const data = new Uint8Array(meter.fftSize);
+  meter.getByteTimeDomainData(data);
+  let sum = 0;
+  for (const v of data) sum += ((v - 128) / 128) ** 2;
+  return Math.min(1, Math.sqrt(sum / data.length) * 4);
+}
+
+/** The microphones this browser can use (names show once the mic was allowed). */
+export async function microphones(): Promise<{ id: string; label: string }[]> {
+  try {
+    const list = await navigator.mediaDevices.enumerateDevices();
+    return list.filter((d) => d.kind === "audioinput").map((d, i) => ({ id: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
+  } catch {
+    return [];
+  }
+}
 
 /** Starts recording a question (push to talk). False when the mic is not allowed. */
 export async function startListening(): Promise<boolean> {
   if (recorder) return true;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const id = agentSettings().micId;
+    const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(id ? { deviceId: { exact: id } } : {}) };
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio });
+    } catch (e) {
+      // The chosen mic was unplugged: fall back to the default one.
+      if (id && (e as Error).name === "OverconstrainedError") stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      else throw e;
+    }
+    micProblem = null;
+    try {
+      meterCtx = new AudioContext();
+      meter = meterCtx.createAnalyser();
+      meter.fftSize = 512;
+      meterCtx.createMediaStreamSource(stream).connect(meter);
+    } catch {
+      meter = null;
+    }
     const type = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((t) => MediaRecorder.isTypeSupported(t));
     recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
     chunks = [];
@@ -193,8 +235,15 @@ export async function startListening(): Promise<boolean> {
     recorder.start();
     stopSpeaking();
     return true;
-  } catch {
+  } catch (e) {
     recorder = null;
+    const name = (e as Error).name;
+    micProblem =
+      name === "NotAllowedError"
+        ? "The microphone is blocked for Kixo. Click the lock icon next to the address, allow the microphone, and try again"
+        : name === "NotFoundError"
+          ? "No microphone found. Plug one in, or pick another in Kixo AI, Voice agent"
+          : "The microphone could not start. Pick another one in Kixo AI, Voice agent";
     return false;
   }
 }
@@ -209,6 +258,9 @@ export async function stopListening(): Promise<string> {
     r.stop();
   });
   r.stream.getTracks().forEach((t) => t.stop());
+  meter = null;
+  void meterCtx?.close();
+  meterCtx = null;
   if (blob.size < 1500) return "";
   try {
     const res = await fetch(`${GATEWAY_HTTP}/voice/stt`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: blob });

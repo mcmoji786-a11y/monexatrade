@@ -3,10 +3,10 @@
    opening a coin, the alerts it speaks on its own, the push-to-talk key, voice, speed and
    volume, with a sample to hear each choice, and what was said recently. */
 import { useEffect, useState } from "react";
-import { Play, Power } from "lucide-react";
+import { Loader2, Mic, Play, Power } from "lucide-react";
 import { useFeatures } from "@/lib/features";
 import { ALERTS, MODES, VOICES, setAgentSettings, useAgentSettings, voiceOf, type AgentMode, type PttKey } from "@/lib/agent/settings";
-import { history, say, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
+import { history, micLevel, micProblem, microphones, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
 
 /** What each mode sounds like on the same coin. */
 const SAMPLES: Record<AgentMode, string> = {
@@ -124,7 +124,7 @@ export function VoiceAgentTab() {
         {/* Talking to it */}
         <section className="rounded-2xl border border-border bg-surface p-5">
           <h2 className="text-sm font-medium text-text">Asking it something</h2>
-          <p className="mt-1 text-xs leading-5 text-text-2">Hold the mic button on a coin page, or hold this key, and talk. Let go and it answers. You can also type</p>
+          <p className="mt-1 text-xs leading-5 text-text-2">Click the mic on a coin page and talk, then click again to send. Or hold this key while you talk. You can also type</p>
           <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="Push-to-talk key">
             {KEYS.map((k) => (
               <button
@@ -141,6 +141,8 @@ export function VoiceAgentTab() {
           </div>
           <p className="mt-3 text-xs text-muted">Try: &quot;Should I buy?&quot;, &quot;Did the dev sell?&quot;, &quot;How many holders?&quot;, &quot;How many trades?&quot;, &quot;Am I up?&quot;, &quot;What are bundles?&quot;</p>
         </section>
+
+        <MicCheck />
 
         {/* Voice */}
         <section className="rounded-2xl border border-border bg-surface p-5">
@@ -214,5 +216,76 @@ function Toggle({ label, line, on, onChange, disabled, sub }: { label: string; l
       </span>
       <input type="checkbox" role="switch" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 shrink-0 accent-emerald" />
     </label>
+  );
+}
+
+/** Pick the microphone and test it: a live level while you talk, then what Kixo heard. */
+function MicCheck() {
+  const s = useAgentSettings();
+  const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
+  const [state, setState] = useState<"idle" | "listening" | "thinking">("idle");
+  const [level, setLevel] = useState(0);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    microphones().then((m) => alive && setMics(m));
+    return () => {
+      alive = false;
+    };
+  }, [state]);
+  useEffect(() => {
+    if (state !== "listening") return;
+    const id = setInterval(() => setLevel(micLevel()), 80);
+    return () => clearInterval(id);
+  }, [state]);
+
+  const test = async () => {
+    if (state !== "idle") return;
+    unlockAudio();
+    stopSpeaking();
+    setResult(null);
+    if (!(await startListening())) {
+      setResult({ ok: false, text: micProblem ?? "The microphone could not start" });
+      return;
+    }
+    setState("listening");
+    await new Promise((d) => setTimeout(d, 4000));
+    setState("thinking");
+    setLevel(0);
+    const text = await stopListening();
+    setState("idle");
+    setResult(text ? { ok: true, text: `Kixo heard: "${text}"` } : { ok: false, text: "Kixo heard nothing. Pick another microphone above, or check that it isn't muted" });
+  };
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-text">Microphone</h2>
+        <button type="button" onClick={test} disabled={state !== "idle"} className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-text-2 hover:text-text disabled:opacity-60">
+          {state === "thinking" ? <Loader2 size={12} strokeWidth={1.5} className="animate-spin" /> : <Mic size={12} strokeWidth={1.5} />}
+          {state === "listening" ? "Say something" : state === "thinking" ? "Checking" : "Test mic"}
+        </button>
+      </div>
+      <label className="mt-4 flex flex-col gap-1.5 text-xs text-muted">
+        Listen with
+        <select value={s.micId} onChange={(e) => setAgentSettings({ micId: e.target.value })} className="h-9 rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-emerald/50">
+          <option value="">Browser default</option>
+          {mics
+            .filter((m) => m.id && m.id !== "default")
+            .map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+        </select>
+      </label>
+      {state === "listening" && (
+        <span className="mt-3 flex h-2 overflow-hidden rounded-full bg-surface-3" aria-label="Microphone level">
+          <span className="h-full rounded-full bg-cyan transition-[width] duration-75" style={{ width: `${Math.round(level * 100)}%` }} />
+        </span>
+      )}
+      {result && <p className={`mt-3 text-xs leading-5 ${result.ok ? "text-text" : "text-warning"}`}>{result.text}</p>}
+      <p className="mt-3 text-xs leading-5 text-muted">Names show once you allow the microphone. If the bar doesn&apos;t move when you talk, pick another one</p>
+    </section>
   );
 }

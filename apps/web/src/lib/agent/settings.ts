@@ -54,6 +54,8 @@ export type AgentSettings = {
   /** 0: the mode's speed. */
   speed: number;
   volume: number;
+  /** The microphone to listen with (a device id); empty: the browser's default. */
+  micId: string;
 };
 
 export const DEFAULTS: AgentSettings = {
@@ -66,6 +68,7 @@ export const DEFAULTS: AgentSettings = {
   voice: "",
   speed: 0,
   volume: 0.9,
+  micId: "",
 };
 
 const KEY = "kixo.agent.v1";

@@ -18,7 +18,7 @@ import { useLiveScan } from "@/components/token/live-scan";
 import { freshScore, outlook, plan, scoreOf, useMarketForecast, useSimilar } from "@/components/token/ai-analysis";
 import { MODES, setAgentSettings, useAgentSettings } from "@/lib/agent/settings";
 import { answer, brief, Watcher, type CoinCtx } from "@/lib/agent/brain";
-import { audioReady, onSpeech, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
+import { audioReady, micLevel, micProblem, onSpeech, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
 
 type Props = { mint: string; row: DiscoverRow; launch: FeedToken | null; book: BookState; safety: Safety | null; solUsd: number | null };
 
@@ -148,26 +148,65 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
   const [listening, setListening] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [heard, setHeard] = useState<string | null>(null);
+  const [micError, setMicError] = useState<string | null>(null);
+  // While listening: how loud the mic is, so you can see it hears you.
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    if (!listening) return;
+    const id = setInterval(() => setLevel(micLevel()), 80);
+    return () => {
+      clearInterval(id);
+      setLevel(0);
+    };
+  }, [listening]);
   const ask = (q: string) => {
     if (!q.trim() || !ctxRef.current) return;
     remember(q, "you");
     setHeard(q);
     say(answer(q, ctxRef.current, s.mode), { urgent: true });
   };
-  const begin = async () => {
-    unlockAudio();
-    if (await startListening()) setListening(true);
-    else say("I can't hear you. Allow the microphone for Kixo in your browser.", { urgent: true });
-  };
+  // The mic's state lives in a ref: starting takes a moment (and the first time the browser
+  // asks for permission), and a stop that comes before the start has finished must still
+  // stop it, never leave it recording.
+  const mic = useRef<"idle" | "starting" | "on" | "stopping">("idle");
+  const stopAsked = useRef(false);
+  const cutoff = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const end = async () => {
-    if (!listening) return;
+    if (mic.current === "starting") {
+      stopAsked.current = true;
+      return;
+    }
+    if (mic.current !== "on") return;
+    mic.current = "stopping";
+    clearTimeout(cutoff.current);
     setListening(false);
     setThinking(true);
     const q = await stopListening();
     setThinking(false);
+    mic.current = "idle";
     if (q) ask(q);
-    else say(s.mode === "pro" ? "Didn't catch that." : "Sorry, I didn't catch that. Hold the button while you talk.", { urgent: true });
+    else say(s.mode === "pro" ? "Didn't catch that." : "Sorry, I didn't catch that. Try again a bit closer to the mic.", { urgent: true });
   };
+  const begin = async () => {
+    if (mic.current !== "idle") return;
+    unlockAudio();
+    mic.current = "starting";
+    stopAsked.current = false;
+    const ok = await startListening();
+    if (!ok) {
+      mic.current = "idle";
+      setMicError(micProblem);
+      say("I can't hear you. Check the microphone, then try again.", { urgent: true });
+      return;
+    }
+    setMicError(null);
+    mic.current = "on";
+    setListening(true);
+    // Never record forever: a question is a few seconds.
+    cutoff.current = setTimeout(() => void endRef.current(), 12_000);
+    if (stopAsked.current) void end();
+  };
+  const toggle = () => (mic.current === "idle" ? void begin() : void end());
   const beginRef = useRef(begin);
   const endRef = useRef(end);
   useEffect(() => {
@@ -234,7 +273,13 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       </div>
       <div className="min-h-14 px-3.5 py-2.5 text-sm leading-6">
         {heard && <p className="text-xs text-muted">You: {heard}</p>}
-        <p className={caption ? "text-text" : "text-text-2"}>{caption ?? (!audioOk ? "Click anywhere on the page to let me talk" : s.mode === "quiet" ? "Quiet mode: I'll only speak up if something dangerous happens" : `Watching ${row.symbol} for you. Hold the mic or press ${s.ptt === "Alt" ? "Alt" : s.ptt.toUpperCase()} to ask anything`)}</p>
+        {micError && <p className="text-xs text-warning">{micError}</p>}
+        {listening && (
+          <span className="mb-1 flex h-1.5 overflow-hidden rounded-full bg-surface-3" aria-label="Microphone level">
+            <span className="h-full rounded-full bg-cyan transition-[width] duration-75" style={{ width: `${Math.round(level * 100)}%` }} />
+          </span>
+        )}
+        <p className={caption ? "text-text" : "text-text-2"}>{caption ?? (!audioOk ? "Click anywhere on the page to let me talk" : s.mode === "quiet" ? "Quiet mode: I'll only speak up if something dangerous happens" : listening ? "Listening. Click the mic again when you're done" : `Watching ${row.symbol} for you. Click the mic or hold ${s.ptt === "Alt" ? "Alt" : s.ptt.toUpperCase()} to ask anything`)}</p>
       </div>
       <form
         onSubmit={(e) => {
@@ -246,13 +291,10 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       >
         <button
           type="button"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            void begin();
-          }}
-          onPointerUp={() => void end()}
-          onPointerLeave={() => void end()}
-          aria-label="Hold to talk"
+          onClick={toggle}
+          aria-pressed={listening}
+          aria-label={listening ? "Stop and send" : "Talk to Kixo Agent"}
+          title={listening ? "Click to send" : "Click and talk, click again to send"}
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${listening ? "border-cyan/50 bg-cyan/10 text-cyan" : "border-border text-text-2 hover:text-text"}`}
         >
           {thinking ? <Loader2 size={15} strokeWidth={1.5} className="animate-spin" /> : <Mic size={15} strokeWidth={1.5} />}
