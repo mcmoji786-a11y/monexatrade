@@ -42,6 +42,7 @@ mod marketing;
 mod emails;
 mod ai_chat;
 mod ai_risk;
+mod ai_ck;
 mod auto_wallet;
 mod collector;
 mod monitor;
@@ -422,6 +423,7 @@ async fn main() -> Result<()> {
     tokio::spawn(news::run(news_ctx.clone()));
     let ai_ctx = ai_risk::AiCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(ai_risk::run(ai_ctx.clone()));
+    tokio::spawn(ai_ck::run(ai_ctx.clone()));
     let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).route("/ai/overview", get(ai_risk::overview)).route("/ai/similar", get(ai_risk::similar)).route("/ai/market", get(ai_risk::market)).route("/sniper/backtest", axum::routing::post(ai_risk::backtest)).with_state(ai_ctx);
     let chat_ctx = ai_chat::ChatCtx { app: state.clone(), admin: admin_state.clone(), http: state.http.clone() };
     let chat_routes: Router<Arc<AppState>> = Router::new().route("/ai/chat", axum::routing::post(ai_chat::chat)).with_state(chat_ctx);
@@ -727,6 +729,7 @@ async fn process_events(state: Arc<AppState>, mut rx: broadcast::Receiver<Ingest
             } => {
                 collector::trade(&signature, &trade, slot);
                 ai_risk::trade(&trade, slot);
+                ai_ck::trade(&trade, slot);
                 // Pools quoted in another token (WBTC, USDC...) report raw quote units;
                 // convert them to lamports of equal value so the book stays in SOL.
                 let factor = state

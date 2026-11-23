@@ -8,6 +8,9 @@ POST http://127.0.0.1:8090/predict
 POST http://127.0.0.1:8090/market
   {"market": {a Discover market row}, "series": [[unix_s, price], ...the last 30 minutes]}
 -> {"up10": .., "up20": .., "down10": .., "down20": .., "green": ..}   (next hour, train_market.py)
+POST http://127.0.0.1:8090/checkpoint
+  {"ck": 900, "trades": [...the coin's trades so far...], "creator", "launchpad", "card"}
+-> {"win": 0.31, "crash": 0.08, "line": 0.27, "proven": false}   (train_checkpoint.py)
 GET  /health -> the models in use and their test results.
 Listens on 127.0.0.1 only, so nothing outside this PC can reach it.
 """
@@ -23,7 +26,7 @@ import lightgbm as lgb
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from features import WINDOW, WalletBook, features, model_columns, prepare  # noqa: E402
+from features import WINDOW, WalletBook, checkpoint_features, features, model_columns, prepare  # noqa: E402
 import numpy as np  # noqa: E402
 from train_market import FEATURES as MARKET_FEATURES, TARGETS as MARKET_TARGETS, market_features, series_features  # noqa: E402
 
@@ -103,6 +106,58 @@ def predict_market(body):
     return {k: round(float(b.predict(x)[0]), 4) for k, b in market_boosters.items()}
 
 
+ck_boosters = {}
+ck_report = {}
+ck_loaded_at = 0.0
+
+
+def load_ck_models():
+    """The checkpoint models (train_checkpoint.py), reloaded when retrained. Optional:
+    without them /checkpoint answers 503 and the rest keeps working."""
+    global ck_boosters, ck_report, ck_loaded_at
+    try:
+        stamp = max(os.path.getmtime(f"{MODELS}/ck_{t}_latest.txt") for t in ("win", "crash"))
+        if stamp <= ck_loaded_at or time.time() - stamp < 10:
+            return
+        fresh = {t: lgb.Booster(model_file=f"{MODELS}/ck_{t}_latest.txt") for t in ("win", "crash")}
+        try:
+            rep_ = json.load(open(f"{MODELS}/ck_report_latest.json"))
+        except (OSError, ValueError):
+            rep_ = {}
+        ck_boosters, ck_report, ck_loaded_at = fresh, rep_, stamp
+        print(f"checkpoint models loaded (trained {rep_.get('trained', '?')})", flush=True)
+    except Exception as e:
+        print(f"checkpoint models not loaded: {e}", flush=True)
+
+
+def ck_summary():
+    """What the checkpoint model proved on days it never saw, for the AI page."""
+    r = ck_report
+    if not r:
+        return None
+    return {"trained": r.get("trained"), "rule": r.get("rule"), "win": r.get("win"), "crash": r.get("crash"), "pick": r.get("pick"), "every_alive_coin": r.get("every_alive_coin"), "proven": r.get("proven"), "test_coins": r.get("test_coins")}
+
+
+def predict_checkpoint(body):
+    """A coin's second look at `ck` seconds, built with the same code as training."""
+    ck = int(body.get("ck") or 0)
+    t = pd.DataFrame(body.get("trades") or [])
+    if t.empty or ck <= WINDOW:
+        return None
+    t = prepare(t)
+    if t.empty:
+        return None
+    t = t[t.ts <= t.ts.iloc[0] + ck]
+    f = checkpoint_features(t, ck, body.get("creator"), body.get("launchpad") or "", body.get("card"), book)
+    if f is None:
+        return None
+    x = pd.DataFrame([f])
+    out = {k: round(float(b.predict(x[model_columns(b)])[0]), 4) for k, b in ck_boosters.items()}
+    pick = ck_report.get("pick") or {}
+    out.update({"line": pick.get("line"), "proven": bool(ck_report.get("proven")), "holders": f["holders"], "early_still": round(f["early_still"], 3), "top10_held": round(f["top10_held"], 3), "dev_sold_frac": round(f["dev_sold_frac"], 3)})
+    return out
+
+
 def maybe_reload():
     global checked_at
     if time.time() - checked_at > 60:
@@ -110,10 +165,12 @@ def maybe_reload():
             checked_at = time.time()
             load_models()
             load_market_models()
+            load_ck_models()
 
 
 load_models()
 load_market_models()
+load_ck_models()
 if not boosters:
     sys.exit(f"no models in {MODELS}: run ai\\train_rug.py first")
 
@@ -183,12 +240,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/market/health":
             return self._send(200, {"ok": bool(market_boosters), "trained": market_report.get("trained"), "targets": market_report.get("targets"), "backtest": market_report.get("backtest")})
         if self.path == "/health":
-            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest"), "strategy": strategy_summary()})
+            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest"), "strategy": strategy_summary(), "checkpoint": ck_summary()})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path not in ("/predict", "/backtest", "/market"):
+        if self.path not in ("/predict", "/backtest", "/market", "/checkpoint"):
             return self._send(404, {"error": "not found"})
         n = int(self.headers.get("content-length") or 0)
         if n <= 0 or n > MAX_BODY:
@@ -202,6 +259,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(400, {"error": str(e)[:200]})
             return self._send(200, out) if out else self._send(422, {"error": "no market data"})
+        if self.path == "/checkpoint":
+            maybe_reload()
+            if not ck_boosters:
+                return self._send(503, {"error": "checkpoint models not trained yet"})
+            try:
+                out = predict_checkpoint(json.loads(self.rfile.read(n)))
+            except Exception as e:
+                return self._send(400, {"error": str(e)[:200]})
+            return self._send(200, out) if out else self._send(422, {"error": "quiet or too few trades"})
         if self.path == "/backtest":
             try:
                 return self._send(200, lab.run(json.loads(self.rfile.read(n))))

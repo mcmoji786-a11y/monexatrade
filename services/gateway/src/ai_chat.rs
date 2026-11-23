@@ -348,6 +348,16 @@ fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
     good.sort_by(|a, b| b.2["now_vs_when_scored"].as_f64().unwrap_or(0.0).total_cmp(&a.2["now_vs_when_scored"].as_f64().unwrap_or(0.0)));
     let mut danger: Vec<_> = recent.iter().filter(|(_, r)| r.dump >= 0.4).collect();
     danger.sort_by(|a, b| b.1.dump.total_cmp(&a.1.dump));
+    let second_look = {
+        let (picks, record) = crate::ai_ck::picks(board, now);
+        json!({
+            "picks": picks.iter().take(5).map(|(m, l)| json!({
+                "symbol": name(m), "mint": m, "picked_at_minute": l.ck / 60, "chance_up50_before_down25": round2(l.win), "chance_halves": round2(l.crash),
+                "now_vs_pick": if l.p0 > 0.0 && l.last > 0.0 { Some(round2(l.last / l.p0)) } else { None }, "holders": l.holders,
+            })).collect::<Vec<_>>(),
+            "record_24h": record,
+        })
+    };
     json!({
         "coin_asked_about": coin,
         "newest_launches": newest(board, 5)
@@ -364,6 +374,7 @@ fn board_data(board: &crate::Board, mint: Option<String>) -> Value {
             .collect::<Vec<_>>(),
         "best_new_launches_now": good.iter().take(5).map(|(m, r, st)| json!({ "symbol": name(m), "mint": m, "double_chance_when_scored": r.pump, "crash_chance_when_scored": r.dump, "status_now": st })).collect::<Vec<_>>(),
         "best_established_now": established(board),
+        "ai_second_look_picks": second_look,
         "ai_record_24h": crate::ai_risk::record_24h(),
         "danger_now": danger.iter().take(5).map(|(m, r)| json!({ "symbol": name(m), "mint": m, "crash_chance": r.dump })).collect::<Vec<_>>(),
     })
@@ -391,6 +402,9 @@ fn alive_now(board: &crate::Board, mint: &str, now: i64) -> Option<Value> {
         "bundles_pct": round2(mk.bundle_pct),
         "seconds_since_last_trade": quiet,
         "age_minutes": (now - t.token.timestamp).max(0) / 60,
+        // Kixo AI's later look at 5, 15 or 30 minutes (ai_ck.rs): the chance it reaches +50%
+        // before it falls 25% within the hour, and whether that made it a pick.
+        "second_look": crate::ai_ck::look_of(mint).map(|l| json!({ "at_minute": l.ck / 60, "chance_up50_before_down25": round2(l.win), "chance_halves": round2(l.crash), "picked": l.passed })),
     }))
 }
 
@@ -469,7 +483,7 @@ Rules:
 - Use the LIVE DATA below for any coin facts. Never invent prices, holders or numbers. If the data does not have it, say so and suggest opening the coin on Kixo.
 - Coin details in LIVE DATA: 'wallets' has holders, the top 10 holders with labels, the dev's position in this coin (how much it holds, bought, sold), and bundlers, snipers and whales (how many wallets, how many still hold, what share of supply they hold). 'dev_wallet_now' is the creator's whole wallet right now: SOL balance, its dollar value, and the other coins it holds. 'dev_history' is the dev's earlier coins. 'groups' has bundles (wallets that bought in the same block) and clusters (wallets funded by the same wallet, likely one person; dev true means the dev is in it), each with its size and the share of supply it still holds. When asked about the dev, bundlers, snipers or holders, answer with these exact numbers.
 - Chances are given as 0 to 1; say them as percentages.
-- When asked for the best coin, a coin to buy, or what looks good today: pick only from best_new_launches_now (new coins Kixo AI scored well that are still alive now: status_now has where the price is against the score, holders and shares) or best_established_now (older memecoins with real liquidity, organic trading and a rising hour). Both lists are already checked: coins that crashed, whose dev sold everything, that are nearly worthless or that stopped trading are left out. Name one or two, say why with their exact numbers, and give the main risk. If both lists are empty, say plainly that nothing looks good right now and suggest waiting or watching Sol Radar. Never pick a coin from danger_now, and never call any coin safe or a sure win.
+- When asked for the best coin, a coin to buy, or what looks good today: pick only from ai_second_look_picks.picks (coins Kixo AI looked at again at minute 5, 15 or 30 and picked: the chance they reach +50% before falling 25% within the hour; record_24h is how its picks really did), best_new_launches_now (new coins Kixo AI scored well that are still alive now: status_now has where the price is against the score, holders and shares) or best_established_now (older memecoins with real liquidity, organic trading and a rising hour). Both lists are already checked: coins that crashed, whose dev sold everything, that are nearly worthless or that stopped trading are left out. Name one or two, say why with their exact numbers, and give the main risk. If both lists are empty, say plainly that nothing looks good right now and suggest waiting or watching Sol Radar. Never pick a coin from danger_now, and never call any coin safe or a sure win.
 - Never promise profit or tell someone to put money in. Explain risk plainly; most new memecoins go to zero. Suggest the demo account, small sizes and a stop loss.
 - Never ask for a seed phrase or private key, and warn that anyone asking for one is a scammer.
 - Reply in casual, friendly English, like a sharp trader friend: short sentences, plain words, a little trader slang is fine (rug, bag, dump, ape), no hype and no emojis. Reply in English even if the user writes Roman Urdu. Keep it short: under 120 words unless asked for more. Plain text only: no markdown, no ** or # signs, no tables.";

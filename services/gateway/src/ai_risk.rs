@@ -312,6 +312,8 @@ pub async fn run(ctx: AiCtx) {
                 if k > 0.0 { s / k } else { 0.0 }
             });
             let body = json!({ "trades": p.trades, "creator": p.creator, "launchpad": p.launchpad, "card": card });
+            // Its trades keep being collected for the AI's second look (ai_ck.rs).
+            crate::ai_ck::follow(&mint, &p.creator, &p.launchpad, p.trades);
             let res = http.post(format!("{}/predict", url())).json(&body).send().await;
             let ok = match res {
                 Ok(r) if r.status().is_success() => match r.json::<Value>().await {
@@ -553,21 +555,43 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
             by_pump.iter().take(8).map(|(m, r)| card(m, r, &board)).collect::<Vec<_>>(),
         )
     };
-    let (worth, strong) = {
+    // The AI's second look (ai_ck.rs): coins it picked at 5, 15 or 30 minutes, with the
+    // plain reasons and where the price is against the pick.
+    let (worth, ck_record, strong) = {
         let board = ctx.app.board.lock().expect("board lock");
-        let mut w: Vec<(f64, Value)> = hour.iter().filter_map(|(m, r)| worth_a_look(m, r, &board, t).map(|(score, why)| {
-            let mut c = card(m, r, &board);
-            c["why"] = json!(why);
-            (score, c)
-        })).collect();
-        w.sort_by(|a, b| b.0.total_cmp(&a.0));
-        (w.into_iter().take(6).map(|(_, c)| c).collect::<Vec<_>>(), crate::ai_chat::established(&board))
+        let (picks, record) = crate::ai_ck::picks(&board, t);
+        let first = hour.iter().map(|(m, r)| (m.as_str(), r)).collect::<HashMap<_, _>>();
+        let w: Vec<Value> = picks
+            .iter()
+            .take(8)
+            .map(|(m, l)| {
+                let r0 = first.get(m.as_str());
+                let as_risk = Risk { dump: r0.map_or(0.0, |r| r.dump), pump: r0.map_or(0.0, |r| r.pump), trades: 0, at: l.at, p0: l.p0, lo: l.lo, hi: l.hi, last: l.last, resolved: l.resolved, symbol: l.symbol.clone() };
+                let mut c = card(m, &as_risk, &board);
+                let mut why = vec![format!("Re-checked at {} min: {:.0}% chance of +50% before -25%", l.ck / 60, l.win * 100.0)];
+                why.push(format!("{} wallets hold it", l.holders));
+                why.push(format!("{:.0}% of the first buyers still hold", l.early_still * 100.0));
+                why.push(if l.dev_sold_frac <= 0.0 { "Dev has not sold".to_string() } else if l.dev_sold_frac >= 0.99 { "Dev sold out".to_string() } else { format!("Dev sold {:.0}% of its buy", l.dev_sold_frac * 100.0) });
+                why.push(format!("Top 10 hold {:.0}% of what wallets hold", l.top10_held * 100.0));
+                if l.hit == Some(true) {
+                    why.insert(0, "Already reached +50% since the pick".to_string());
+                }
+                c["why"] = json!(why);
+                c["ck"] = json!(l.ck);
+                c["win"] = json!(l.win);
+                c["crash"] = json!(l.crash);
+                c["hit"] = json!(l.hit);
+                c
+            })
+            .collect();
+        (w, record, crate::ai_chat::established(&board))
     };
     Json(json!({
         "on": true,
         "service": service,
         "worth": worth,
         "strong": strong,
+        "ck_record": ck_record,
         "window_s": WINDOW,
         "horizon_s": HORIZON,
         "scored_30m": recent.len(),
@@ -577,40 +601,8 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
         "best": best,
         "track": track,
         "calls": calls,
-        "model": model.map(|m| json!({ "trained": m["trained"], "coins": m["coins"], "targets": m["targets"], "backtest": m["backtest"], "strategy": m["strategy"] })),
+        "model": model.map(|m| json!({ "trained": m["trained"], "coins": m["coins"], "targets": m["targets"], "backtest": m["backtest"], "strategy": m["strategy"], "checkpoint": m["checkpoint"] })),
     }))
-}
-
-/// A coin Kixo AI scored in the last hour that also looks healthy right now: low crash
-/// odds at the call, trading at or above the call price, a growing crowd with more
-/// buyers than sellers, a dev who has not sold out, and no few wallets holding most of
-/// it. Returns a ranking score and the reasons in plain words, or None.
-fn worth_a_look(mint: &str, r: &Risk, board: &crate::Board, now: i64) -> Option<(f64, Vec<String>)> {
-    let t = board.tokens.get(mint)?;
-    let mk = t.market.as_ref()?;
-    if r.p0 <= 0.0 || r.last <= 0.0 || r.dump >= 0.25 || crate::ai_chat::crude(&t.token.symbol, &t.token.name) {
-        return None;
-    }
-    let now_x = r.last / r.p0;
-    let healthy = now_x >= 1.0
-        && mk.holders >= 15
-        && mk.buys_1h > mk.sells_1h
-        && !mk.dev_sold_all
-        && mk.top10_pct <= 35.0
-        && mk.bundle_pct <= 20.0
-        && mk.sniper_pct <= 20.0
-        && now - mk.last_trade <= 120
-        && mk.mc_usd.unwrap_or(0.0) >= 5_000.0;
-    if !healthy {
-        return None;
-    }
-    let score = (now_x - 1.0).min(3.0) + r.pump * 2.0 - r.dump * 2.0 + (mk.holders_change_1h.max(0) as f64 / 100.0).min(1.0) + (mk.net_buy_1h_sol / 10.0).clamp(0.0, 1.0);
-    let mut why = vec![format!("Up {:.0}% since Kixo AI's call", (now_x - 1.0) * 100.0)];
-    why.push(if mk.holders_change_1h > 0 { format!("{} holders, +{} this hour", mk.holders, mk.holders_change_1h) } else { format!("{} holders", mk.holders) });
-    why.push(format!("More buyers than sellers ({} vs {})", mk.buys_1h, mk.sells_1h));
-    why.push(if mk.dev_sells == 0 { "Dev has not sold".to_string() } else { "Dev sold some, still holds".to_string() });
-    why.push(format!("Top 10 wallets hold {:.0}%", mk.top10_pct));
-    Some((score, why))
 }
 
 #[derive(Deserialize)]

@@ -23,5 +23,14 @@ if errorlevel 1 (
 )
 type "%LOGS%\ai-train.log"
 echo.
+rem The second look (5, 15 and 30 minutes) uses the wallet record train_rug.py just saved.
+echo Retraining the second look... (log: %LOGS%\ai-ck-train.log)
+"%PY%" "%ROOT%\ai\train_checkpoint.py" > "%LOGS%\ai-ck-train.log" 2>&1
+if errorlevel 1 (
+  echo Second look training failed. Its old models stay in use. See %LOGS%\ai-ck-train.log
+) else (
+  type "%LOGS%\ai-ck-train.log"
+)
+echo.
 echo Done. The AI service switches to the new models within a minute.
 endlocal

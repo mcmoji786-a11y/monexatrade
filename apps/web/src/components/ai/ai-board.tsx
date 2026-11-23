@@ -36,8 +36,12 @@ type Pick = {
   now_x?: number | null;
   peak_x?: number | null;
   low_x?: number | null;
-  /** Worth a look: why it looks healthy right now. */
+  /** A second-look pick: why, the minute it was picked, its chance of +50% before -25%,
+   *  and true once +50% came. */
   why?: string[];
+  ck?: number;
+  win?: number;
+  hit?: boolean | null;
   dump: number;
   pump: number;
   at: number;
@@ -53,10 +57,15 @@ type Overview = {
   best?: Pick[];
   worth?: Pick[];
   strong?: { mint: string }[];
+  ck_record?: { picks: number; hit_target: number; hit_stop: number; avg_result: number | null; ready: boolean };
   calls?: Call[];
   track?: { window_h: number; all: Group; high_dump: Group; low_dump: Group; high_pump: Group };
-  model?: { trained: string | null; coins: number | null; targets: { dump: Target; pump: Target } | null; backtest?: Record<string, { trades: number }> } | null;
+  model?: { trained: string | null; coins: number | null; targets: { dump: Target; pump: Target } | null; backtest?: Record<string, { trades: number }>; checkpoint?: CkModel | null } | null;
 };
+
+/** What the second-look model proved on days it never saw (train_checkpoint.py). */
+type CkSummary = { trades: number; win_rate?: number; avg_return?: number };
+type CkModel = { pick: { line: number; top: number; search: CkSummary; check: CkSummary } | null; every_alive_coin?: { search: CkSummary; check: CkSummary }; proven: boolean; test_coins?: number };
 
 type Tab = "picks" | "check" | "auto" | "ask";
 const TABS: { key: Tab; label: string; icon: typeof Sparkles }[] = [
@@ -198,12 +207,45 @@ function Picks({ data, now }: { data: Overview | null; now: number }) {
   const good = (data?.best ?? []).filter((p) => verdict(riskOf(p)).key === "good");
   return (
     <div className="flex flex-col gap-4">
-      <CoinList tone="good" title="Good odds now" hint="Low crash risk and a real chance to double, still trading near or above the call" picks={data ? good : undefined} now={now} empty="No coin has Good odds right now. That is normal: no trade is a fine trade" />
-      <CoinList tone="good" title="Worth a look" hint="Low crash risk at the call, and healthy right now: rising, more buyers than sellers, dev still in" picks={data ? (data.worth ?? []).filter((w) => !good.some((g) => g.mint === w.mint)) : undefined} now={now} empty="No new coin passes every check right now" />
+      <CoinList tone="good" title="AI picks: second look" hint="Coins Kixo AI looked at again at 5, 15 or 30 minutes and picked: the best chance of +50% before -25% within the hour" picks={data ? (data.worth ?? []) : undefined} now={now} empty="No coin passed Kixo AI's second look in the last hour. It only picks when the odds are tested to be real" />
+      <SecondLookRecord data={data} />
+      <CoinList tone="good" title="Good odds now" hint="Low crash risk and a real chance to double, still trading near or above the call" picks={data ? good.filter((g) => !(data.worth ?? []).some((w) => w.mint === g.mint)) : undefined} now={now} empty="No coin has Good odds right now. That is normal: no trade is a fine trade" />
       <StrongNow mints={data?.strong?.map((s) => s.mint)} />
       <p className="-mt-2 text-xs text-muted">Kixo AI can be wrong and most new memecoins go to zero. These are coins worth a closer look, not a promise. Not financial advice</p>
       <CoinList tone="bad" title="Danger now" hint="Best to stay away from these. See what happened since the call" picks={data?.riskiest?.filter((p) => p.dump >= 0.4)} now={now} empty="No coin marked Danger in the last 30 minutes" />
       <Calls calls={data?.calls} now={now} />
+    </div>
+  );
+}
+
+const signedPct = (v: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+
+/** The second look's honest record: what its pick line did on days the model never saw
+ *  (after 1% cost each side), and how its live picks did in the last 24 hours. */
+function SecondLookRecord({ data }: { data: Overview | null }) {
+  const m = data?.model?.checkpoint;
+  const live = data?.ck_record;
+  if (!m?.pick) return null;
+  const t = m.pick.check;
+  const all = m.every_alive_coin?.check;
+  return (
+    <div className="-mt-2 flex flex-col gap-1 rounded-xl border border-border bg-surface px-4 py-3 text-xs leading-5 text-text-2">
+      <p>
+        Tested on days it never saw: its picks reached +50% before -25% <span className="font-mono text-text">{((t.win_rate ?? 0) * 100).toFixed(0)}%</span> of the time
+        {all?.win_rate != null && <> (every coin alive at that minute: <span className="font-mono">{(all.win_rate * 100).toFixed(0)}%</span>)</>}, an average of{" "}
+        <span className={`font-mono ${(t.avg_return ?? 0) >= 0 ? "text-positive" : "text-negative"}`}>{signedPct(t.avg_return ?? 0)}</span> per trade after fees, over {t.trades} trades
+      </p>
+      {live && live.picks > 0 && (
+        <p>
+          Live, last 24 hours: {live.picks} picks, {live.hit_target} reached +50%, {live.hit_stop} fell 25% first
+          {live.avg_result != null && (
+            <>
+              , average <span className={`font-mono ${live.avg_result >= 0 ? "text-positive" : "text-negative"}`}>{signedPct(live.avg_result)}</span> after fees
+            </>
+          )}
+        </p>
+      )}
+      {!m.proven && <p className="text-muted">Not yet proven to make money after fees on both test halves. Treat picks as coins to study, not to buy blindly</p>}
     </div>
   );
 }
@@ -246,7 +288,9 @@ function CoinList({ title, hint, picks, now: _now, empty, tone }: { title: strin
               return (
                 <div key={p.mint} className="coin-in flex min-w-0 flex-col">
                   <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-t-xl border border-b-0 border-border bg-surface-2 px-3 py-1.5 font-mono text-xs">
-                    <span className="text-muted">called {ago(now, p.at)} ago</span>
+                    <span className="text-muted">
+                      {p.ck ? `picked at ${Math.round(p.ck / 60)}m, ${ago(now, p.at)} ago · ${Math.round((p.win ?? 0) * 100)}% chance` : `called ${ago(now, p.at)} ago`}
+                    </span>
                     <span className="flex items-center gap-3">
                       <span className="text-muted">
                         since call{" "}
