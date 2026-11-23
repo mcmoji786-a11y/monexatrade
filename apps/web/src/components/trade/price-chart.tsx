@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Camera,
@@ -130,7 +130,15 @@ export function PriceChart({
   const chart = useRef<Chart | null>(null);
   // The same chart as state, for the trader pins layer (it re-renders when the chart is made).
   const [chartObj, setChartObj] = useState<Chart | null>(null);
-  const drawn = useRef<{ key: string; len: number }>({ key: "", len: 0 });
+  // What is on the chart: its series, length, and the candles it was built from (by
+  // reference), so an update can tell whether only the newest candles changed.
+  const drawn = useRef<{ key: string; len: number; data: KLineData[] }>({ key: "", len: 0, data: [] });
+  // The series waiting to be drawn, updates still being added by the chart, and a timer
+  // in case one never reports back.
+  const queued = useRef<{ data: KLineData[]; key: string } | null>(null);
+  const inFlight = useRef(0);
+  const stuck = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const drawRef = useRef<() => void>(() => {});
   const [interval, setInterval_] = useState(15);
   const [mode, setMode] = useState<Mode>("mc");
   const [unit, setUnit] = useState<Unit>("usd");
@@ -292,6 +300,14 @@ export function PriceChart({
       setHover((d as { kLineData?: KLineData } | undefined)?.kLineData ?? null);
     });
     chart.current = c;
+    // Each finished update lets the next waiting series draw.
+    c.subscribeAction("onDataReady" as never, () => {
+      inFlight.current = Math.max(0, inFlight.current - 1);
+      if (inFlight.current === 0) {
+        clearTimeout(stuck.current);
+        drawRef.current();
+      }
+    });
     setChartObj(c);
     const onResize = () => c.resize();
     const ro = new ResizeObserver(onResize);
@@ -301,7 +317,9 @@ export function PriceChart({
       dispose(c);
       chart.current = null;
       setChartObj(null);
-      drawn.current = { key: "", len: 0 };
+      drawn.current = { key: "", len: 0, data: [] };
+      inFlight.current = 0;
+      clearTimeout(stuck.current);
     };
   }, []);
 
@@ -313,24 +331,66 @@ export function PriceChart({
   }, [fmt, data]);
 
   // Draw: full reload when the series changes, otherwise only the newest candles.
-  useEffect(() => {
+  // KLineCharts 9 adds data asynchronously (it waits for the indicators, then rescales the
+  // y-axis and repaints). Two updates in flight at once, as a busy coin's trades arrive,
+  // left the chart painted against a stale axis: the history off screen and the newest
+  // candles stretched from top to bottom. So one update runs at a time and the newest
+  // series waits for it (onDataReady); series that arrive meanwhile are skipped.
+  const drawSeries = useCallback(() => {
     const c = chart.current;
-    if (!c) return;
-    const key = `${mint}|${tf}|${mode}|${showUnit}|${book.status}`;
+    const next = queued.current;
+    if (!c || !next || inFlight.current > 0) return;
+    queued.current = null;
+    const { data, key } = next;
     const prev = drawn.current;
-    if (prev.key !== key || data.length < prev.len || prev.len === 0) {
+    // Only the newest candles may differ from what is drawn: a new book from the gateway
+    // (history that arrived late, trades filled in behind) can change older candles. A
+    // small move of every candle (the SOL price in dollars) is not worth a full redraw.
+    const near = (x: number, y: number) => Math.abs(x - y) <= Math.abs(y) * 0.02;
+    const same = (p: KLineData | undefined, q: KLineData | undefined) => !!p && !!q && p.timestamp === q.timestamp && near(p.close, q.close) && near(p.high, q.high) && near(p.low, q.low);
+    const tailOnly =
+      prev.key === key &&
+      prev.len > 0 &&
+      data.length >= prev.len &&
+      data.length - prev.len <= 3 &&
+      same(data[0], prev.data[0]) &&
+      (prev.len < 2 || same(data[prev.len - 2], prev.data[prev.len - 2])) &&
+      same(data[Math.floor(prev.len / 2)], prev.data[Math.floor(prev.len / 2)]);
+    drawn.current = { key, len: data.length, data };
+    if (!tailOnly) {
+      if (data.length === 0) {
+        c.clearData();
+        return;
+      }
       // Spread a short history across most of the width instead of a thin sliver at
       // the right edge; long histories keep a readable minimum candle width.
       const width = box.current?.clientWidth ?? 800;
       // Thin candles always: a young coin's few candles must not turn into bars.
-      c.setBarSpace(Math.min(7, Math.max(4, (width * 0.5) / Math.max(1, data.length))));
+      if (prev.key !== key || prev.len === 0) c.setBarSpace(Math.min(7, Math.max(4, (width * 0.5) / Math.max(1, data.length))));
+      inFlight.current = 1;
       c.applyNewData(data);
-      c.scrollToRealTime();
+      if (prev.key !== key || prev.len === 0) c.scrollToRealTime();
     } else {
-      for (let i = Math.max(0, prev.len - 1); i < data.length; i++) c.updateData(data[i]);
+      const from = Math.max(0, prev.len - 1);
+      inFlight.current = data.length - from;
+      for (let i = from; i < data.length; i++) c.updateData(data[i]);
     }
-    drawn.current = { key, len: data.length };
-  }, [data, mint, tf, mode, showUnit, book.status]);
+    // A safety net: should an update never report back, drawing carries on.
+    clearTimeout(stuck.current);
+    stuck.current = setTimeout(() => {
+      inFlight.current = 0;
+      drawRef.current();
+    }, 2000);
+  }, []);
+
+  useEffect(() => {
+    drawRef.current = drawSeries;
+  }, [drawSeries]);
+
+  useEffect(() => {
+    queued.current = { data, key: `${mint}|${tf}|${mode}|${showUnit}|${book.status}` };
+    drawSeries();
+  }, [data, mint, tf, mode, showUnit, book.status, drawSeries, chartObj]);
 
   // Indicators.
   useEffect(() => {
