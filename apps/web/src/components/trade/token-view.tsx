@@ -1,5 +1,6 @@
 "use client";
 
+import { AgentDock } from "@/components/agent/agent-dock";
 import { LiveTradesColumn } from "./live-trades-column";
 import { CoinProfile } from "./coin-profile";
 
@@ -125,6 +126,7 @@ export function TokenView() {
         </aside>
       </div>
       <MobileTradeBar symbol={row.symbol} />
+      <AgentDock mint={mint} row={row} launch={launch} book={book} safety={safety} solUsd={feed.solUsd} />
       <TradeTour />
     </div>
   );

@@ -41,7 +41,7 @@ function AiButtonInner({ input, compact = false, safety }: { input: () => Analys
   );
 }
 
-type Tone = "bad" | "warn" | "good" | "muted";
+export type Tone = "bad" | "warn" | "good" | "muted";
 const TONE: Record<Tone, string> = {
   bad: "border-negative/30 text-negative",
   warn: "border-warning/30 text-warning",
@@ -314,11 +314,11 @@ const BUY_AT = 66;
 /** The score was tested on buying when Kixo AI scored the coin: it holds for a few
  *  minutes after that, not for a coin bought much later. */
 const FRESH_FOR_S = 300;
-function freshScore(num?: Numbers) {
+export function freshScore(num?: Numbers) {
   return num?.ageSecs != null && num.ageSecs < AI_WINDOW_S + FRESH_FOR_S;
 }
 const AVOID_UNDER = 35;
-function scoreOf(sim: Similar | undefined) {
+export function scoreOf(sim: Similar | undefined) {
   return sim?.similar.trade != null ? buyScore(sim.similar.trade) : null;
 }
 
@@ -386,10 +386,10 @@ function BuyScore({ risk, sim, watching, fresh, ageSecs }: { risk: AiRisk | null
 
 /** Kixo AI's next-hour chances for an established coin (gateway /ai/market, trained by
  *  ai/train_market.py on the market board's minute-by-minute history). */
-type MarketChances = { up10: number; up20: number; down10: number; down20: number; green: number };
+export type MarketChances = { up10: number; up20: number; down10: number; down20: number; green: number };
 type MarketForecastData = { chances: MarketChances; tested: { targets?: Record<string, { base_rate: number; auc: number }>; backtest?: Record<string, { trades: number; avg: number; win_rate: number }> } | null } | null;
 
-function useMarketForecast(mint: string, enabled: boolean) {
+export function useMarketForecast(mint: string, enabled: boolean) {
   const [state, setState] = useState<{ mint: string; v: MarketForecastData; done: boolean }>({ mint: "", v: null, done: false });
   useEffect(() => {
     if (!enabled) return;
@@ -472,7 +472,7 @@ type Similar = {
 } | null;
 
 /** What happened to past coins with the same AI scores (gateway /ai/similar). */
-function useSimilar(risk: AiRisk | null) {
+export function useSimilar(risk: AiRisk | null) {
   const key = risk ? `${risk.dump.toFixed(3)}|${risk.pump.toFixed(3)}` : "";
   const [state, setState] = useState<{ key: string; v: Similar }>({ key: "", v: null });
   // undefined while it loads; null when there is no answer.
@@ -583,7 +583,7 @@ function Countdown({ launchedAt, ageSecs }: { launchedAt: number | null; ageSecs
 /** Kixo's plan for the coin in plain words, worked out in code from the same data as the
  *  outlook so it never contradicts it: buy or not, how much, where to get out, and what
  *  would change the picture. Market cap levels are the real numbers for this coin. */
-function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers, buy: number | null = null, market: MarketChances | null = null) {
+export function plan(tone: Tone, risk: AiRisk | null, safety: Safety | null | undefined, n?: Numbers, buy: number | null = null, market: MarketChances | null = null) {
   const mc = n?.mcUsd ?? null;
   const at = (x: number) => (mc ? ` (market cap ${usd(mc * x)})` : "");
   const young = n?.ageSecs != null && n.ageSecs < 120;

@@ -4,8 +4,9 @@
    let the AI trade, or ask it. Every number is real (gateway ai_risk.rs /ai/overview). */
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useFeatures } from "@/lib/features";
-import { Bot, Check, MessageCircle, ScanSearch, Sparkles, X } from "lucide-react";
+import { AudioLines, Bot, Check, MessageCircle, ScanSearch, Sparkles, X } from "lucide-react";
 import { GATEWAY_HTTP } from "@/lib/gateway";
 import { pct, verdict, VERDICTS, type AiRisk, type Verdict } from "@/lib/ai-risk";
 import { answer, type ChatReply } from "@/lib/ai-chat";
@@ -22,6 +23,7 @@ import { newLaunchChecks } from "@/lib/risk";
 import { useNow } from "@/components/radar/use-radar-feed";
 import { AiChatPanel } from "./ai-chat-panel";
 import { CopyAiCard } from "./copy-ai-card";
+import { VoiceAgentTab } from "@/components/agent/voice-agent-tab";
 
 type Group = { coins: number; dumped: number | null; doubled: number | null };
 /** A coin the AI scored, with where it is now against the price at the call (1 = unchanged). */
@@ -67,12 +69,13 @@ type Overview = {
 type CkSummary = { trades: number; win_rate?: number; avg_return?: number };
 type CkModel = { pick: { line: number; top: number; search: CkSummary; check: CkSummary } | null; every_alive_coin?: { search: CkSummary; check: CkSummary }; proven: boolean; test_coins?: number };
 
-type Tab = "picks" | "check" | "auto" | "ask";
+type Tab = "picks" | "check" | "auto" | "ask" | "voice";
 const TABS: { key: Tab; label: string; icon: typeof Sparkles }[] = [
   { key: "picks", label: "AI picks", icon: Sparkles },
   { key: "check", label: "Check a coin", icon: ScanSearch },
   { key: "auto", label: "Auto trade", icon: Bot },
   { key: "ask", label: "Ask AI", icon: MessageCircle },
+  { key: "voice", label: "Voice agent", icon: AudioLines },
 ];
 
 const POLL_MS = 10_000;
@@ -83,7 +86,9 @@ export function AiBoard() {
   const [data, setData] = useState<Overview | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(0);
-  const [tab, setTab] = useState<Tab>("picks");
+  // /ai?tab=voice (the agent's settings link) opens that tab.
+  const want = useSearchParams().get("tab");
+  const [tab, setTab] = useState<Tab>(TABS.some((t) => t.key === want) ? (want as Tab) : "picks");
 
   useEffect(() => {
     let stop = false;
@@ -138,6 +143,7 @@ export function AiBoard() {
       {tab === "check" && <CheckCoin />}
       {tab === "auto" && <CopyAiCard />}
       {tab === "ask" && <AiChatPanel overview={data} />}
+      {tab === "voice" && <VoiceAgentTab />}
     </section>
   );
 }

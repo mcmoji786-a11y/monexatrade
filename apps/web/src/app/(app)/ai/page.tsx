@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { AiBoard } from "@/components/ai/ai-board";
 
@@ -13,5 +14,10 @@ export const metadata: Metadata = {
 };
 
 export default function AiPage() {
-  return <AiBoard />;
+  // The board reads ?tab= from the URL, which needs a Suspense boundary.
+  return (
+    <Suspense>
+      <AiBoard />
+    </Suspense>
+  );
 }

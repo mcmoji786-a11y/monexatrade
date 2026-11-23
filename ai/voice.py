@@ -99,6 +99,7 @@ def load_stt():
 # Numbers and symbols read the way a trader says them.
 def speakable(text: str) -> str:
     t = text.strip()
+    t = re.sub(r"(\d+(?:\.\d+)?)%\+", r"\1 percent or more", t)
     t = re.sub(r"\$(\d[\d,]*\.?\d*)\s*([KMB])\b", lambda m: f"{m.group(1)} {dict(K='thousand', M='million', B='billion')[m.group(2)]} dollars", t)
     t = re.sub(r"\$(\d[\d,]*\.?\d*)", r"\1 dollars", t)
     t = re.sub(r"(\d)\s*([KMB])\b", lambda m: f"{m.group(1)} {dict(K='thousand', M='million', B='billion')[m.group(2)]}", t)

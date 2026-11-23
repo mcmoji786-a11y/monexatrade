@@ -63,6 +63,21 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Kixo Agent's live mark: three bars that move while it speaks or listens. */
+@keyframes agent-bar {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 14px;
+  }
+}
+.agent-bar {
+  height: 4px;
+  animation: agent-bar 700ms ease-in-out infinite;
+}
+
 /* One entrance: a new card fades and drops in a few pixels. */
 @keyframes row-in {
   from {
@@ -286,6 +301,7 @@ body {
   .grow-x,
   .drawer-in,
   .row-in,
+  .agent-bar,
   .coin-in,
   .live-ring,
   .radar-sweep,
