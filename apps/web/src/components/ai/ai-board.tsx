@@ -14,11 +14,27 @@ import { TokenLogo } from "@/components/token/token-bits";
 import { StarButton } from "@/components/token/star-button";
 import { QuickBuy } from "@/components/trade/quick-buy";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
+import { Tick } from "@/components/token/tick";
 import { AiChatPanel } from "./ai-chat-panel";
 import { CopyAiCard } from "./copy-ai-card";
 
 type Group = { coins: number; dumped: number | null; doubled: number | null };
-type Pick = { mint: string; symbol: string | null; name: string | null; image: string | null; mc_usd: number | null; dump: number; pump: number; at: number };
+/** A coin the AI scored, with where it is now against the price at the call (1 = unchanged). */
+type Pick = {
+  mint: string;
+  symbol: string | null;
+  name: string | null;
+  image: string | null;
+  mc_usd: number | null;
+  holders?: number | null;
+  launchpad?: string | null;
+  now_x?: number | null;
+  peak_x?: number | null;
+  low_x?: number | null;
+  dump: number;
+  pump: number;
+  at: number;
+};
 type Call = { mint: string; symbol: string; at: number; dump: number; pump: number; dumped: boolean; doubled: boolean; low_x: number; high_x: number };
 type Target = { base_rate: number; auc: number; top10pct_rate: number; bottom10pct_rate: number };
 type Overview = {
@@ -164,7 +180,7 @@ function Hero({ data, failed }: { data: Overview | null; failed: boolean }) {
 function VerdictPill({ risk }: { risk: AiRisk }) {
   const v = verdict(risk);
   return (
-    <span className={`flex h-6 shrink-0 items-center rounded-full border px-2 text-xs ${v.className}`} title={riskTitle(risk)}>
+    <span className={`inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full border px-2 text-xs ${v.className}`} title={riskTitle(risk)}>
       {v.label}
     </span>
   );
@@ -181,45 +197,95 @@ function Picks({ data, now }: { data: Overview | null; now: number }) {
   const good = (data?.best ?? []).filter((p) => verdict(riskOf(p)).key === "good");
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <CoinList title="Good odds now" hint="Low crash risk and a real chance to double" picks={data ? good : undefined} now={now} empty="No coin has Good odds right now. That is normal: no trade is a fine trade" />
-        <CoinList title="Danger now" hint="Best to stay away from these" picks={data?.riskiest?.filter((p) => p.dump >= 0.4)} now={now} empty="No coin marked Danger in the last 30 minutes" />
-      </div>
+      <CoinList tone="good" title="Good odds now" hint="Low crash risk and a real chance to double, still trading near or above the call" picks={data ? good : undefined} now={now} empty="No coin has Good odds right now. That is normal: no trade is a fine trade" />
+      <CoinList tone="bad" title="Danger now" hint="Best to stay away from these. See what happened since the call" picks={data?.riskiest?.filter((p) => p.dump >= 0.4)} now={now} empty="No coin marked Danger in the last 30 minutes" />
       <Calls calls={data?.calls} now={now} />
     </div>
   );
 }
 
-function CoinList({ title, hint, picks, now, empty }: { title: string; hint: string; picks?: Pick[]; now: number; empty: string }) {
+const LAUNCHPADS: Record<string, string> = { "pump.fun": "pump", "letsbonk.fun": "bonk", "raydium-launchlab": "launchlab", "met-dbc": "meteora", bags: "bags", moonshot: "moonshot" };
+
+/** Change since the call, as a signed percent. */
+const since = (x: number | null | undefined) => (x == null ? null : (x - 1) * 100);
+const pctText = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)}%`);
+const pctTone = (v: number | null) => (v == null ? "text-muted" : v >= 0 ? "text-positive" : "text-negative");
+
+/** The AI's picks as Discover shows coins: one dense row each, numbers that flash when
+ *  they move, new rows sliding in. */
+function CoinList({ title, hint, picks, now, empty, tone }: { title: string; hint: string; picks?: Pick[]; now: number; empty: string; tone: "good" | "bad" }) {
   return (
-    <section className="flex min-w-0 flex-col rounded-xl border border-border bg-surface">
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-medium text-text">{title}</h2>
-        <p className="mt-0.5 text-xs text-muted">{hint}</p>
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className={`h-1.5 w-1.5 rounded-full ${tone === "good" ? "bg-positive" : "bg-negative"}`} aria-hidden="true" />
+          <h2 className="text-sm font-medium text-text">{title}</h2>
+          {picks && <span className="font-mono text-xs text-muted">{picks.length}</span>}
+        </div>
+        <p className="text-xs text-muted">{hint}</p>
       </div>
       {!picks ? (
         <p className="px-4 py-10 text-center text-sm text-muted">Loading</p>
       ) : picks.length === 0 ? (
         <p className="px-6 py-10 text-center text-sm text-muted">{empty}</p>
       ) : (
-        <ul className="divide-y divide-border">
-          {picks.slice(0, 8).map((p) => (
-            <li key={p.mint} className="flex h-14 items-center gap-2.5 px-4">
-              <Link href={tokenHref(p.mint)} className="flex min-w-0 flex-1 items-center gap-3">
-                <TokenLogo src={p.image} symbol={p.symbol ?? "?"} size={32} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm text-text hover:underline">{p.symbol || p.mint.slice(0, 6)}</span>
-                  <span className="truncate font-mono text-[11px] text-muted">
-                    {usd(p.mc_usd)} · {ago(now, p.at)} ago
-                  </span>
-                </span>
-              </Link>
-              <VerdictPill risk={riskOf(p)} />
-              <StarButton mint={p.mint} size={14} />
-              <QuickBuy mint={p.mint} symbol={p.symbol ?? ""} />
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr className="h-9 border-b border-border text-left text-xs text-muted">
+                <th className="pl-4 font-normal">Coin</th>
+                <th className="px-3 text-right font-normal">Market cap</th>
+                <th className="px-3 text-right font-normal" title="Price now against the price when Kixo AI made the call">Since call</th>
+                <th className="px-3 text-right font-normal" title="The highest price since the call">Peak</th>
+                <th className="px-3 text-right font-normal">Holders</th>
+                <th className="px-3 font-normal">Kixo AI</th>
+                <th className="pr-4" />
+              </tr>
+            </thead>
+            <tbody>
+              {picks.slice(0, 10).map((p) => {
+                const ch = since(p.now_x);
+                const peak = since(p.peak_x);
+                return (
+                  <tr key={p.mint} className="row-in h-14 border-b border-border last:border-0 transition-colors hover:bg-surface-2">
+                    <td className="pl-4">
+                      <Link href={tokenHref(p.mint)} className="flex min-w-0 items-center gap-3">
+                        <TokenLogo src={p.image} symbol={p.symbol ?? "?"} size={34} />
+                        <span className="flex min-w-0 flex-col">
+                          <span className="flex items-baseline gap-2">
+                            <span className="max-w-36 truncate font-medium text-text hover:underline">{p.symbol || `${p.mint.slice(0, 4)}…${p.mint.slice(-4)}`}</span>
+                            {p.name && p.name !== p.symbol && <span className="max-w-36 truncate text-xs text-muted">{p.name}</span>}
+                          </span>
+                          <span className="font-mono text-xs text-muted">
+                            {p.launchpad ? `${LAUNCHPADS[p.launchpad] ?? p.launchpad} · ` : ""}
+                            called {ago(now, p.at)} ago
+                          </span>
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="px-3 text-right font-mono text-text">
+                      <Tick value={p.mc_usd}>{usd(p.mc_usd)}</Tick>
+                    </td>
+                    <td className={`px-3 text-right font-mono ${pctTone(ch)}`}>
+                      <Tick value={ch}>{pctText(ch)}</Tick>
+                    </td>
+                    <td className={`px-3 text-right font-mono text-xs ${pctTone(peak)}`}>{pctText(peak)}</td>
+                    <td className="px-3 text-right font-mono text-text-2">{p.holders != null ? p.holders.toLocaleString() : "—"}</td>
+                    <td className="px-3">
+                      <VerdictPill risk={riskOf(p)} />
+                    </td>
+                    <td className="pr-4">
+                      <span className="flex items-center justify-end gap-2">
+                        <StarButton mint={p.mint} size={14} />
+                        <QuickBuy mint={p.mint} symbol={p.symbol ?? ""} />
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

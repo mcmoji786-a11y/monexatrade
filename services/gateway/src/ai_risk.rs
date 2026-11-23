@@ -120,7 +120,8 @@ fn load_scores_from(path: &str) -> usize {
             continue;
         }
         s.order.push_back(x.mint.clone());
-        s.scores.insert(x.mint, Risk { dump: x.dump, pump: x.pump, trades: x.trades, at: x.at, p0: x.p0, lo: x.lo, hi: x.hi, last: x.p0, resolved: x.resolved, symbol: x.symbol });
+        // The price now is unknown after a restart (0) until the coin trades again.
+        s.scores.insert(x.mint, Risk { dump: x.dump, pump: x.pump, trades: x.trades, at: x.at, p0: x.p0, lo: x.lo, hi: x.hi, last: 0.0, resolved: x.resolved, symbol: x.symbol });
         n += 1;
     }
     n
@@ -497,10 +498,13 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
         let scored_1h = s.scores.values().filter(|r| r.at >= t - 3600).count();
         // The AI's recent strong calls and what really happened: high dump risk or good
         // 2x odds, newest first.
+        // One line per coin, even if its outcome was recorded twice (a restart).
+        let mut listed = std::collections::HashSet::new();
         let calls: Vec<Value> = o
             .iter()
             .rev()
             .filter(|o| o.dump >= 0.4 || o.pump >= 0.2)
+            .filter(|o| listed.insert(o.mint.clone()))
             .take(12)
             .map(|o| {
                 json!({
@@ -511,14 +515,25 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
             .collect();
         (recent, track, s.model.clone(), s.service_up, s.pending.len(), scored_1h, calls)
     };
+    // A pick as Discover shows a coin: name, picture and market cap from the live board,
+    // else the market board, else the AI's own record (coins leave the radar once quiet),
+    // plus where the price is now and its best since the call.
     let card = |m: &str, r: &Risk, board: &crate::Board| {
         let ft = board.tokens.get(m);
+        let mk = board.markets.get(m);
+        let mc = ft.and_then(|f| f.market.as_ref()).and_then(|x| x.mc_usd).or_else(|| mk.as_ref().and_then(|x| x.mc_usd));
+        let x = |v: f64| if r.p0 > 0.0 && v > 0.0 { json!(((v / r.p0) * 1000.0).round() / 1000.0) } else { Value::Null };
         json!({
             "mint": m,
-            "symbol": ft.map(|f| f.token.symbol.clone()),
-            "name": ft.map(|f| f.token.name.clone()),
-            "image": ft.and_then(|f| f.meta.as_ref()).and_then(|x| x.image.clone()),
-            "mc_usd": ft.and_then(|f| f.market.as_ref()).and_then(|x| x.mc_usd),
+            "symbol": ft.map(|f| f.token.symbol.clone()).filter(|s| !s.is_empty()).or_else(|| mk.as_ref().map(|x| x.symbol.clone())).or_else(|| (!r.symbol.is_empty()).then(|| r.symbol.clone())),
+            "name": ft.map(|f| f.token.name.clone()).or_else(|| mk.as_ref().map(|x| x.name.clone())),
+            "image": ft.and_then(|f| f.meta.as_ref()).and_then(|x| x.image.clone()).or_else(|| mk.as_ref().and_then(|x| x.image.clone())),
+            "mc_usd": mc,
+            "holders": ft.and_then(|f| f.market.as_ref()).map(|x| x.holders as u64).or_else(|| mk.as_ref().and_then(|x| x.holders)),
+            "launchpad": ft.map(|f| f.token.launchpad.clone()).or_else(|| mk.as_ref().and_then(|x| x.launchpad.clone())),
+            "now_x": x(r.last),
+            "peak_x": x(r.hi),
+            "low_x": x(r.lo),
             "dump": r.dump,
             "pump": r.pump,
             "at": r.at,
@@ -528,7 +543,8 @@ pub async fn overview(State(ctx): State<AiCtx>) -> Json<Value> {
         let board = ctx.app.board.lock().expect("board lock");
         let mut by_dump: Vec<&(String, Risk)> = recent.iter().filter(|(_, r)| r.dump >= 0.2).collect();
         by_dump.sort_by(|a, b| b.1.dump.total_cmp(&a.1.dump));
-        let mut by_pump: Vec<&(String, Risk)> = recent.iter().filter(|(_, r)| r.dump < 0.2).collect();
+        let alive = |r: &Risk| r.p0 <= 0.0 || (r.last / r.p0 >= 0.5 && (r.hi <= 0.0 || r.last / r.hi >= 0.4));
+        let mut by_pump: Vec<&(String, Risk)> = recent.iter().filter(|(_, r)| r.dump < 0.2 && alive(r)).collect();
         by_pump.sort_by(|a, b| b.1.pump.total_cmp(&a.1.pump));
         (
             by_dump.iter().take(8).map(|(m, r)| card(m, r, &board)).collect::<Vec<_>>(),
