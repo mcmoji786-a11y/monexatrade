@@ -96,6 +96,20 @@ fn mask_trade(mut t: Value) -> Value {
     t
 }
 
+/// Whether a migration's column exists, asked once and remembered once it does (a new
+/// profile has no row yet to look at, so the table itself is asked).
+async fn has_column(a: &AccountState, column: &'static str) -> bool {
+    static KNOWN: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+    if KNOWN.lock().expect("columns lock").contains(&column) {
+        return true;
+    }
+    let yes = a.rest(reqwest::Method::GET, &format!("trader_profiles?select={column}&limit=1"), None).await.is_ok();
+    if yes {
+        KNOWN.lock().expect("columns lock").push(column);
+    }
+    yes
+}
+
 /// A picture URL is kept only when it points into the user's own folder of the
 /// "profile-media" bucket (migration 0021); anything else is dropped.
 fn own_media(c: &SocialCtx, user: &str, url: &str) -> Result<String, ApiErr> {
@@ -267,7 +281,7 @@ pub async fn save_me(State(c): State<SocialCtx>, headers: HeaderMap, Json(p): Js
     }
     let avatar = own_media(&c, &u.id, &p.avatar_url)?;
     let banner = own_media(&c, &u.id, &p.banner_url)?;
-    let has_media = profile_by_user(&c.acct, &u.id).await?.is_some_and(|v| v.get("avatar_url").is_some());
+    let has_media = has_column(&c.acct, "avatar_url").await;
     if has_media {
         row["avatar_url"] = json!(avatar);
         row["banner_url"] = json!(banner);
@@ -276,8 +290,7 @@ pub async fn save_me(State(c): State<SocialCtx>, headers: HeaderMap, Json(p): Js
     } else if !avatar.is_empty() || !banner.is_empty() || !x.is_empty() || !tg.is_empty() {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "Pictures and links need Kixo's database update (migration 0021)".into()));
     }
-    let existing = profile_by_user(&c.acct, &u.id).await?;
-    if existing.as_ref().is_some_and(|v| v.get("hide_amounts").is_some()) {
+    if has_column(&c.acct, "hide_amounts").await {
         row["hide_amounts"] = json!(p.hide_amounts);
     } else if p.hide_amounts {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "Hiding amounts needs Kixo's database update (migration 0022)".into()));
