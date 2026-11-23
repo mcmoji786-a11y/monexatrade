@@ -6,8 +6,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useFeatures } from "@/lib/features";
 import { Bot, Check, MessageCircle, ScanSearch, Sparkles, X } from "lucide-react";
-import { GATEWAY_HTTP, usd } from "@/lib/gateway";
-import { pct, riskTitle, verdict, VERDICTS, type AiRisk, type Verdict } from "@/lib/ai-risk";
+import { GATEWAY_HTTP } from "@/lib/gateway";
+import { pct, verdict, VERDICTS, type AiRisk, type Verdict } from "@/lib/ai-risk";
 import { answer, type ChatReply } from "@/lib/ai-chat";
 import { tokenHref } from "@/lib/open-token";
 import { TokenLogo } from "@/components/token/token-bits";
@@ -15,6 +15,9 @@ import { StarButton } from "@/components/token/star-button";
 import { QuickBuy } from "@/components/trade/quick-buy";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 import { Tick } from "@/components/token/tick";
+import { TokenCard } from "@/components/radar/token-card";
+import { newLaunchChecks } from "@/lib/risk";
+import { useNow } from "@/components/radar/use-radar-feed";
 import { AiChatPanel } from "./ai-chat-panel";
 import { CopyAiCard } from "./copy-ai-card";
 
@@ -93,7 +96,7 @@ export function AiBoard() {
   if (data && !data.on) return <p className="py-20 text-center text-sm text-text-2">Kixo AI is switched off right now</p>;
 
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <section className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <Hero data={data} failed={failed} />
 
       {/* One thing at a time */}
@@ -177,14 +180,6 @@ function Hero({ data, failed }: { data: Overview | null; failed: boolean }) {
   );
 }
 
-function VerdictPill({ risk }: { risk: AiRisk }) {
-  const v = verdict(risk);
-  return (
-    <span className={`inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full border px-2 text-xs ${v.className}`} title={riskTitle(risk)}>
-      {v.label}
-    </span>
-  );
-}
 
 function ago(now: number, at: number) {
   if (!now) return "";
@@ -204,88 +199,77 @@ function Picks({ data, now }: { data: Overview | null; now: number }) {
   );
 }
 
-const LAUNCHPADS: Record<string, string> = { "pump.fun": "pump", "letsbonk.fun": "bonk", "raydium-launchlab": "launchlab", "met-dbc": "meteora", bags: "bags", moonshot: "moonshot" };
-
 /** Change since the call, as a signed percent. */
 const since = (x: number | null | undefined) => (x == null ? null : (x - 1) * 100);
 const pctText = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)}%`);
 const pctTone = (v: number | null) => (v == null ? "text-muted" : v >= 0 ? "text-positive" : "text-negative");
 
-/** The AI's picks as Discover shows coins: one dense row each, numbers that flash when
- *  they move, new rows sliding in. */
-function CoinList({ title, hint, picks, now, empty, tone }: { title: string; hint: string; picks?: Pick[]; now: number; empty: string; tone: "good" | "bad" }) {
+/** The AI's picks as the same live coin cards as Sol Radar (picture, market cap,
+ *  holders, trades, curve, safety, the AI chip), each with a line on what happened since
+ *  the call. Only coins still live on the radar get a card, so every figure is current;
+ *  the ones that left are counted, not shown half empty. */
+function CoinList({ title, hint, picks, now: _now, empty, tone }: { title: string; hint: string; picks?: Pick[]; now: number; empty: string; tone: "good" | "bad" }) {
+  void _now;
+  const feed = useRadarFeed();
+  const now = useNow();
+  const live = (picks ?? []).map((p) => ({ p, t: feed.tokens.find((t) => t.mint === p.mint) })).filter((x): x is { p: Pick; t: NonNullable<typeof x.t> } => !!x.t);
+  const gone = (picks?.length ?? 0) - live.length;
   return (
-    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+    <section className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className={`h-1.5 w-1.5 rounded-full ${tone === "good" ? "bg-positive" : "bg-negative"}`} aria-hidden="true" />
-          <h2 className="text-sm font-medium text-text">{title}</h2>
-          {picks && <span className="font-mono text-xs text-muted">{picks.length}</span>}
+          <span className={`h-2 w-2 rounded-full ${tone === "good" ? "bg-positive" : "bg-negative"}`} aria-hidden="true" />
+          <h2 className="text-base font-medium text-text">{title}</h2>
+          {picks && <span className="font-mono text-xs text-muted">{live.length}</span>}
         </div>
         <p className="text-xs text-muted">{hint}</p>
       </div>
       {!picks ? (
-        <p className="px-4 py-10 text-center text-sm text-muted">Loading</p>
-      ) : picks.length === 0 ? (
-        <p className="px-6 py-10 text-center text-sm text-muted">{empty}</p>
+        <p className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted">Loading</p>
+      ) : live.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-sm text-muted">{picks.length ? `${empty}. ${gone} earlier ${gone === 1 ? "coin has" : "coins have"} gone quiet and left the radar` : empty}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="h-9 border-b border-border text-left text-xs text-muted">
-                <th className="pl-4 font-normal">Coin</th>
-                <th className="px-3 text-right font-normal">Market cap</th>
-                <th className="px-3 text-right font-normal" title="Price now against the price when Kixo AI made the call">Since call</th>
-                <th className="px-3 text-right font-normal" title="The highest price since the call">Peak</th>
-                <th className="px-3 text-right font-normal">Holders</th>
-                <th className="px-3 font-normal">Kixo AI</th>
-                <th className="pr-4" />
-              </tr>
-            </thead>
-            <tbody>
-              {picks.slice(0, 10).map((p) => {
-                const ch = since(p.now_x);
-                const peak = since(p.peak_x);
-                return (
-                  <tr key={p.mint} className="row-in h-14 border-b border-border last:border-0 transition-colors hover:bg-surface-2">
-                    <td className="pl-4">
-                      <Link href={tokenHref(p.mint)} className="flex min-w-0 items-center gap-3">
-                        <TokenLogo src={p.image} symbol={p.symbol ?? "?"} size={34} />
-                        <span className="flex min-w-0 flex-col">
-                          <span className="flex items-baseline gap-2">
-                            <span className="max-w-36 truncate font-medium text-text hover:underline">{p.symbol || `${p.mint.slice(0, 4)}…${p.mint.slice(-4)}`}</span>
-                            {p.name && p.name !== p.symbol && <span className="max-w-36 truncate text-xs text-muted">{p.name}</span>}
-                          </span>
-                          <span className="font-mono text-xs text-muted">
-                            {p.launchpad ? `${LAUNCHPADS[p.launchpad] ?? p.launchpad} · ` : ""}
-                            called {ago(now, p.at)} ago
-                          </span>
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="px-3 text-right font-mono text-text">
-                      <Tick value={p.mc_usd}>{usd(p.mc_usd)}</Tick>
-                    </td>
-                    <td className={`px-3 text-right font-mono ${pctTone(ch)}`}>
-                      <Tick value={ch}>{pctText(ch)}</Tick>
-                    </td>
-                    <td className={`px-3 text-right font-mono text-xs ${pctTone(peak)}`}>{pctText(peak)}</td>
-                    <td className="px-3 text-right font-mono text-text-2">{p.holders != null ? p.holders.toLocaleString() : "—"}</td>
-                    <td className="px-3">
-                      <VerdictPill risk={riskOf(p)} />
-                    </td>
-                    <td className="pr-4">
-                      <span className="flex items-center justify-end gap-2">
-                        <StarButton mint={p.mint} size={14} />
-                        <QuickBuy mint={p.mint} symbol={p.symbol ?? ""} />
+        <>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {live.map(({ p, t }) => {
+              const ch = since(p.now_x);
+              const peak = since(p.peak_x);
+              return (
+                <div key={p.mint} className="coin-in flex min-w-0 flex-col">
+                  <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-t-xl border border-b-0 border-border bg-surface-2 px-3 py-1.5 font-mono text-xs">
+                    <span className="text-muted">called {ago(now, p.at)} ago</span>
+                    <span className="flex items-center gap-3">
+                      <span className="text-muted">
+                        since call{" "}
+                        <Tick value={ch} className={pctTone(ch)}>
+                          {pctText(ch)}
+                        </Tick>
                       </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <span className="text-muted">
+                        peak <span className={pctTone(peak)}>{pctText(peak)}</span>
+                      </span>
+                    </span>
+                  </div>
+                  <div className="[&>*]:rounded-t-none">
+                    <TokenCard
+                      token={t}
+                      alt={feed.markets[t.mint] ?? null}
+                      smart={feed.smart[t.mint] ?? 0}
+                      checks={newLaunchChecks(t, feed.markets[t.mint] ?? null, false, Math.floor(now / 1000))}
+                      lowerRisk={false}
+                      original={null}
+                      sameSymbol={0}
+                      xShare={null}
+                      now={now}
+                      repeated={false}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {gone > 0 && <p className="text-xs text-muted">{gone} more {gone === 1 ? "coin" : "coins"} from the last 30 minutes went quiet and left the radar</p>}
+        </>
       )}
     </section>
   );
