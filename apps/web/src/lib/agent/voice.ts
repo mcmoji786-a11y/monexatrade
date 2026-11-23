@@ -95,21 +95,68 @@ function sentences(text: string): string[] {
   return out;
 }
 
-async function synth(text: string, gen: number): Promise<AudioBuffer | null> {
+/** Lines already made, ready to play at once (alerts are made ahead: see preload). */
+const ready = new Map<string, AudioBuffer>();
+const making = new Map<string, Promise<AudioBuffer | null>>();
+
+async function make(text: string): Promise<AudioBuffer | null> {
   if (!ctx) return null;
-  const s = agentSettings();
-  const { voice, speed } = voiceOf(s);
-  try {
-    const r = await fetch(`${GATEWAY_HTTP}/voice/tts`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, voice, speed }),
-    });
-    if (!r.ok || gen !== generation) return null;
-    const buf = await r.arrayBuffer();
-    return await ctx.decodeAudioData(buf);
-  } catch {
-    return null;
+  const { voice, speed } = voiceOf(agentSettings());
+  const key = `${voice}|${speed}|${text}`;
+  const hit = ready.get(key);
+  if (hit) return hit;
+  const inFlight = making.get(key);
+  if (inFlight) return inFlight;
+  const p = (async () => {
+    try {
+      const r = await fetch(`${GATEWAY_HTTP}/voice/tts`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, voice, speed }),
+      });
+      if (!r.ok || !ctx) return null;
+      const buf = await ctx.decodeAudioData(await r.arrayBuffer());
+      ready.set(key, buf);
+      if (ready.size > 300) ready.delete(ready.keys().next().value as string);
+      return buf;
+    } catch {
+      return null;
+    } finally {
+      making.delete(key);
+    }
+  })();
+  making.set(key, p);
+  return p;
+}
+
+async function synth(text: string, gen: number): Promise<AudioBuffer | null> {
+  const buf = await make(text);
+  return gen === generation ? buf : null;
+}
+
+/** Makes lines ahead of time (the alert phrases), so they play the instant they are needed. */
+export function preload(lines: string[]) {
+  ensureAudio();
+  for (const l of lines) void make(l);
+}
+
+/** A sharp two-tone beep, made in the browser: no network, no wait. */
+export function beep() {
+  ensureAudio();
+  if (!ctx || !gain) return;
+  const t = ctx.currentTime;
+  for (const [i, f] of [[0, 1320], [1, 990]] as const) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "square";
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t + i * 0.13);
+    g.gain.exponentialRampToValueAtTime(0.25 * agentSettings().volume, t + i * 0.13 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.13 + 0.11);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(t + i * 0.13);
+    o.stop(t + i * 0.13 + 0.12);
   }
 }
 

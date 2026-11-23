@@ -209,6 +209,25 @@ if __name__ == "__main__":
     synth("Kixo agent ready.", VOICES[0], 1.05)
     print(f"Kixo voice on http://127.0.0.1:{PORT} (speech on {TTS_DEVICE}, warm-up {time.time() - t:.1f}s)", flush=True)
 
+    # The emergency phrases (web lib/agent/brain.ts ALERT_SHORT) in each mode's voice and
+    # speed (lib/agent/settings.ts MODES), made now so every alert plays the instant it is
+    # needed.
+    ALERT_SHORT = ["Sell! The dev is dumping.", "Sell! Bundles are dumping.", "Careful! Snipers are selling.", "Sell! Everyone's selling.", "Heavy selling! Price is crashing.", "Whale exit!", "It's pumping!"]
+    MODE_VOICES = [("am_michael", 1.05), ("af_heart", 0.98), ("bm_george", 1.12), ("am_fenrir", 1.1)]
+
+    def warm_alerts():
+        t0 = time.time()
+        for voice, speed in MODE_VOICES:
+            for line in ALERT_SHORT:
+                try:
+                    synth(line, voice, speed)
+                except Exception as e:
+                    print(f"alert warm-up failed: {e}", flush=True)
+                    return
+        print(f"alert phrases ready in {time.time() - t0:.1f}s", flush=True)
+
+    threading.Thread(target=warm_alerts, daemon=True).start()
+
     # Whisper loads in the background, so the first question is answered quickly too.
     def warm_stt():
         try:

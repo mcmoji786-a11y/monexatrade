@@ -242,22 +242,57 @@ export function brief(c: CoinCtx, mode: AgentMode): string | null {
 
 /* ---------------- Live alerts ---------------- */
 
-export type Alert = { kind: AlertKind; text: string; urgent: boolean };
+/** An alert: `short` is a fixed phrase made ahead of time (it plays the instant it is
+ *  needed, after a beep), then `text` gives the details in the user's mode. */
+export type Alert = { kind: AlertKind; short: string | null; text: string; urgent: boolean };
 
-const ALERT_TEXT: Record<AlertKind, Record<Exclude<AgentMode, "quiet"> | "quiet", (x: string) => string>> = {
+/** The instant phrases, the same in every mode so they can be made ahead (preload). */
+export const ALERT_SHORT: Partial<Record<AlertKind, string>> = {
+  dev: "Sell! The dev is dumping.",
+  bundles: "Sell! Bundles are dumping.",
+  snipers: "Careful! Snipers are selling.",
+  crowd: "Sell! Everyone's selling.",
+  dump: "Heavy selling! Price is crashing.",
+  whale: "Whale exit!",
+  pump: "It's pumping!",
+};
+
+type Lines = Record<AgentMode, (x: string) => string>;
+const DETAIL: Record<AlertKind, Lines> = {
   dev: {
-    buddy: (x) => `Heads up! The dev just sold ${x}.`,
-    coach: (x) => `Warning: the creator just sold ${x}. That's often a sign the price will drop.`,
-    pro: (x) => `Dev sold ${x}.`,
-    degen: (x) => `Dev just dumped ${x}. Not bullish.`,
-    quiet: (x) => `Warning. The dev just sold ${x}.`,
+    buddy: (x) => `They just sold ${x}.`,
+    coach: (x) => `The creator just sold ${x}. That's often a sign the price will drop, so think about getting out.`,
+    pro: (x) => `${x}.`,
+    degen: (x) => `${x} straight into your bags.`,
+    quiet: (x) => `${x}.`,
+  },
+  bundles: {
+    buddy: (x) => `${x} These are probably the dev's own wallets.`,
+    coach: (x) => `${x} Bundles are wallets that bought together at launch, usually the dev's. When they sell, more often follows.`,
+    pro: (x) => x,
+    degen: (x) => `${x} Classic.`,
+    quiet: (x) => x,
+  },
+  snipers: {
+    buddy: (x) => `${x} They usually sell into any pump.`,
+    coach: (x) => `${x} Snipers are bots that bought in the first seconds. When they sell, the price often drops.`,
+    pro: (x) => x,
+    degen: (x) => `${x} The bots are taking profit.`,
+    quiet: (x) => x,
+  },
+  crowd: {
+    buddy: (x) => `${x} Holders are running for the exit.`,
+    coach: (x) => `${x} When this many people sell at once, the price can keep falling.`,
+    pro: (x) => x,
+    degen: (x) => `${x} It's a stampede.`,
+    quiet: (x) => x,
   },
   dump: {
-    buddy: (x) => `Careful, it's dumping. ${x}`,
-    coach: (x) => `The price is falling fast. ${x} Don't panic buy the dip.`,
-    pro: (x) => `Dump. ${x}`,
-    degen: (x) => `It's nuking. ${x}`,
-    quiet: (x) => `Warning. ${x}`,
+    buddy: (x) => x,
+    coach: (x) => `${x} Don't rush to buy the dip.`,
+    pro: (x) => x,
+    degen: (x) => `${x} It's nuking.`,
+    quiet: (x) => x,
   },
   whale: {
     buddy: (x) => `A whale just sold ${x}.`,
@@ -266,37 +301,25 @@ const ALERT_TEXT: Record<AlertKind, Record<Exclude<AgentMode, "quiet"> | "quiet"
     degen: (x) => `Whale just dumped ${x} on everyone.`,
     quiet: (x) => `A whale just sold ${x}.`,
   },
-  bundles: {
-    buddy: (x) => `The bundle wallets are selling. ${x}`,
-    coach: (x) => `Wallets that bought together at launch are selling now. ${x} They're often the dev's own wallets.`,
-    pro: (x) => `Bundles selling. ${x}`,
-    degen: (x) => `Bundles are exiting. ${x} Classic.`,
-    quiet: (x) => `Bundle wallets are selling. ${x}`,
-  },
   pump: {
-    buddy: (x) => `Whoa, it's ripping. ${x}`,
-    coach: (x) => `The price is jumping fast. ${x} Remember, buying after a big jump is risky.`,
-    pro: (x) => `Pump. ${x}`,
-    degen: (x) => `It's sending! ${x}`,
-    quiet: (x) => `${x}`,
-  },
-  position: {
     buddy: (x) => x,
-    coach: (x) => x,
+    coach: (x) => `${x} Remember, buying after a big jump is risky.`,
     pro: (x) => x,
-    degen: (x) => x,
+    degen: (x) => `${x} Sending!`,
     quiet: (x) => x,
   },
+  position: { buddy: (x) => x, coach: (x) => x, pro: (x) => x, degen: (x) => x, quiet: (x) => x },
 };
 
-/** Watches a coin's live trades for what is worth interrupting for. Lines are spoken at
- *  most once per kind in a while, so the agent never nags. */
+/** Watches a coin's live trades, trade by trade, for what is worth interrupting for: the
+ *  dev, the launch bundles or the snipers selling, everyone selling at once, a whale
+ *  leaving, a crash, the user's own position. Urgent ones go out the moment the trade
+ *  arrives; each kind waits a little before repeating, so the agent never nags. */
 export class Watcher {
   private seen = new Set<string>();
   private primed = false;
   private last: Partial<Record<AlertKind, number>> = {};
   private lastAny = 0;
-  private bundleSells: number[] = [];
   private posFlags = { down: false, up: false };
 
   constructor(readonly mint: string) {}
@@ -309,58 +332,79 @@ export class Watcher {
       this.primed = true;
       return [];
     }
+    if (!fresh.length && !c.position) return [];
     const out: Alert[] = [];
     const mode = s.mode;
     const allow = (k: AlertKind, gap: number) => s.alerts[k] && now - (this.last[k] ?? 0) > gap * 1000;
-    const add = (k: AlertKind, text: string, urgent: boolean) => {
-      out.push({ kind: k, text, urgent });
-    };
+    const add = (k: AlertKind, detail: string, urgent: boolean) => out.push({ kind: k, short: ALERT_SHORT[k] ?? null, text: DETAIL[k][mode](detail), urgent });
     const value = (solAmt: number) => (c.solUsd ? `${sol(solAmt)}, about ${usd(solAmt * c.solUsd)}` : sol(solAmt));
+    const sells = (list: TradeRow[]) => list.filter((t) => !t.is_buy);
+    const total = (list: TradeRow[]) => list.reduce((x, t) => x + t.sol, 0);
+    const wallets = (list: TradeRow[]) => new Set(list.map((t) => t.wallet)).size;
 
-    // The creator selling.
-    const devSells = fresh.filter((t) => t.dev && !t.is_buy);
-    if (devSells.length && allow("dev", 20)) {
-      const amt = devSells.reduce((a, t) => a + t.sol, 0);
-      const all = c.market?.dev_sold_all;
-      add("dev", all ? ALERT_TEXT.dev[mode](`everything, ${value(amt)}`) : ALERT_TEXT.dev[mode](value(amt)), true);
+    // The creator selling: the second it happens.
+    const dev = sells(fresh).filter((t) => t.dev);
+    if (dev.length && allow("dev", 10)) add("dev", c.market?.dev_sold_all ? `everything, ${value(total(dev))}` : value(total(dev)), true);
+
+    // The launch bundles selling (often the dev's own wallets).
+    const bundles = sells(fresh).filter((t) => t.bundler && !t.dev);
+    if (bundles.length && total(bundles) >= 0.2 && allow("bundles", 20)) {
+      const n = wallets(bundles);
+      add("bundles", `${n === 1 ? "A bundle wallet" : `${n} bundle wallets`} just sold ${value(total(bundles))}.`, true);
     }
-    // A whale leaving.
+
+    // The first-second snipers selling.
+    const snipers = sells(fresh).filter((t) => t.sniper && !t.dev && !t.bundler);
+    if (snipers.length && total(snipers) >= 0.3 && allow("snipers", 20)) {
+      const n = wallets(snipers);
+      add("snipers", `${n === 1 ? "A sniper" : `${n} snipers`} just sold ${value(total(snipers))}.`, true);
+    }
+
+    // Everyone selling: in the last 10 seconds many different wallets sell and the sells
+    // swamp the buys.
+    const tenS = c.trades.filter((t) => t.ts >= now / 1000 - 10);
+    const outS = sells(tenS);
+    const inS = tenS.filter((t) => t.is_buy);
+    if (wallets(outS) >= 6 && outS.length >= inS.length * 3 && total(outS) >= total(inS) * 2 && total(outS) >= 1 && allow("crowd", 30)) {
+      add("crowd", `${wallets(outS)} wallets sold in the last ten seconds, ${value(total(outS))}.`, true);
+    }
+
+    // A whale leaving: big for this coin, not a fixed amount.
     const mcSol = c.trades[0]?.mc_sol ?? 0;
     const big = Math.max(5, mcSol * 0.002);
-    const whale = fresh.filter((t) => !t.is_buy && !t.dev && t.sol >= big).sort((a, b) => b.sol - a.sol)[0];
-    if (whale && allow("whale", 30)) add("whale", ALERT_TEXT.whale[mode](value(whale.sol)), whale.sol >= big * 3);
-    // Bundles selling (two or more sells within a minute).
-    fresh.filter((t) => t.bundler && !t.is_buy).forEach(() => this.bundleSells.push(now));
-    this.bundleSells = this.bundleSells.filter((x) => now - x < 60_000);
-    if (this.bundleSells.length >= 2 && allow("bundles", 60)) add("bundles", ALERT_TEXT.bundles[mode](mode === "pro" ? "" : "Watch out."), true);
+    const whale = sells(fresh).filter((t) => !t.dev && t.sol >= big).sort((x, y) => y.sol - x.sol)[0];
+    if (whale && allow("whale", 20)) add("whale", value(whale.sol), whale.sol >= big * 3);
+
     // Fast moves over the last minute, from the trades' market caps.
     const minute = c.trades.filter((t) => t.ts >= now / 1000 - 60);
     if (minute.length >= 5) {
       const latest = minute[0].mc_sol;
       const high = Math.max(...minute.map((t) => t.mc_sol));
       const low = Math.min(...minute.map((t) => t.mc_sol));
-      const sells = minute.filter((t) => !t.is_buy).length;
       const drop = high > 0 ? (1 - latest / high) * 100 : 0;
       const rise = low > 0 ? (latest / low - 1) * 100 : 0;
-      if (drop >= 20 && sells > minute.length / 2 && allow("dump", 60)) add("dump", ALERT_TEXT.dump[mode](`Down ${pctWord(drop)} in the last minute.`), drop >= 35);
-      else if (rise >= 30 && allow("pump", 90)) add("pump", ALERT_TEXT.pump[mode](`Up ${pctWord(rise)} in the last minute.`), false);
+      if (drop >= 20 && sells(minute).length > minute.length / 2 && allow("dump", 45)) add("dump", `Down ${pctWord(drop)} in the last minute.`, drop >= 30);
+      else if (rise >= 30 && allow("pump", 90)) add("pump", `Up ${pctWord(rise)} in the last minute.`, false);
     }
+
     // The user's own position.
     const p = c.position;
     if (p && p.valueUsd != null && p.costUsd > 0 && s.alerts.position) {
       const pnl = (p.valueUsd / p.costUsd - 1) * 100;
       if (pnl <= -25 && !this.posFlags.down) {
         this.posFlags.down = true;
-        add("position", mode === "pro" ? `Your position is down ${pctWord(pnl)}.` : `You're down ${pctWord(pnl)} on this one. Think about cutting it before it gets worse.`, true);
+        out.push({ kind: "position", short: null, urgent: true, text: mode === "pro" ? `Your position is down ${pctWord(pnl)}.` : `You're down ${pctWord(pnl)} on this one. Think about cutting it before it gets worse.` });
       } else if (pnl >= 50 && !this.posFlags.up) {
         this.posFlags.up = true;
-        add("position", mode === "pro" ? `Your position is up ${pctWord(pnl)}.` : `Nice, you're up ${pctWord(pnl)}. Taking some profit here would be smart.`, false);
+        out.push({ kind: "position", short: null, urgent: false, text: mode === "pro" ? `Your position is up ${pctWord(pnl)}.` : `Nice, you're up ${pctWord(pnl)}. Taking some profit here would be smart.` });
       }
       if (pnl > -15) this.posFlags.down = false;
       if (pnl < 30) this.posFlags.up = false;
     }
-    // One line at a time, the most urgent first; ordinary lines at most every 8 seconds.
-    out.sort((a, b) => Number(b.urgent) - Number(a.urgent));
+
+    // The most urgent first; ordinary lines at most every 8 seconds.
+    const order: AlertKind[] = ["dev", "crowd", "bundles", "dump", "snipers", "whale", "position", "pump"];
+    out.sort((x, y) => Number(y.urgent) - Number(x.urgent) || order.indexOf(x.kind) - order.indexOf(y.kind));
     const top = out[0];
     if (!top || (!top.urgent && now - this.lastAny < 8000)) return [];
     this.last[top.kind] = now;

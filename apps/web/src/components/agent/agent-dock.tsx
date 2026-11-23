@@ -16,9 +16,9 @@ import type { Safety } from "@/lib/safety";
 import type { BookState } from "@/components/trade/use-token-book";
 import { useLiveScan } from "@/components/token/live-scan";
 import { freshScore, outlook, plan, scoreOf, useMarketForecast, useSimilar } from "@/components/token/ai-analysis";
-import { MODES, setAgentSettings, useAgentSettings } from "@/lib/agent/settings";
-import { answer, brief, Watcher, type CoinCtx } from "@/lib/agent/brain";
-import { audioReady, micLevel, micProblem, onSpeech, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
+import { MODES, setAgentSettings, useAgentSettings, voiceOf } from "@/lib/agent/settings";
+import { ALERT_SHORT, answer, brief, Watcher, type CoinCtx } from "@/lib/agent/brain";
+import { audioReady, beep, micLevel, micProblem, onSpeech, preload, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
 
 type Props = { mint: string; row: DiscoverRow; launch: FeedToken | null; book: BookState; safety: Safety | null; solUsd: number | null };
 
@@ -122,12 +122,28 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
     say(text);
   }, [mint, s.brief, s.mode, dataIn, waited]);
 
+  // The alert phrases are made ahead in the chosen voice, so they play the instant needed.
+  const { voice: vName, speed: vSpeed } = voiceOf(s);
+  useEffect(() => {
+    if (!s.emergencies) return;
+    // After the opening read, which goes first.
+    const t = setTimeout(() => preload(Object.values(ALERT_SHORT) as string[]), 4000);
+    return () => clearTimeout(t);
+  }, [s.emergencies, vName, vSpeed]);
+
   // Live alerts from the trades, spoken without a button.
   const watcher = useRef<Watcher | null>(null);
   useEffect(() => {
     if (!s.emergencies || !ctx) return;
     if (!watcher.current) watcher.current = new Watcher(mint);
-    for (const a of watcher.current.check(ctx, s, Date.now())) say(a.text, { urgent: a.urgent });
+    for (const a of watcher.current.check(ctx, s, Date.now())) {
+      // Urgent: a beep and the ready-made phrase at once, then the details.
+      if (a.urgent && s.beep) beep();
+      if (a.short) {
+        say(a.short, { urgent: a.urgent });
+        say(a.text);
+      } else say(a.text, { urgent: a.urgent });
+    }
   }, [ctx, s, mint]);
 
   // Speech state for the caption.

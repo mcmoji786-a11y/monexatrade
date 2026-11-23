@@ -113,7 +113,8 @@ export function VoiceAgentTab() {
           <h2 className="text-sm font-medium text-text">What it says without a button</h2>
           <div className="mt-4 flex flex-col divide-y divide-border">
             <Toggle label="A quick read when you open a coin" line="Buy, wait or stay away, why, and how much to risk" on={s.brief && s.mode !== "quiet"} disabled={s.mode === "quiet"} onChange={(v) => setAgentSettings({ brief: v })} />
-            <Toggle label="Emergency alerts" line="It speaks up by itself when something dangerous happens on the coin you're watching" on={s.emergencies} onChange={(v) => setAgentSettings({ emergencies: v })} />
+            <Toggle label="Emergency alerts" line="It speaks up by itself the second something dangerous happens on the coin you're watching" on={s.emergencies} onChange={(v) => setAgentSettings({ emergencies: v })} />
+            {s.emergencies && <Toggle sub label="Beep first" line="A sharp beep the instant an emergency happens, before the words" on={s.beep} onChange={(v) => setAgentSettings({ beep: v })} />}
             {s.emergencies &&
               ALERTS.map((a) => (
                 <Toggle key={a.key} sub label={a.label} line={a.line} on={s.alerts[a.key]} onChange={(v) => setAgentSettings({ alerts: { ...s.alerts, [a.key]: v } })} />

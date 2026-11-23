@@ -26,13 +26,15 @@ export const VOICES: { key: string; label: string }[] = [
   { key: "af_nicole", label: "Nicole (US)" },
 ];
 
-export type AlertKind = "dev" | "dump" | "whale" | "bundles" | "pump" | "position";
+export type AlertKind = "dev" | "bundles" | "snipers" | "crowd" | "dump" | "whale" | "pump" | "position";
 
 export const ALERTS: { key: AlertKind; label: string; line: string }[] = [
-  { key: "dev", label: "Dev sells", line: "The creator sells any of their coins" },
+  { key: "dev", label: "Dev sells", line: "The creator sells any of their coins: the second it happens" },
+  { key: "bundles", label: "Bundles selling", line: "Wallets that bought together at launch start selling, often the dev's own" },
+  { key: "snipers", label: "Snipers selling", line: "Bots that bought in the first seconds start dumping" },
+  { key: "crowd", label: "Everyone selling", line: "Many different wallets sell at once and sellers swamp buyers" },
   { key: "dump", label: "Heavy selling", line: "The price drops fast with sellers in control" },
   { key: "whale", label: "Whale exits", line: "A wallet sells a big amount for this coin at once (5 SOL or more, more on bigger coins)" },
-  { key: "bundles", label: "Bundles selling", line: "Wallets that bought together at launch start selling" },
   { key: "position", label: "Your position", line: "Your position hits your stop or profit level" },
   { key: "pump", label: "Big moves up", line: "The price jumps fast (not an emergency, off by default)" },
 ];
@@ -56,6 +58,8 @@ export type AgentSettings = {
   volume: number;
   /** The microphone to listen with (a device id); empty: the browser's default. */
   micId: string;
+  /** A short beep before an emergency line, the moment it happens. */
+  beep: boolean;
 };
 
 export const DEFAULTS: AgentSettings = {
@@ -63,12 +67,13 @@ export const DEFAULTS: AgentSettings = {
   mode: "buddy",
   brief: true,
   emergencies: true,
-  alerts: { dev: true, dump: true, whale: true, bundles: true, position: true, pump: false },
+  alerts: { dev: true, bundles: true, snipers: true, crowd: true, dump: true, whale: true, position: true, pump: false },
   ptt: "v",
   voice: "",
   speed: 0,
   volume: 0.9,
   micId: "",
+  beep: true,
 };
 
 const KEY = "kixo.agent.v1";
