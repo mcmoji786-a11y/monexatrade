@@ -168,7 +168,7 @@ static LAST_QUOTE: Mutex<Option<HashMap<String, (Instant, Quote)>>> = Mutex::new
 /// Orders may use a quote this old when the live one misses (a blip, not a stale price).
 const ORDER_QUOTE_GRACE: Duration = Duration::from_secs(30);
 /// Account figures may use one this old: the position keeps its last known value.
-const VALUE_QUOTE_GRACE: Duration = Duration::from_secs(15 * 60);
+pub const VALUE_QUOTE_GRACE: Duration = Duration::from_secs(15 * 60);
 
 fn remember(mint: &str, q: &Quote) {
     let mut m = LAST_QUOTE.lock().expect("last quote lock");

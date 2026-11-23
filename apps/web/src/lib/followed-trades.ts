@@ -103,7 +103,7 @@ export function useFollowedTrades(mint: string, on: boolean): Pin[] {
           if (!alive) return;
           const pins = items
             .filter((t) => t.mint === mint)
-            .map((t): Pin => ({ id: `c${t.id}`, time: Math.floor(Date.parse(t.ts) / 1000), buy: t.side === "buy", name: t.display_name || (t.handle ? `@${t.handle}` : "Trader"), avatar: null, amount: `$${t.usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}`, kind: "trader" }));
+            .map((t): Pin => ({ id: `c${t.id}`, time: Math.floor(Date.parse(t.ts) / 1000), buy: t.side === "buy", name: t.display_name || (t.handle ? `@${t.handle}` : "Trader"), avatar: null, amount: t.usd != null ? `${t.usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "amount hidden", kind: "trader" }));
           setTraderPins({ mint, pins });
         })
         .catch(() => {});

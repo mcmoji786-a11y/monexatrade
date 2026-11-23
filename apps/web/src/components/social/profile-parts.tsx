@@ -108,7 +108,7 @@ export function PnlChart({ daily, days }: { daily: DailyPnl[]; days: number }) {
 }
 
 /** A month of days, each colored by the profit or loss taken that day. */
-export function PnlCalendar({ daily }: { daily: DailyPnl[] }) {
+export function PnlCalendar({ daily, hidden = false }: { daily: DailyPnl[]; hidden?: boolean }) {
   const [offset, setOffset] = useState(0);
   const [now] = useState(() => new Date());
   const by = useMemo(() => new Map(daily.map((d) => [d.day, d])), [daily]);
@@ -134,7 +134,12 @@ export function PnlCalendar({ daily }: { daily: DailyPnl[] }) {
           </button>
         </div>
         <p className="font-mono text-xs text-muted">
-          <span className={total >= 0 ? "text-positive" : "text-negative"}>{usd0(total)}</span> · {green} green · {red} red days
+          {!hidden && (
+            <>
+              <span className={total >= 0 ? "text-positive" : "text-negative"}>{usd0(total)}</span> ·{" "}
+            </>
+          )}
+          {green} green · {red} red days
         </p>
       </div>
       <div className="grid grid-cols-7 gap-1.5 p-4">
@@ -152,12 +157,12 @@ export function PnlCalendar({ daily }: { daily: DailyPnl[] }) {
           return (
             <div
               key={dayKey(d)}
-              title={r ? `${dayKey(d)}: ${usd0(v)} · ${r.trades} closed, ${r.wins} won` : dayKey(d)}
+              title={r ? `${dayKey(d)}: ${hidden ? (v > 0 ? "profit" : "loss") : usd0(v)} · ${r.trades} closed, ${r.wins} won` : dayKey(d)}
               className={`flex h-14 flex-col justify-between rounded-lg border p-1.5 sm:h-16 ${future ? "border-transparent opacity-30" : "border-border"}`}
               style={v ? { background: v > 0 ? `rgba(47, 211, 138, ${a * 0.35})` : `rgba(242, 109, 109, ${a * 0.35})` } : undefined}
             >
               <span className="text-[11px] text-text-2">{d.getUTCDate()}</span>
-              {v !== 0 && <span className={`truncate font-mono text-[11px] ${v > 0 ? "text-positive" : "text-negative"}`}>{usd0(v)}</span>}
+              {v !== 0 && !hidden && <span className={`truncate font-mono text-[11px] ${v > 0 ? "text-positive" : "text-negative"}`}>{usd0(v)}</span>}
             </div>
           );
         })}

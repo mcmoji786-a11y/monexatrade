@@ -16,10 +16,13 @@ export type TraderProfile = {
   banner_url?: string;
   x_handle?: string;
   telegram?: string;
+  /** Others see this trader's results as percentages only (migration 0022). */
+  hide_amounts?: boolean;
 };
 export type Badge = { key: string; label: string; why: string };
 export type DailyPnl = { day: string; realized_usd: number; trades: number; wins: number };
-export type TraderStats = { realized_usd: number; trades: number; win_rate: number; best_usd: number; volume_usd: number } | null;
+/** Dollar figures are null when the trader hides their amounts. */
+export type TraderStats = { realized_usd: number | null; trades: number; win_rate: number; best_usd: number | null; volume_usd: number | null } | null;
 export type SocialTrade = {
   id: number;
   handle?: string;
@@ -27,9 +30,12 @@ export type SocialTrade = {
   mint: string;
   symbol: string;
   side: "buy" | "sell";
-  usd: number;
+  /** Null when the trader hides their amounts. */
+  usd: number | null;
   price_usd: number;
   realized_usd: number | null;
+  /** A sale's result against what the sold tokens cost, in %. */
+  realized_pct?: number | null;
   remaining?: number | null;
   tokens?: number | null;
   source: string;
@@ -46,6 +52,8 @@ export type Trader = {
   daily?: DailyPnl[];
   badges?: Badge[];
   invites?: number;
+  /** The viewer sees percentages only. */
+  hidden_amounts?: boolean;
   trades: SocialTrade[];
 };
 export type Leader = { rank: number; handle: string; display_name: string; realized_usd: number; trades: number; win_rate: number; best_usd: number; followers: number };
@@ -64,7 +72,11 @@ async function call<T>(path: string, init: RequestInit = {}, auth = false): Prom
 }
 
 export const getMe = () => call<{ profile: TraderProfile | null; followers: number; following: number; following_handles: string[] }>("/social/me", {}, true);
-export const saveMe = (p: { handle: string; display_name: string; bio: string; public: boolean; avatar_url?: string; banner_url?: string; x_handle?: string; telegram?: string }) =>
+/** An open demo position on a profile: dollar figures are absent when hidden. */
+export type ProfilePosition = { mint: string; symbol: string; image: string | null; tokens?: number; cost_usd?: number; value_usd?: number | null; pnl_usd?: number | null; pnl_pct: number | null; opened_at: string };
+export type Portfolio = { hidden_amounts: boolean; positions: ProfilePosition[]; best: SocialTrade[]; worst: SocialTrade[]; history: SocialTrade[] };
+export const getPortfolio = (handle: string) => call<Portfolio>(`/social/u/${encodeURIComponent(handle)}/portfolio`);
+export const saveMe = (p: { handle: string; display_name: string; bio: string; public: boolean; avatar_url?: string; banner_url?: string; x_handle?: string; telegram?: string; hide_amounts?: boolean }) =>
   call<{ profile: TraderProfile }>("/social/me", { method: "PUT", body: JSON.stringify(p) }, true);
 export const getTrader = (handle: string) => call<Trader>(`/social/u/${encodeURIComponent(handle)}`);
 export const follow = (handle: string, on: boolean) => call<{ following: boolean }>(`/social/follow/${encodeURIComponent(handle)}`, { method: on ? "POST" : "DELETE" }, true);

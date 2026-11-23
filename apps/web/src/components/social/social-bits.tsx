@@ -46,12 +46,19 @@ export function TradeLine({ t, now, showTrader = true }: { t: SocialTrade; now: 
           </Link>
         </p>
         <p className="font-mono text-[11px] text-muted">
-          {money(t.usd)}
+          {t.usd != null && money(t.usd)}
           {!buy && t.realized_usd != null && (
             <span className={t.realized_usd >= 0 ? "text-positive" : "text-negative"}>
               {" "}
               · {t.realized_usd >= 0 ? "+" : ""}
               {money(t.realized_usd)} {t.realized_usd >= 0 ? "profit" : "loss"}
+            </span>
+          )}
+          {!buy && t.realized_usd == null && t.realized_pct != null && (
+            <span className={t.realized_pct >= 0 ? "text-positive" : "text-negative"}>
+              {t.usd != null ? " · " : ""}
+              {t.realized_pct >= 0 ? "+" : ""}
+              {t.realized_pct}% {t.realized_pct >= 0 ? "profit" : "loss"}
             </span>
           )}
           {now > 0 && ` · ${timeAgo(t.ts, now)} ago`}

@@ -24,6 +24,8 @@ type ApiErr = (StatusCode, String);
 pub struct SocialCtx {
     pub acct: Arc<AccountState>,
     pub admin: Arc<crate::admin::AdminState>,
+    /// Live prices for open positions (the same quotes the demo account uses).
+    pub app: Arc<crate::AppState>,
 }
 
 /// Words no one may take as a handle (they would look official).
@@ -76,7 +78,22 @@ fn public_view(p: &Value) -> Value {
     json!({
         "handle": p["handle"], "display_name": p["display_name"], "bio": p["bio"], "public": p["public"], "created_at": p["created_at"],
         "avatar_url": s("avatar_url"), "banner_url": s("banner_url"), "x_handle": s("x_handle"), "telegram": s("telegram"),
+        "hide_amounts": p.get("hide_amounts").and_then(|v| v.as_bool()).unwrap_or(false),
     })
+}
+
+/// Whether this viewer sees a trader's results as percentages only (migration 0022).
+fn amounts_hidden(p: &Value, own: bool) -> bool {
+    !own && p.get("hide_amounts").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// A trade with its dollar figures removed; the result stays as a percentage.
+fn mask_trade(mut t: Value) -> Value {
+    t["usd"] = Value::Null;
+    t["realized_usd"] = Value::Null;
+    t["tokens"] = Value::Null;
+    t["remaining"] = Value::Null;
+    t
 }
 
 /// A picture URL is kept only when it points into the user's own folder of the
@@ -211,6 +228,8 @@ pub struct ProfileIn {
     x_handle: String,
     #[serde(default)]
     telegram: String,
+    #[serde(default)]
+    hide_amounts: bool,
 }
 fn yes() -> bool {
     true
@@ -257,6 +276,12 @@ pub async fn save_me(State(c): State<SocialCtx>, headers: HeaderMap, Json(p): Js
     } else if !avatar.is_empty() || !banner.is_empty() || !x.is_empty() || !tg.is_empty() {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "Pictures and links need Kixo's database update (migration 0021)".into()));
     }
+    let existing = profile_by_user(&c.acct, &u.id).await?;
+    if existing.as_ref().is_some_and(|v| v.get("hide_amounts").is_some()) {
+        row["hide_amounts"] = json!(p.hide_amounts);
+    } else if p.hide_amounts {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Hiding amounts needs Kixo's database update (migration 0022)".into()));
+    }
     let v = c.acct.rest(reqwest::Method::POST, "trader_profiles?on_conflict=user_id", Some(row)).await?;
     let saved = v.as_array().and_then(|r| r.first()).cloned().ok_or((StatusCode::SERVICE_UNAVAILABLE, "could not save".into()))?;
     Ok(Json(json!({ "profile": public_view(&saved) })))
@@ -288,7 +313,18 @@ fn trade_view(t: &Value) -> Value {
         "usd": (num(&t["usd"]) * 100.0).round() / 100.0, "price_usd": num(&t["price_usd"]),
         "realized_usd": t["realized_usd"].as_f64().or_else(|| t["realized_usd"].as_str().and_then(|s| s.parse().ok())).map(|r| (r * 100.0).round() / 100.0),
         "remaining": t.get("remaining").map(num), "tokens": t.get("tokens").map(num), "source": t["source"], "ts": t["ts"],
+        "realized_pct": realized_pct(t),
     })
+}
+
+/// A sale's result against what the sold tokens cost: proceeds minus profit is the cost.
+fn realized_pct(t: &Value) -> Value {
+    let r = t["realized_usd"].as_f64().or_else(|| t["realized_usd"].as_str().and_then(|s| s.parse().ok()));
+    let usd = num(&t["usd"]);
+    match r {
+        Some(r) if t["side"] == "sell" && usd - r > 0.0 => json!(((r / (usd - r)) * 1000.0).round() / 10.0),
+        _ => Value::Null,
+    }
 }
 
 /// `GET /social/u/{handle}`: a public trader (or the caller's own profile, even private).
@@ -341,18 +377,97 @@ pub async fn trader(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle)
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    // Hidden amounts: results as win or loss and percentages only.
+    let hide = amounts_hidden(&p, own);
+    let (s7, s30, sall, daily) = if hide {
+        let m = |mut v: Value| {
+            if v.is_object() {
+                v["realized_usd"] = Value::Null;
+                v["best_usd"] = Value::Null;
+                v["volume_usd"] = Value::Null;
+            }
+            v
+        };
+        let signs: Vec<Value> = daily
+            .into_iter()
+            .map(|mut d| {
+                let r = num(&d["realized_usd"]);
+                d["realized_usd"] = json!(r.signum());
+                d
+            })
+            .collect();
+        (m(s7), m(s30), m(sall), signs)
+    } else {
+        (s7, s30, sall, daily)
+    };
+    let trades: Vec<Value> = trades.iter().map(trade_view).map(|t| if hide { mask_trade(t) } else { t }).collect();
     Ok(Json(json!({
         "profile": public_view(&p),
         "own": own,
         "i_follow": i_follow,
         "followers": followers,
         "following": following,
+        "hidden_amounts": hide,
         "stats": { "d7": s7, "d30": s30, "all": sall },
         "daily": daily,
         "badges": badges,
         "invites": invites,
-        "trades": trades.iter().map(trade_view).collect::<Vec<_>>(),
+        "trades": trades,
     })))
+}
+
+/// `GET /social/u/{handle}/portfolio`: a public trader's demo portfolio: open
+/// positions at what selling now would bring (as the demo account values them), their
+/// five best and five worst sales, and their last 100 trades. With hidden amounts,
+/// percentages only.
+pub async fn portfolio(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle): Path<String>) -> Result<Json<Value>, ApiErr> {
+    on(&c)?;
+    let me = if headers.contains_key("authorization") { c.acct.user(&headers).await.ok().map(|u| u.id) } else { None };
+    let p = profile_by_handle(&c.acct, &handle).await?.ok_or((StatusCode::NOT_FOUND, "No trader with that handle".into()))?;
+    let uid = p["user_id"].as_str().unwrap_or_default().to_string();
+    let own = me.as_deref() == Some(uid.as_str());
+    if p["public"] != json!(true) && !own {
+        return Err((StatusCode::NOT_FOUND, "No trader with that handle".into()));
+    }
+    let hide = amounts_hidden(&p, own);
+    let sells = |order: &str| format!("demo_trades?user_id=eq.{uid}&side=eq.sell&realized_usd=not.is.null&order=realized_usd.{order}&limit=5&select=id,mint,symbol,side,usd,price_usd,realized_usd,ts");
+    let (q_pos, q_best, q_worst) = (format!("demo_positions?user_id=eq.{uid}&select=mint,symbol,tokens,cost_usd,opened_at&order=opened_at.desc"), sells("desc"), sells("asc"));
+    let (rows, best, worst, history) = tokio::join!(
+        c.acct.rest(reqwest::Method::GET, &q_pos, None),
+        c.acct.rest(reqwest::Method::GET, &q_best, None),
+        c.acct.rest(reqwest::Method::GET, &q_worst, None),
+        c.acct.rest(reqwest::Method::POST, "rpc/trader_trades", Some(json!({ "p_handle": p["handle"], "p_after": 0, "p_limit": 100 }))),
+    );
+    let rows = rows.ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    let mut positions = Vec::new();
+    for r in rows.iter().take(50) {
+        let mint = r["mint"].as_str().unwrap_or("").to_string();
+        let tokens = num(&r["tokens"]);
+        let cost = num(&r["cost_usd"]);
+        let q = crate::demo::quote_within(&c.app, &mint, crate::demo::VALUE_QUOTE_GRACE).await.ok();
+        let value = q.as_ref().and_then(|q| q.held(tokens).sell(tokens)).map(|f| f.usd);
+        let pnl_pct = value.filter(|_| cost > 0.0).map(|v| ((v - cost) / cost * 1000.0).round() / 10.0);
+        let image = {
+            let b = c.app.board.lock().expect("board lock");
+            b.tokens.get(&mint).and_then(|t| t.meta.as_ref().and_then(|m| m.image.clone())).or_else(|| b.markets.get(&mint).and_then(|m| m.image))
+        };
+        let symbol = r["symbol"].as_str().filter(|s| !s.is_empty()).map(String::from).or_else(|| q.as_ref().map(|q| q.symbol.clone())).unwrap_or_default();
+        positions.push(if hide {
+            json!({ "mint": mint, "symbol": symbol, "image": image, "pnl_pct": pnl_pct, "opened_at": r["opened_at"] })
+        } else {
+            json!({
+                "mint": mint, "symbol": symbol, "image": image, "tokens": tokens, "cost_usd": (cost * 100.0).round() / 100.0,
+                "value_usd": value.map(|v| (v * 100.0).round() / 100.0), "pnl_usd": value.map(|v| ((v - cost) * 100.0).round() / 100.0),
+                "pnl_pct": pnl_pct, "opened_at": r["opened_at"],
+            })
+        });
+    }
+    let list = |v: Result<Value, ApiErr>| -> Vec<Value> {
+        v.ok().and_then(|v| v.as_array().cloned()).unwrap_or_default().iter().map(trade_view).map(|t| if hide { mask_trade(t) } else { t }).collect()
+    };
+    let best: Vec<Value> = list(best).into_iter().filter(|t| t["realized_pct"].as_f64().unwrap_or(0.0) > 0.0).collect();
+    let worst: Vec<Value> = list(worst).into_iter().filter(|t| t["realized_pct"].as_f64().unwrap_or(0.0) < 0.0).collect();
+    Ok(Json(json!({ "hidden_amounts": hide, "positions": positions, "best": best, "worst": worst, "history": list(history) })))
 }
 
 /// `POST /social/follow/{handle}` and `DELETE` the same: follow or unfollow.

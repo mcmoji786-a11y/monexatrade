@@ -16,6 +16,7 @@ export function ProfileForm({ initial, onSaved }: { initial?: TraderProfile; onS
   const [banner, setBanner] = useState(initial?.banner_url ?? "");
   const [x, setX] = useState(initial?.x_handle ?? "");
   const [tg, setTg] = useState(initial?.telegram ?? "");
+  const [hide, setHide] = useState(initial?.hide_amounts ?? false);
   const [uploading, setUploading] = useState<"avatar" | "banner" | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -45,7 +46,7 @@ export function ProfileForm({ initial, onSaved }: { initial?: TraderProfile; onS
     setBusy(true);
     setErr(null);
     try {
-      const r = await saveMe({ handle: h, display_name: name, bio, public: pub, avatar_url: avatar, banner_url: banner, x_handle: x.trim().replace(/^@/, ""), telegram: tg.trim().replace(/^@/, "") });
+      const r = await saveMe({ handle: h, display_name: name, bio, public: pub, avatar_url: avatar, banner_url: banner, x_handle: x.trim().replace(/^@/, ""), telegram: tg.trim().replace(/^@/, ""), hide_amounts: hide });
       onSaved(r.profile);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save");
@@ -130,6 +131,10 @@ export function ProfileForm({ initial, onSaved }: { initial?: TraderProfile; onS
         <label className="flex items-center gap-2 text-sm text-text-2 sm:col-span-2">
           <input type="checkbox" checked={pub} onChange={(e) => setPub(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
           Public: others can see my profile, results and demo trades, and copy them
+        </label>
+        <label className="flex items-center gap-2 text-sm text-text-2 sm:col-span-2">
+          <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
+          Hide my dollar amounts: others see my results as percentages only
         </label>
       </div>
       {err && <p className="text-sm text-negative">{err}</p>}

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { CalendarDays, Copy as CopyIcon, Send } from "lucide-react";
 import { getTrader, money, type Trader, type TraderStats } from "@/lib/social";
 import { BadgeChip, PnlCalendar, PnlChart, ShareProfile, XGlyph } from "./profile-parts";
+import { ProfileHistory, ProfilePositions } from "./profile-portfolio";
 import { addCopy, removeCopy, useCopies } from "@/lib/copy";
 import { useAccount, openLogin } from "@/lib/account";
 import { pushToast } from "@/lib/toast";
@@ -25,6 +26,7 @@ export function TraderView() {
   const [now, setNow] = useState(0);
   const [editing, setEditing] = useState(false);
   const [period, setPeriod] = useState<"d7" | "d30" | "all">("d30");
+  const [tab, setTab] = useState<"overview" | "positions" | "history">("overview");
 
   useEffect(() => {
     let stop = false;
@@ -116,6 +118,31 @@ export function TraderView() {
         </section>
       )}
 
+      <nav className="flex gap-1 border-b border-border" aria-label="Profile">
+        {(
+          [
+            ["overview", "Overview"],
+            ["positions", "Positions"],
+            ["history", "History"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            aria-current={tab === k ? "page" : undefined}
+            className={`-mb-px h-10 border-b-2 px-4 text-sm transition-colors ${tab === k ? "border-text text-text" : "border-transparent text-text-2 hover:text-text"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "positions" && <ProfilePositions handle={p.handle} />}
+      {tab === "history" && <ProfileHistory handle={p.handle} />}
+
+      {tab === "overview" && (
+      <>
       <section className="rounded-xl border border-border bg-surface">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3">
           <h2 className="text-sm font-medium text-text">Results</h2>
@@ -134,10 +161,14 @@ export function TraderView() {
           </div>
         </div>
         <Stats s={s} />
-        <PnlChart daily={t.daily ?? []} days={period === "d7" ? 7 : period === "d30" ? 30 : 120} />
+        {t.hidden_amounts ? (
+          <p className="px-5 py-4 text-xs text-muted">This trader shows results as percentages only</p>
+        ) : (
+          <PnlChart daily={t.daily ?? []} days={period === "d7" ? 7 : period === "d30" ? 30 : 120} />
+        )}
       </section>
 
-      <PnlCalendar daily={t.daily ?? []} />
+      <PnlCalendar daily={t.daily ?? []} hidden={!!t.hidden_amounts} />
 
       <section className="rounded-xl border border-border bg-surface">
         <div className="border-b border-border px-5 py-3">
@@ -148,12 +179,19 @@ export function TraderView() {
           <p className="px-6 py-10 text-center text-sm text-muted">No trades yet</p>
         ) : (
           <ul className="divide-y divide-border">
-            {t.trades.map((x) => (
+            {t.trades.slice(0, 10).map((x) => (
               <TradeLine key={x.id} t={x} now={now} showTrader={false} />
             ))}
           </ul>
         )}
+        {t.trades.length > 10 && (
+          <button type="button" onClick={() => setTab("history")} className="w-full border-t border-border py-2.5 text-xs text-text-2 hover:text-text">
+            See all trades
+          </button>
+        )}
       </section>
+      </>
+      )}
     </section>
   );
 }
@@ -164,11 +202,11 @@ function Stats({ s }: { s: TraderStats }) {
     <dl className="grid grid-cols-2 gap-px border-b border-border bg-border sm:grid-cols-5">
       {(
         [
-          ["Profit", `${s.realized_usd >= 0 ? "+" : ""}${money(s.realized_usd)}`, s.realized_usd >= 0 ? "text-positive" : "text-negative"],
+          ["Profit", s.realized_usd == null ? "Hidden" : `${s.realized_usd >= 0 ? "+" : ""}${money(s.realized_usd)}`, s.realized_usd == null ? "text-muted" : s.realized_usd >= 0 ? "text-positive" : "text-negative"],
           ["Win rate", s.trades ? `${s.win_rate}%` : "—", "text-text"],
           ["Closed trades", String(s.trades), "text-text"],
-          ["Best trade", s.best_usd ? `${s.best_usd > 0 ? "+" : ""}${money(s.best_usd)}` : "—", s.best_usd > 0 ? "text-positive" : s.best_usd < 0 ? "text-negative" : "text-text"],
-          ["Volume", money(s.volume_usd), "text-text"],
+          ["Best trade", s.best_usd == null ? "Hidden" : s.best_usd ? `${s.best_usd > 0 ? "+" : ""}${money(s.best_usd)}` : "—", s.best_usd == null ? "text-muted" : s.best_usd > 0 ? "text-positive" : s.best_usd < 0 ? "text-negative" : "text-text"],
+          ["Volume", s.volume_usd == null ? "Hidden" : money(s.volume_usd), s.volume_usd == null ? "text-muted" : "text-text"],
         ] as const
       ).map(([k, v, tone]) => (
         <div key={k} className="bg-surface px-5 py-4">
