@@ -26,7 +26,7 @@ export const VOICES: { key: string; label: string }[] = [
   { key: "af_nicole", label: "Nicole (US)" },
 ];
 
-export type AlertKind = "dev" | "bundles" | "snipers" | "crowd" | "dump" | "whale" | "pump" | "position";
+export type AlertKind = "dev" | "bundles" | "snipers" | "crowd" | "dump" | "whale" | "pump" | "position" | "setup" | "fading";
 
 export const ALERTS: { key: AlertKind; label: string; line: string }[] = [
   { key: "dev", label: "Dev sells", line: "The creator sells any of their coins: the second it happens" },
@@ -35,6 +35,8 @@ export const ALERTS: { key: AlertKind; label: string; line: string }[] = [
   { key: "crowd", label: "Everyone selling", line: "Many different wallets sell at once and sellers swamp buyers" },
   { key: "dump", label: "Heavy selling", line: "The price drops fast with sellers in control" },
   { key: "whale", label: "Whale exits", line: "A wallet sells a big amount for this coin at once (5 SOL or more, more on bigger coins)" },
+  { key: "setup", label: "Scalp setups", line: "Kixo AI sees a good chance of a quick +20% in the next two minutes" },
+  { key: "fading", label: "Momentum fading", line: "You hold it and the next minutes look weak: time to take profit" },
   { key: "position", label: "Your position", line: "Your position hits your stop or profit level" },
   { key: "pump", label: "Big moves up", line: "The price jumps fast (not an emergency, off by default)" },
 ];
@@ -67,7 +69,7 @@ export const DEFAULTS: AgentSettings = {
   mode: "buddy",
   brief: true,
   emergencies: true,
-  alerts: { dev: true, bundles: true, snipers: true, crowd: true, dump: true, whale: true, position: true, pump: false },
+  alerts: { dev: true, bundles: true, snipers: true, crowd: true, dump: true, whale: true, position: true, pump: false, setup: true, fading: true },
   ptt: "v",
   voice: "",
   speed: 0,

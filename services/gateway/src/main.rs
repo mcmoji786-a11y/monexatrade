@@ -425,7 +425,7 @@ async fn main() -> Result<()> {
     let ai_ctx = ai_risk::AiCtx { app: state.clone(), admin: admin_state.clone() };
     tokio::spawn(ai_risk::run(ai_ctx.clone()));
     tokio::spawn(ai_ck::run(ai_ctx.clone()));
-    let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).route("/ai/overview", get(ai_risk::overview)).route("/ai/similar", get(ai_risk::similar)).route("/ai/market", get(ai_risk::market)).route("/sniper/backtest", axum::routing::post(ai_risk::backtest)).with_state(ai_ctx);
+    let ai_routes: Router<Arc<AppState>> = Router::new().route("/ai/risk", get(ai_risk::get_risk)).route("/ai/overview", get(ai_risk::overview)).route("/ai/similar", get(ai_risk::similar)).route("/ai/market", get(ai_risk::market)).route("/ai/scalp", axum::routing::post(ai_risk::scalp)).route("/sniper/backtest", axum::routing::post(ai_risk::backtest)).with_state(ai_ctx);
     let voice_routes: Router<Arc<AppState>> = Router::new()
         .route("/voice/health", get(voice::health))
         .route("/voice/tts", axum::routing::post(voice::tts))

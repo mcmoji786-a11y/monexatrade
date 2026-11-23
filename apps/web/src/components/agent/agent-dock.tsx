@@ -18,6 +18,7 @@ import { useLiveScan } from "@/components/token/live-scan";
 import { freshScore, outlook, plan, scoreOf, useMarketForecast, useSimilar } from "@/components/token/ai-analysis";
 import { MODES, setAgentSettings, useAgentSettings, voiceOf } from "@/lib/agent/settings";
 import { ALERT_SHORT, answer, brief, Watcher, type CoinCtx } from "@/lib/agent/brain";
+import { useScalp } from "@/lib/agent/scalp";
 import { audioReady, beep, micLevel, micProblem, onSpeech, preload, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
 
 type Props = { mint: string; row: DiscoverRow; launch: FeedToken | null; book: BookState; safety: Safety | null; solUsd: number | null };
@@ -71,6 +72,7 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
   const forecast = useMarketForecast(mint, established);
   const { mode, account } = useDemo();
   const pos = mode === "demo" ? account?.positions.find((p) => p.mint === mint) : undefined;
+  const scalp = useScalp(mint, book, launch?.timestamp ?? row.createdAt ?? null, launch?.launchpad ?? null, true);
 
   const ctx: CoinCtx | null = useMemo(() => {
     const o = outlook(risk, safety, num.ageSecs);
@@ -100,15 +102,18 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       trades: book.status === "live" ? book.trades : [],
       solUsd,
       position: pos ? { costUsd: pos.cost_usd, valueUsd: pos.value_usd } : null,
+      scalp,
     };
-  }, [risk, safety, num, fresh, sim, established, forecast.v, launch, row, scan.findings, book, solUsd, pos]);
+  }, [risk, safety, num, fresh, sim, established, forecast.v, launch, row, scan.findings, book, solUsd, pos, scalp]);
 
   // The read when the page opens: once the scan and the forecast are in (or after 5 s).
   const ctxRef = useRef(ctx);
   useEffect(() => {
     ctxRef.current = ctx;
   });
-  const dataIn = scan.status !== "scanning" && forecast.done && (!risk || sim !== undefined);
+  // On a curve coin the next-minutes read is part of the opening read too.
+  const wantsScalp = book.status === "live" && book.source === "curve";
+  const dataIn = scan.status !== "scanning" && forecast.done && (!risk || sim !== undefined) && (!wantsScalp || !!scalp);
   const [waited, setWaited] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setWaited(true), 5000);

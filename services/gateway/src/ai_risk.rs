@@ -893,3 +893,32 @@ pub async fn backtest(
     let v: serde_json::Value = res.json().await.map_err(|_| (StatusCode::BAD_GATEWAY, "Bad answer from the AI service".to_string()))?;
     Ok(Json(v))
 }
+
+/// `POST /ai/scalp`: the next 1, 2 and 5 minutes of a coin from the trade page's live book
+/// (ai/scalp.py, served by the AI service). The body goes through as it is.
+pub async fn scalp(State(ctx): State<AiCtx>, body: axum::body::Bytes) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if !ctx.admin.ai_risk() {
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "Kixo AI is off" }))).into_response();
+    }
+    if body.is_empty() || body.len() > 512 * 1024 {
+        return (axum::http::StatusCode::BAD_REQUEST, "bad body").into_response();
+    }
+    let res = ctx
+        .app
+        .http
+        .post(format!("{}/scalp", url()))
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(body)
+        .timeout(Duration::from_secs(4))
+        .send()
+        .await;
+    match res {
+        Ok(r) => {
+            let status = axum::http::StatusCode::from_u16(r.status().as_u16()).unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
+            let v = r.json::<Value>().await.unwrap_or(Value::Null);
+            (status, Json(v)).into_response()
+        }
+        Err(_) => (axum::http::StatusCode::BAD_GATEWAY, Json(json!({ "error": "the AI service is not answering" }))).into_response(),
+    }
+}

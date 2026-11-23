@@ -32,5 +32,12 @@ if errorlevel 1 (
   type "%LOGS%\ai-ck-train.log"
 )
 echo.
+rem The next 1, 2 and 5 minutes (Kixo Agent's scalp read).
+echo Retraining the next-minutes model... (log: %LOGS%\ai-scalp-train.log)
+"%PY%" "%ROOT%\ai\train_scalp.py" > "%LOGS%\ai-scalp-train.log" 2>&1
+if errorlevel 1 (
+  echo Next-minutes training failed. Its old models stay in use. See %LOGS%\ai-scalp-train.log
+)
+echo.
 echo Done. The AI service switches to the new models within a minute.
 endlocal

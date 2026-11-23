@@ -10,6 +10,7 @@ import { usd, type DevReport, type Market, type TradeRow } from "@/lib/gateway";
 import type { AiRisk } from "@/lib/ai-risk";
 import type { Safety } from "@/lib/safety";
 import type { AgentMode, AgentSettings, AlertKind } from "./settings";
+import { scalpRead, type Scalp } from "./scalp";
 
 export type Plan = { tone: "bad" | "warn" | "good" | "muted"; title: string; sub: string; steps: string[] };
 
@@ -42,6 +43,8 @@ export type CoinCtx = {
   trades: TradeRow[];
   solUsd: number | null;
   position: { costUsd: number; valueUsd: number | null } | null;
+  /** Kixo AI's next minutes (lib/agent/scalp.ts), while the coin trades on its curve. */
+  scalp: Scalp | null;
 };
 
 const r0 = (x: number) => Math.round(x);
@@ -205,6 +208,48 @@ function action(c: CoinCtx, call: Call, mode: AgentMode): string | null {
   return `If you go in, keep it to ${size} of your balance and get out if it drops ${stop} percent.`;
 }
 
+/** The next minutes from Kixo AI's scalp model, and the trade to take when they look hot.
+ *  A coin the long-term read says no to can still be a quick scalp: memecoins move in
+ *  minutes, and the model is judged on exactly that trade. */
+function nextMinutes(c: CoinCtx, mode: AgentMode, call: Call | null): { text: string; action: string | null } | null {
+  const s = c.scalp;
+  const read = scalpRead(s);
+  if (!s || !read) return null;
+  const up20 = aPct(s.up20_2m * 100);
+  const down15 = aPct(s.down15_2m * 100);
+  const longNo = call === "avoid" || call === "risky" || call === "skip" || call === "wait_falling" || call === "wait_young";
+  if (read === "hot") {
+    const text =
+      mode === "pro"
+        ? `Next two minutes: ${pctWord(s.up20_2m * 100)} for plus twenty.`
+        : mode === "degen"
+          ? `But right now it's cooking: ${up20} chance it's up 20 percent in two minutes.`
+          : `${longNo ? "But short term it looks hot:" : "And short term it looks hot:"} Kixo AI sees ${up20} chance it's up 20 percent in the next two minutes.`;
+    const action =
+      mode === "pro"
+        ? "Scalp only. Take profit at plus twenty, stop at minus ten."
+        : mode === "coach"
+          ? `If you want to try, make it a quick trade: buy small, sell at plus 20 percent, and get out at minus 10 percent. Don't hold it${longNo ? ", the bigger picture is risky" : ""}.`
+          : mode === "degen"
+            ? "Quick in and out. Take the twenty, cut at minus ten. No diamond hands on this one."
+            : `If you scalp it, go in small, take profit at plus 20, and cut it at minus 10. Don't hold it.`;
+    return { text, action };
+  }
+  if (read === "weak") {
+    return {
+      text:
+        mode === "pro"
+          ? `Next two minutes weak: ${pctWord(s.down15_2m * 100)} for minus fifteen.`
+          : mode === "degen"
+            ? `Momentum's dead right now, ${down15} chance it dumps 15 percent in two minutes.`
+            : `The next couple of minutes look weak: ${down15} chance it drops 15 percent.`,
+      action: null,
+    };
+  }
+  if (mode === "pro" || mode === "quiet") return null;
+  return { text: `Next two minutes: ${up20} chance of plus 20, and ${down15} chance of minus 15.`, action: null };
+}
+
 /** The read when a coin's page opens. Null while there is too little data to say anything. */
 export function brief(c: CoinCtx, mode: AgentMode): string | null {
   if (mode === "quiet") return null;
@@ -235,6 +280,14 @@ export function brief(c: CoinCtx, mode: AgentMode): string | null {
   }
   const mom = momentum(c, mode);
   if (mom && call !== "wait_falling" && call !== "too_late") lines.push(mom);
+  const next = nextMinutes(c, mode, call);
+  if (next) {
+    lines.push(next.text);
+    if (next.action) {
+      lines.push(next.action);
+      return lines.join(" ");
+    }
+  }
   const act = action(c, call, mode);
   if (act) lines.push(act);
   return lines.join(" ");
@@ -255,6 +308,7 @@ export const ALERT_SHORT: Partial<Record<AlertKind, string>> = {
   dump: "Heavy selling! Price is crashing.",
   whale: "Whale exit!",
   pump: "It's pumping!",
+  setup: "Scalp setup!",
 };
 
 type Lines = Record<AgentMode, (x: string) => string>;
@@ -301,6 +355,8 @@ const DETAIL: Record<AlertKind, Lines> = {
     degen: (x) => `Whale just dumped ${x} on everyone.`,
     quiet: (x) => `A whale just sold ${x}.`,
   },
+  setup: { buddy: (x) => x, coach: (x) => x, pro: (x) => x, degen: (x) => x, quiet: (x) => x },
+  fading: { buddy: (x) => x, coach: (x) => x, pro: (x) => x, degen: (x) => x, quiet: (x) => x },
   pump: {
     buddy: (x) => x,
     coach: (x) => `${x} Remember, buying after a big jump is risky.`,
@@ -321,6 +377,7 @@ export class Watcher {
   private last: Partial<Record<AlertKind, number>> = {};
   private lastAny = 0;
   private posFlags = { down: false, up: false };
+  private lastRead: string | null = null;
 
   constructor(readonly mint: string) {}
 
@@ -332,7 +389,7 @@ export class Watcher {
       this.primed = true;
       return [];
     }
-    if (!fresh.length && !c.position) return [];
+    if (!fresh.length && !c.position && !c.scalp) return [];
     const out: Alert[] = [];
     const mode = s.mode;
     const allow = (k: AlertKind, gap: number) => s.alerts[k] && now - (this.last[k] ?? 0) > gap * 1000;
@@ -402,8 +459,23 @@ export class Watcher {
       if (pnl < 30) this.posFlags.up = false;
     }
 
+    // Kixo AI's next minutes: a scalp setup forming (it was not hot before), or momentum
+    // fading on a coin the user holds.
+    const sc = c.scalp;
+    if (sc && now - sc.at < 10_000) {
+      const read = scalpRead(sc);
+      if (read === "hot" && this.lastRead !== "hot" && allow("setup", 60)) {
+        out.push({ kind: "setup", short: ALERT_SHORT.setup ?? null, urgent: false, text: mode === "pro" ? `${pctWord(sc.up20_2m * 100)} for plus twenty in two minutes.` : `Buyers are piling in. ${cap(aPct(sc.up20_2m * 100))} chance it's up 20 percent in the next two minutes. Quick trade only.` });
+      }
+      const holds = c.position && c.position.valueUsd != null;
+      if (holds && read === "weak" && this.lastRead !== "weak" && allow("fading", 60)) {
+        out.push({ kind: "fading", short: null, urgent: false, text: mode === "pro" ? "Momentum fading. Consider taking profit." : `Momentum's fading on your position: ${aPct(sc.down15_2m * 100)} chance it drops 15 percent in two minutes. Think about taking profit.` });
+      }
+      this.lastRead = read;
+    }
+
     // The most urgent first; ordinary lines at most every 8 seconds.
-    const order: AlertKind[] = ["dev", "crowd", "bundles", "dump", "snipers", "whale", "position", "pump"];
+    const order: AlertKind[] = ["dev", "crowd", "bundles", "dump", "snipers", "whale", "position", "fading", "setup", "pump"];
     out.sort((x, y) => Number(y.urgent) - Number(x.urgent) || order.indexOf(x.kind) - order.indexOf(y.kind));
     const top = out[0];
     if (!top || (!top.urgent && now - this.lastAny < 8000)) return [];
@@ -510,6 +582,11 @@ export function answer(q: string, c: CoinCtx, mode: AgentMode): string {
       if (c.buyScore != null) parts.push(`The Kixo Buy Score is ${c.buyScore} out of 100.`);
       if (c.safety) parts.push(`The safety score is ${c.safety.score} out of 100.`);
       return parts.length ? parts.join(" ") : "Kixo AI hasn't scored this one. It scores new coins after their first two minutes.";
+    }],
+    [/next (minute|min|two|2|few|five|5)|short term|scalp|will it (pump|go up|moon|dump|drop)|going to (pump|dump)|right now|momentum/, () => {
+      const sc = c.scalp;
+      if (!sc) return m && m.complete ? "My next-minutes model only reads coins on their launch curve. This one already graduated." : "I don't have a next-minutes read on this one yet. Give it a few seconds.";
+      return `In the next minute, ${aPct(sc.up10_1m * 100)} chance it's up 10 percent. In two minutes, ${aPct(sc.up20_2m * 100)} chance of plus 20 and ${aPct(sc.down15_2m * 100)} chance of minus 15. ${scalpRead(sc) === "hot" ? "That's a good scalp setup." : scalpRead(sc) === "weak" ? "Momentum is weak right now." : "No clear edge right now."}`;
     }],
     [/what happen|recap|summary|what's new|update|going on/, () => {
       const recent = c.trades.filter((x) => x.ts >= Date.now() / 1000 - 120);

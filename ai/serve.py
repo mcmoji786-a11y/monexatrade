@@ -11,6 +11,10 @@ POST http://127.0.0.1:8090/market
 POST http://127.0.0.1:8090/checkpoint
   {"ck": 900, "trades": [...the coin's trades so far...], "creator", "launchpad", "card"}
 -> {"win": 0.31, "crash": 0.08, "line": 0.27, "proven": false}   (train_checkpoint.py)
+POST http://127.0.0.1:8090/scalp
+  {"trades": [{"ts", "sol", "mc_sol", "is_buy", "wallet", "dev", "sniper", "bundler"}...the last 2 minutes],
+   "age_s": 340, "peak_mc": 81.2, "first_mc": 28.0}
+-> {"scalp_win": .., "up10_1m": .., "up20_2m": .., "up50_5m": .., "down15_2m": .., "line": .., "proven": ..}
 GET  /health -> the models in use and their test results.
 Listens on 127.0.0.1 only, so nothing outside this PC can reach it.
 """
@@ -158,6 +162,65 @@ def predict_checkpoint(body):
     return out
 
 
+scalp_boosters = {}
+scalp_report = {}
+scalp_loaded_at = 0.0
+
+
+def load_scalp_models():
+    """The next-minutes models (train_scalp.py), reloaded when retrained. Optional."""
+    global scalp_boosters, scalp_report, scalp_loaded_at
+    try:
+        from scalp import TARGETS as SCALP_TARGETS
+
+        stamp = max(os.path.getmtime(f"{MODELS}/scalp_{t}_latest.txt") for t in SCALP_TARGETS)
+        if stamp <= scalp_loaded_at or time.time() - stamp < 10:
+            return
+        fresh = {t: lgb.Booster(model_file=f"{MODELS}/scalp_{t}_latest.txt") for t in SCALP_TARGETS}
+        try:
+            rep_ = json.load(open(f"{MODELS}/scalp_report_latest.json"))
+        except (OSError, ValueError):
+            rep_ = {}
+        scalp_boosters, scalp_report, scalp_loaded_at = fresh, rep_, stamp
+        print(f"scalp models loaded (trained {rep_.get('trained', '?')})", flush=True)
+    except Exception as e:
+        print(f"scalp models not loaded: {e}", flush=True)
+
+
+def scalp_summary():
+    r = scalp_report
+    if not r:
+        return None
+    return {"trained": r.get("trained"), "rule": r.get("rule"), "pick": r.get("pick"), "proven": r.get("proven"), "every_moment": r.get("every_moment"), "targets": {k: {"auc": v.get("auc"), "base_rate": v.get("base_rate"), "calibration": v.get("calibration")} for k, v in (r.get("targets") or {}).items()}}
+
+
+def predict_scalp(body):
+    """The next 1, 2 and 5 minutes from the live book's last 2 minutes (scalp.py)."""
+    from scalp import features as scalp_features
+
+    rows = [t for t in (body.get("trades") or []) if t.get("mc_sol")]
+    if len(rows) < 3:
+        return None
+    rows.sort(key=lambda t: t["ts"])
+    ts = np.array([float(t["ts"]) for t in rows])
+    mc = np.array([float(t["mc_sol"]) for t in rows])
+    sol = np.array([float(t.get("sol") or 0) for t in rows])
+    buy = np.array([bool(t.get("is_buy")) for t in rows])
+    wallet = np.array([str(t.get("wallet") or "") for t in rows], dtype=object)
+    flag = lambda k: np.array([bool(t.get(k)) for t in rows])
+    now = float(body.get("now") or ts[-1])
+    peak = max(float(body.get("peak_mc") or 0), float(mc.max()))
+    first = float(body.get("first_mc") or mc[0])
+    f = scalp_features(ts, mc, sol, buy, wallet, flag("dev"), flag("sniper"), flag("bundler"), now, float(body.get("age_s") or 0), float(mc[-1]), peak, first)
+    if f is None:
+        return None
+    x = pd.DataFrame([f])
+    out = {k: round(float(b.predict(x[model_columns(b)])[0]), 4) for k, b in scalp_boosters.items()}
+    pick = scalp_report.get("pick") or {}
+    out.update({"line": pick.get("line"), "proven": bool(scalp_report.get("proven"))})
+    return out
+
+
 def maybe_reload():
     global checked_at
     if time.time() - checked_at > 60:
@@ -166,11 +229,13 @@ def maybe_reload():
             load_models()
             load_market_models()
             load_ck_models()
+            load_scalp_models()
 
 
 load_models()
 load_market_models()
 load_ck_models()
+load_scalp_models()
 if not boosters:
     sys.exit(f"no models in {MODELS}: run ai\\train_rug.py first")
 
@@ -240,12 +305,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/market/health":
             return self._send(200, {"ok": bool(market_boosters), "trained": market_report.get("trained"), "targets": market_report.get("targets"), "backtest": market_report.get("backtest")})
         if self.path == "/health":
-            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest"), "strategy": strategy_summary(), "checkpoint": ck_summary()})
+            self._send(200, {"ok": True, "window_s": WINDOW, "trained": report.get("trained"), "coins": report.get("coins"), "targets": report.get("targets"), "backtest": report.get("backtest"), "strategy": strategy_summary(), "checkpoint": ck_summary(), "scalp": scalp_summary()})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path not in ("/predict", "/backtest", "/market", "/checkpoint"):
+        if self.path not in ("/predict", "/backtest", "/market", "/checkpoint", "/scalp"):
             return self._send(404, {"error": "not found"})
         n = int(self.headers.get("content-length") or 0)
         if n <= 0 or n > MAX_BODY:
@@ -259,6 +324,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(400, {"error": str(e)[:200]})
             return self._send(200, out) if out else self._send(422, {"error": "no market data"})
+        if self.path == "/scalp":
+            maybe_reload()
+            if not scalp_boosters:
+                return self._send(503, {"error": "scalp models not trained yet"})
+            try:
+                out = predict_scalp(json.loads(self.rfile.read(n)))
+            except Exception as e:
+                return self._send(400, {"error": str(e)[:200]})
+            return self._send(200, out) if out else self._send(422, {"error": "too few trades"})
         if self.path == "/checkpoint":
             maybe_reload()
             if not ck_boosters:
