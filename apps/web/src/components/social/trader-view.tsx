@@ -48,14 +48,14 @@ export function TraderView() {
   const s = t.stats[period];
 
   return (
-    <section className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <section className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <Link href="/community" className="self-start text-sm text-text-2 hover:text-text">
         Community
       </Link>
 
       <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         {/* Banner: the trader's own, else a quiet surface. */}
-        <div className="relative aspect-[3/1] max-h-52 w-full bg-surface-2">
+        <div className={`relative w-full bg-surface-2 ${p.banner_url ? "aspect-[3/1] max-h-56" : "h-28"}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {p.banner_url && <img src={p.banner_url} alt="" className="h-full w-full object-cover" />}
         </div>

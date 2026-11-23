@@ -14,16 +14,16 @@ function Rows({ rows, onFollow }: { rows: TraderRow[]; onFollow?: (handle: strin
       {rows.map((r) => (
         <li key={r.handle} className="flex min-h-16 items-center gap-3 px-4 py-3">
           <Link href={`/u/${r.handle}`} className="flex min-w-0 flex-1 items-center gap-3">
-            <TraderAvatar handle={r.handle} size={36} />
+            <TraderAvatar handle={r.handle} src={r.avatar_url} size={40} />
             <span className="min-w-0">
               <span className="block truncate text-sm text-text hover:underline">{r.display_name || `@${r.handle}`}</span>
-              <span className="block truncate font-mono text-[11px] text-muted">
+              <span className="block truncate text-xs text-muted">
                 @{r.handle} · {r.followers} {r.followers === 1 ? "follower" : "followers"}
               </span>
               {r.bio && <span className="mt-0.5 block truncate text-xs text-text-2">{r.bio}</span>}
             </span>
           </Link>
-          {r.me ? <span className="text-xs text-muted">You</span> : <FollowButton key={`${r.handle}:${r.i_follow}`} handle={r.handle} initial={r.i_follow} onChange={(on) => onFollow?.(r.handle, on)} />}
+          {r.me ? <span className="text-xs text-muted">You</span> : <FollowButton key={`${r.handle}:${r.i_follow}`} handle={r.handle} initial={r.i_follow} quiet onChange={(on) => onFollow?.(r.handle, on)} />}
         </li>
       ))}
     </ul>

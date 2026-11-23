@@ -340,6 +340,28 @@ fn realized_pct(t: &Value) -> Value {
     }
 }
 
+/// Each handle's picture and whether they hide their amounts (feed and leaderboard rows
+/// only carry the handle). Empty before migration 0021.
+async fn looks(a: &AccountState, handles: &[String]) -> std::collections::HashMap<String, (String, bool)> {
+    let list: Vec<String> = handles.iter().filter(|h| valid_handle(h) || (3..=20).contains(&h.len())).filter(|h| h.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')).cloned().collect();
+    if list.is_empty() {
+        return Default::default();
+    }
+    a.rest(reqwest::Method::GET, &format!("trader_profiles?handle=in.({})&select=*", list.join(",")), None)
+        .await
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| {
+            let h = p["handle"].as_str()?.to_string();
+            let avatar = p.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let hide = p.get("hide_amounts").and_then(|v| v.as_bool()).unwrap_or(false);
+            Some((h, (avatar, hide)))
+        })
+        .collect()
+}
+
 /// `GET /social/u/{handle}`: a public trader (or the caller's own profile, even private).
 pub async fn trader(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle): Path<String>) -> Result<Json<Value>, ApiErr> {
     on(&c)?;
@@ -526,7 +548,21 @@ pub async fn feed(State(c): State<SocialCtx>, headers: HeaderMap, Query(q): Quer
         .acct
         .rest(reqwest::Method::POST, "rpc/social_feed", Some(json!({ "p_follower": follower, "p_limit": 50, "p_before": q.before })))
         .await?;
-    let items: Vec<Value> = v.as_array().map(|r| r.iter().map(trade_view).collect()).unwrap_or_default();
+    let rows = v.as_array().cloned().unwrap_or_default();
+    let handles: Vec<String> = rows.iter().filter_map(|r| r["handle"].as_str().map(String::from)).collect();
+    let look = looks(&c.acct, &handles).await;
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let (avatar, hide) = r["handle"].as_str().and_then(|h| look.get(h)).cloned().unwrap_or_default();
+            let mut t = trade_view(r);
+            if hide {
+                t = mask_trade(t);
+            }
+            t["avatar_url"] = json!(avatar);
+            t
+        })
+        .collect();
     Ok(Json(json!({ "items": items })))
 }
 
@@ -544,23 +580,25 @@ pub async fn leaders(State(c): State<SocialCtx>, Query(q): Query<LeadersQuery>) 
         _ => now() - 7 * 86_400,
     };
     let v = c.acct.rest(reqwest::Method::POST, "rpc/social_leaders", Some(json!({ "p_from": crate::account::chrono_iso(from), "p_limit": 100 }))).await?;
-    let rows: Vec<Value> = v
-        .as_array()
-        .map(|r| {
-            r.iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    let trades = num(&x["trades"]);
-                    json!({
-                        "rank": i + 1, "handle": x["handle"], "display_name": x["display_name"],
-                        "realized_usd": (num(&x["realized_usd"]) * 100.0).round() / 100.0,
-                        "trades": trades, "win_rate": if trades > 0.0 { (num(&x["wins"]) / trades * 1000.0).round() / 10.0 } else { 0.0 },
-                        "best_usd": (num(&x["best_usd"]) * 100.0).round() / 100.0, "followers": num(&x["followers"]),
-                    })
-                })
-                .collect()
+    let raw = v.as_array().cloned().unwrap_or_default();
+    let handles: Vec<String> = raw.iter().filter_map(|r| r["handle"].as_str().map(String::from)).collect();
+    let look = looks(&c.acct, &handles).await;
+    let rows: Vec<Value> = raw
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            let trades = num(&x["trades"]);
+            let (avatar, hide) = x["handle"].as_str().and_then(|h| look.get(h)).cloned().unwrap_or_default();
+            // A trader who hides amounts keeps their rank; their dollar figures stay hidden.
+            let usd = |k: &str| if hide { Value::Null } else { json!((num(&x[k]) * 100.0).round() / 100.0) };
+            json!({
+                "rank": i + 1, "handle": x["handle"], "display_name": x["display_name"], "avatar_url": avatar,
+                "realized_usd": usd("realized_usd"),
+                "trades": trades, "win_rate": if trades > 0.0 { (num(&x["wins"]) / trades * 1000.0).round() / 10.0 } else { 0.0 },
+                "best_usd": usd("best_usd"), "followers": num(&x["followers"]),
+            })
         })
-        .unwrap_or_default();
+        .collect();
     Ok(Json(json!({ "leaders": rows })))
 }
 
@@ -597,6 +635,7 @@ async fn trader_rows(c: &SocialCtx, profiles: Vec<Value>, me: Option<&str>) -> V
             let id = p["user_id"].as_str().unwrap_or_default();
             json!({
                 "handle": p["handle"], "display_name": p["display_name"], "bio": p["bio"], "created_at": p["created_at"],
+                "avatar_url": p.get("avatar_url").and_then(|v| v.as_str()).unwrap_or(""),
                 "followers": counts.get(id).copied().unwrap_or(0), "i_follow": mine.contains(id), "me": me == Some(id),
             })
         })
@@ -616,7 +655,7 @@ pub async fn traders(State(c): State<SocialCtx>, headers: HeaderMap, Query(q): Q
     let me = viewer(&c, &headers).await;
     let term: String = q.q.unwrap_or_default().to_lowercase().chars().filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_').take(20).collect();
     let filter = if term.is_empty() { String::new() } else { format!("&or=(handle.ilike.*{term}*,display_name.ilike.*{term}*)") };
-    let v = c.acct.rest(reqwest::Method::GET, &format!("trader_profiles?public=eq.true&select=user_id,handle,display_name,bio,created_at&order=created_at.desc&limit=200{filter}"), None).await?;
+    let v = c.acct.rest(reqwest::Method::GET, &format!("trader_profiles?public=eq.true&select=*&order=created_at.desc&limit=200{filter}"), None).await?;
     let mut rows = trader_rows(&c, v.as_array().cloned().unwrap_or_default(), me.as_deref()).await;
     if q.sort.as_deref() != Some("new") {
         rows.sort_by(|a, b| num(&b["followers"]).total_cmp(&num(&a["followers"])));
@@ -644,7 +683,7 @@ pub async fn people(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle)
     if ids.is_empty() {
         return Ok(Json(json!({ "people": [] })));
     }
-    let v = c.acct.rest(reqwest::Method::GET, &format!("trader_profiles?user_id=in.({})&public=eq.true&select=user_id,handle,display_name,bio,created_at", ids.join(",")), None).await?;
+    let v = c.acct.rest(reqwest::Method::GET, &format!("trader_profiles?user_id=in.({})&public=eq.true&select=*", ids.join(",")), None).await?;
     let mut profiles = v.as_array().cloned().unwrap_or_default();
     // Newest follow first, as the follows were read.
     profiles.sort_by_key(|p| ids.iter().position(|i| Some(i.as_str()) == p["user_id"].as_str()).unwrap_or(usize::MAX));

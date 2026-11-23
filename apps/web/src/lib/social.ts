@@ -26,6 +26,7 @@ export type TraderStats = { realized_usd: number | null; trades: number; win_rat
 export type SocialTrade = {
   id: number;
   handle?: string;
+  avatar_url?: string;
   display_name?: string;
   mint: string;
   symbol: string;
@@ -56,7 +57,8 @@ export type Trader = {
   hidden_amounts?: boolean;
   trades: SocialTrade[];
 };
-export type Leader = { rank: number; handle: string; display_name: string; realized_usd: number; trades: number; win_rate: number; best_usd: number; followers: number };
+/** Dollar figures are null for a trader who hides their amounts. */
+export type Leader = { rank: number; handle: string; display_name: string; avatar_url?: string; realized_usd: number | null; trades: number; win_rate: number; best_usd: number | null; followers: number };
 
 async function call<T>(path: string, init: RequestInit = {}, auth = false): Promise<T> {
   const token = accessToken();
@@ -84,7 +86,7 @@ export const getFeed = (scope: "following" | "everyone", before?: number) =>
   call<{ items: SocialTrade[] }>(`/social/feed?scope=${scope}${before ? `&before=${before}` : ""}`, {}, scope === "following");
 export const getLeaders = (period: "7d" | "30d" | "all") => call<{ leaders: Leader[] }>(`/social/leaders?period=${period}`);
 /** A trader in a list: to find and follow. */
-export type TraderRow = { handle: string; display_name: string; bio: string; created_at: string; followers: number; i_follow: boolean; me: boolean };
+export type TraderRow = { handle: string; display_name: string; bio: string; created_at: string; avatar_url?: string; followers: number; i_follow: boolean; me: boolean };
 export const getTraders = (q: string, sort: "followers" | "new") => call<{ traders: TraderRow[] }>(`/social/traders?q=${encodeURIComponent(q)}&sort=${sort}`);
 export const getPeople = (handle: string, who: "followers" | "following") => call<{ people: TraderRow[] }>(`/social/u/${encodeURIComponent(handle)}/people?who=${who}`);
 export const getTraderTrades = (handle: string, after: number) => call<{ items: SocialTrade[] }>(`/social/trades/${encodeURIComponent(handle)}?after=${after}`);

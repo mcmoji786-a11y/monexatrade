@@ -8,7 +8,6 @@ import { useAccount, openLogin } from "@/lib/account";
 import { QuickBuy } from "@/components/trade/quick-buy";
 import { pushToast } from "@/lib/toast";
 
-/** A trader is their handle: a quiet initial, no picture to upload or moderate. */
 /** A trader's picture, or the first letter of their handle when they have none. */
 export function TraderAvatar({ handle, size = 32, src }: { handle: string; size?: number; src?: string | null }) {
   return (
@@ -27,14 +26,15 @@ export function TraderAvatar({ handle, size = 32, src }: { handle: string; size?
 export function TradeLine({ t, now, showTrader = true }: { t: SocialTrade; now: number; showTrader?: boolean }) {
   const buy = t.side === "buy";
   return (
-    <li className="flex min-h-14 items-center gap-3 px-4 py-2">
+    <li className="group flex min-h-16 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2/60">
       {showTrader && t.handle && (
         <Link href={`/u/${t.handle}`} aria-label={`@${t.handle}`}>
-          <TraderAvatar handle={t.handle} />
+          <TraderAvatar handle={t.handle} src={t.avatar_url} size={36} />
         </Link>
       )}
       <div className="min-w-0 flex-1 text-sm">
         <p className="truncate text-text-2">
+          <span className={`mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle ${buy ? "bg-positive" : "bg-negative"}`} aria-hidden="true" />
           {showTrader && t.handle && (
             <Link href={`/u/${t.handle}`} className="text-text hover:underline">
               @{t.handle}
@@ -45,8 +45,8 @@ export function TradeLine({ t, now, showTrader = true }: { t: SocialTrade; now: 
             {t.symbol || t.mint.slice(0, 6)}
           </Link>
         </p>
-        <p className="font-mono text-[11px] text-muted">
-          {t.usd != null && money(t.usd)}
+        <p className="mt-0.5 font-mono text-xs text-muted">
+          {t.usd != null && <span className="text-text-2">{money(t.usd)}</span>}
           {!buy && t.realized_usd != null && (
             <span className={t.realized_usd >= 0 ? "text-positive" : "text-negative"}>
               {" "}
@@ -64,12 +64,14 @@ export function TradeLine({ t, now, showTrader = true }: { t: SocialTrade; now: 
           {now > 0 && ` · ${timeAgo(t.ts, now)} ago`}
         </p>
       </div>
-      <QuickBuy mint={t.mint} symbol={t.symbol} />
+      <span className="md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:focus-within:opacity-100">
+        <QuickBuy mint={t.mint} symbol={t.symbol} />
+      </span>
     </li>
   );
 }
 
-export function FollowButton({ handle, initial, onChange }: { handle: string; initial: boolean; onChange?: (on: boolean) => void }) {
+export function FollowButton({ handle, initial, onChange, quiet = false }: { handle: string; initial: boolean; onChange?: (on: boolean) => void; quiet?: boolean }) {
   const auth = useAccount();
   const [on, setOn] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -92,7 +94,7 @@ export function FollowButton({ handle, initial, onChange }: { handle: string; in
       onClick={toggle}
       disabled={busy}
       aria-pressed={on}
-      className={`h-9 rounded-lg px-4 text-sm transition-colors disabled:opacity-60 ${on ? "border border-border text-text-2 hover:bg-surface-2" : "bg-text font-medium text-bg hover:opacity-90"}`}
+      className={`h-9 shrink-0 rounded-lg px-4 text-sm transition-colors disabled:opacity-60 ${on ? "border border-border text-text-2 hover:bg-surface-2" : quiet ? "border border-border text-text hover:border-text-2 hover:bg-surface-2" : "bg-text font-medium text-bg hover:opacity-90"}`}
     >
       {on ? "Following" : "Follow"}
     </button>
