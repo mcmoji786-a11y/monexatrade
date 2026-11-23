@@ -5,7 +5,20 @@
 import { GATEWAY_HTTP } from "./gateway";
 import { accessToken } from "./account";
 
-export type TraderProfile = { handle: string; display_name: string; bio: string; public: boolean; created_at: string };
+export type TraderProfile = {
+  handle: string;
+  display_name: string;
+  bio: string;
+  public: boolean;
+  created_at: string;
+  /** Pictures and links (migration 0021): empty when not set. */
+  avatar_url?: string;
+  banner_url?: string;
+  x_handle?: string;
+  telegram?: string;
+};
+export type Badge = { key: string; label: string; why: string };
+export type DailyPnl = { day: string; realized_usd: number; trades: number; wins: number };
 export type TraderStats = { realized_usd: number; trades: number; win_rate: number; best_usd: number; volume_usd: number } | null;
 export type SocialTrade = {
   id: number;
@@ -29,6 +42,10 @@ export type Trader = {
   followers: number;
   following: number;
   stats: { d7: TraderStats; d30: TraderStats; all: TraderStats };
+  /** Profit taken per day (UTC), last 120 days. */
+  daily?: DailyPnl[];
+  badges?: Badge[];
+  invites?: number;
   trades: SocialTrade[];
 };
 export type Leader = { rank: number; handle: string; display_name: string; realized_usd: number; trades: number; win_rate: number; best_usd: number; followers: number };
@@ -47,7 +64,7 @@ async function call<T>(path: string, init: RequestInit = {}, auth = false): Prom
 }
 
 export const getMe = () => call<{ profile: TraderProfile | null; followers: number; following: number; following_handles: string[] }>("/social/me", {}, true);
-export const saveMe = (p: { handle: string; display_name: string; bio: string; public: boolean }) =>
+export const saveMe = (p: { handle: string; display_name: string; bio: string; public: boolean; avatar_url?: string; banner_url?: string; x_handle?: string; telegram?: string }) =>
   call<{ profile: TraderProfile }>("/social/me", { method: "PUT", body: JSON.stringify(p) }, true);
 export const getTrader = (handle: string) => call<Trader>(`/social/u/${encodeURIComponent(handle)}`);
 export const follow = (handle: string, on: boolean) => call<{ following: boolean }>(`/social/follow/${encodeURIComponent(handle)}`, { method: on ? "POST" : "DELETE" }, true);

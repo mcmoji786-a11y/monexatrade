@@ -67,6 +67,11 @@ pub struct Profile {
 }
 
 impl AccountState {
+    /// The Supabase project address (storage URLs are checked against it).
+    pub fn supabase_url(&self) -> &str {
+        &self.url
+    }
+
     pub fn new(http: reqwest::Client, url: &str, anon: &str, service: &str) -> Arc<Self> {
         Arc::new(Self {
             http,

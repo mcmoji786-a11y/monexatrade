@@ -4,8 +4,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Copy as CopyIcon } from "lucide-react";
+import { CalendarDays, Copy as CopyIcon, Send } from "lucide-react";
 import { getTrader, money, type Trader, type TraderStats } from "@/lib/social";
+import { BadgeChip, PnlCalendar, PnlChart, ShareProfile, XGlyph } from "./profile-parts";
 import { addCopy, removeCopy, useCopies } from "@/lib/copy";
 import { useAccount, openLogin } from "@/lib/account";
 import { pushToast } from "@/lib/toast";
@@ -50,26 +51,63 @@ export function TraderView() {
         Community
       </Link>
 
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border bg-surface px-5 py-5">
-        <TraderAvatar handle={p.handle} size={56} />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xl font-medium text-text">{p.display_name || `@${p.handle}`}</h1>
-          <p className="font-mono text-xs text-muted">
-            @{p.handle} · <FollowCounts key={t.followers} handle={p.handle} followers={t.followers} following={t.following} />
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+        {/* Banner: the trader's own, else a quiet surface. */}
+        <div className="relative aspect-[3/1] max-h-52 w-full bg-surface-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {p.banner_url && <img src={p.banner_url} alt="" className="h-full w-full object-cover" />}
+        </div>
+        <div className="px-5 pb-5">
+          <div className="-mt-12 flex flex-wrap items-end justify-between gap-3">
+            <span className="rounded-full ring-4 ring-surface">
+              <TraderAvatar handle={p.handle} src={p.avatar_url} size={96} />
+            </span>
+            <div className="flex flex-wrap gap-2 pb-1">
+              <ShareProfile handle={p.handle} />
+              {t.own ? (
+                <button type="button" onClick={() => setEditing(!editing)} className="h-9 rounded-lg border border-border px-4 text-sm text-text hover:bg-surface-2">
+                  {editing ? "Close" : "Edit profile"}
+                </button>
+              ) : (
+                <>
+                  <CopyTrader handle={p.handle} />
+                  <FollowButton handle={p.handle} initial={t.i_follow} onChange={(on) => setT({ ...t, i_follow: on, followers: t.followers + (on ? 1 : -1) })} />
+                </>
+              )}
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <h1 className="truncate text-2xl font-semibold text-text">{p.display_name || `@${p.handle}`}</h1>
+            {(t.badges ?? []).map((b) => (
+              <BadgeChip key={b.key} b={b} />
+            ))}
+          </div>
+          <p className="mt-0.5 text-sm text-muted">
+            @{p.handle}
             {!p.public && " · private"}
           </p>
-          {p.bio && <p className="mt-2 text-sm text-text-2">{p.bio}</p>}
-        </div>
-        {t.own ? (
-          <button type="button" onClick={() => setEditing(!editing)} className="h-9 rounded-lg border border-border px-4 text-sm text-text hover:bg-surface-2">
-            {editing ? "Close" : "Edit profile"}
-          </button>
-        ) : (
-          <div className="flex gap-2">
-            <FollowButton handle={p.handle} initial={t.i_follow} onChange={(on) => setT({ ...t, i_follow: on, followers: t.followers + (on ? 1 : -1) })} />
-            <CopyTrader handle={p.handle} />
+          {p.bio && <p className="mt-3 max-w-xl text-[15px] leading-6 text-text-2">{p.bio}</p>}
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-text-2">
+            <FollowCounts key={t.followers} handle={p.handle} followers={t.followers} following={t.following} />
+            {p.created_at && (
+              <span className="flex items-center gap-1.5 text-muted">
+                <CalendarDays size={14} strokeWidth={1.5} />
+                Joined {new Date(p.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+              </span>
+            )}
+            {p.x_handle && (
+              <a href={`https://x.com/${p.x_handle}`} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1.5 text-text-2 hover:text-text">
+                <XGlyph />@{p.x_handle}
+              </a>
+            )}
+            {p.telegram && (
+              <a href={`https://t.me/${p.telegram}`} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1.5 text-text-2 hover:text-text">
+                <Send size={14} strokeWidth={1.5} />
+                {p.telegram}
+              </a>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {t.own && editing && (
@@ -96,7 +134,10 @@ export function TraderView() {
           </div>
         </div>
         <Stats s={s} />
+        <PnlChart daily={t.daily ?? []} days={period === "d7" ? 7 : period === "d30" ? 30 : 120} />
       </section>
+
+      <PnlCalendar daily={t.daily ?? []} />
 
       <section className="rounded-xl border border-border bg-surface">
         <div className="border-b border-border px-5 py-3">
@@ -120,13 +161,14 @@ export function TraderView() {
 function Stats({ s }: { s: TraderStats }) {
   if (!s) return <p className="px-5 py-6 text-sm text-muted">No results yet</p>;
   return (
-    <dl className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
+    <dl className="grid grid-cols-2 gap-px border-b border-border bg-border sm:grid-cols-5">
       {(
         [
           ["Profit", `${s.realized_usd >= 0 ? "+" : ""}${money(s.realized_usd)}`, s.realized_usd >= 0 ? "text-positive" : "text-negative"],
           ["Win rate", s.trades ? `${s.win_rate}%` : "—", "text-text"],
           ["Closed trades", String(s.trades), "text-text"],
-          ["Best trade", s.best_usd ? `+${money(s.best_usd)}` : "—", "text-text"],
+          ["Best trade", s.best_usd ? `${s.best_usd > 0 ? "+" : ""}${money(s.best_usd)}` : "—", s.best_usd > 0 ? "text-positive" : s.best_usd < 0 ? "text-negative" : "text-text"],
+          ["Volume", money(s.volume_usd), "text-text"],
         ] as const
       ).map(([k, v, tone]) => (
         <div key={k} className="bg-surface px-5 py-4">

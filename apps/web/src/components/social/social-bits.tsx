@@ -9,14 +9,17 @@ import { QuickBuy } from "@/components/trade/quick-buy";
 import { pushToast } from "@/lib/toast";
 
 /** A trader is their handle: a quiet initial, no picture to upload or moderate. */
-export function TraderAvatar({ handle, size = 32 }: { handle: string; size?: number }) {
+/** A trader's picture, or the first letter of their handle when they have none. */
+export function TraderAvatar({ handle, size = 32, src }: { handle: string; size?: number; src?: string | null }) {
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full border border-border bg-surface-3 font-medium text-text-2 uppercase"
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-surface-3 font-medium text-text-2 uppercase"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
       aria-hidden="true"
     >
       {handle.slice(0, 1)}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {src && <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} />}
     </span>
   );
 }
@@ -48,7 +51,7 @@ export function TradeLine({ t, now, showTrader = true }: { t: SocialTrade; now: 
             <span className={t.realized_usd >= 0 ? "text-positive" : "text-negative"}>
               {" "}
               · {t.realized_usd >= 0 ? "+" : ""}
-              {money(t.realized_usd)} profit
+              {money(t.realized_usd)} {t.realized_usd >= 0 ? "profit" : "loss"}
             </span>
           )}
           {now > 0 && ` · ${timeAgo(t.ts, now)} ago`}

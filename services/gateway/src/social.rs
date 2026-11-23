@@ -54,7 +54,7 @@ fn num(v: &Value) -> f64 {
 }
 
 async fn profile_by_user(a: &AccountState, user: &str) -> Result<Option<Value>, ApiErr> {
-    let v = a.rest(reqwest::Method::GET, &format!("trader_profiles?user_id=eq.{user}&select=user_id,handle,display_name,bio,public,created_at"), None).await?;
+    let v = a.rest(reqwest::Method::GET, &format!("trader_profiles?user_id=eq.{user}&select=*"), None).await?;
     Ok(v.as_array().and_then(|r| r.first()).cloned())
 }
 
@@ -63,7 +63,7 @@ async fn profile_by_handle(a: &AccountState, handle: &str) -> Result<Option<Valu
         return Ok(None);
     }
     let h: String = handle.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect::<String>().to_lowercase();
-    let v = a.rest(reqwest::Method::GET, &format!("trader_profiles?handle=eq.{h}&select=user_id,handle,display_name,bio,public,created_at"), None).await?;
+    let v = a.rest(reqwest::Method::GET, &format!("trader_profiles?handle=eq.{h}&select=*"), None).await?;
     Ok(v.as_array().and_then(|r| r.first()).cloned())
 }
 
@@ -72,7 +72,26 @@ async fn count(a: &AccountState, table_filter: &str) -> u64 {
 }
 
 fn public_view(p: &Value) -> Value {
-    json!({ "handle": p["handle"], "display_name": p["display_name"], "bio": p["bio"], "public": p["public"], "created_at": p["created_at"] })
+    let s = |k: &str| p.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    json!({
+        "handle": p["handle"], "display_name": p["display_name"], "bio": p["bio"], "public": p["public"], "created_at": p["created_at"],
+        "avatar_url": s("avatar_url"), "banner_url": s("banner_url"), "x_handle": s("x_handle"), "telegram": s("telegram"),
+    })
+}
+
+/// A picture URL is kept only when it points into the user's own folder of the
+/// "profile-media" bucket (migration 0021); anything else is dropped.
+fn own_media(c: &SocialCtx, user: &str, url: &str) -> Result<String, ApiErr> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Ok(String::new());
+    }
+    let prefix = format!("{}/storage/v1/object/public/profile-media/{user}/", c.acct.supabase_url());
+    if url.len() <= 400 && url.starts_with(&prefix) && url[prefix.len()..].chars().all(|ch| ch.is_ascii_alphanumeric() || "-_.".contains(ch)) {
+        Ok(url.to_string())
+    } else {
+        Err((StatusCode::BAD_REQUEST, "That picture was not uploaded to Kixo".into()))
+    }
 }
 
 /* ---------------- A profile for every account ---------------- */
@@ -184,6 +203,14 @@ pub struct ProfileIn {
     bio: String,
     #[serde(default = "yes")]
     public: bool,
+    #[serde(default)]
+    avatar_url: String,
+    #[serde(default)]
+    banner_url: String,
+    #[serde(default)]
+    x_handle: String,
+    #[serde(default)]
+    telegram: String,
 }
 fn yes() -> bool {
     true
@@ -202,7 +229,7 @@ pub async fn save_me(State(c): State<SocialCtx>, headers: HeaderMap, Json(p): Js
             return Err((StatusCode::CONFLICT, "That handle is taken".into()));
         }
     }
-    let row = json!({
+    let mut row = json!({
         "user_id": u.id,
         "handle": handle,
         "display_name": clean(&p.display_name, 40),
@@ -210,6 +237,26 @@ pub async fn save_me(State(c): State<SocialCtx>, headers: HeaderMap, Json(p): Js
         "public": p.public,
         "updated_at": crate::account::chrono_iso(now()),
     });
+    // Pictures and links (migration 0021): written only once the columns exist.
+    let x = p.x_handle.trim().trim_start_matches('@').to_string();
+    let tg = p.telegram.trim().trim_start_matches('@').trim_start_matches("https://t.me/").to_string();
+    if !x.is_empty() && !(x.len() <= 15 && x.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')) {
+        return Err((StatusCode::BAD_REQUEST, "X handle: up to 15 letters, numbers or _".into()));
+    }
+    if !tg.is_empty() && !((5..=32).contains(&tg.len()) && tg.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')) {
+        return Err((StatusCode::BAD_REQUEST, "Telegram: 5 to 32 letters, numbers or _".into()));
+    }
+    let avatar = own_media(&c, &u.id, &p.avatar_url)?;
+    let banner = own_media(&c, &u.id, &p.banner_url)?;
+    let has_media = profile_by_user(&c.acct, &u.id).await?.is_some_and(|v| v.get("avatar_url").is_some());
+    if has_media {
+        row["avatar_url"] = json!(avatar);
+        row["banner_url"] = json!(banner);
+        row["x_handle"] = json!(x);
+        row["telegram"] = json!(tg);
+    } else if !avatar.is_empty() || !banner.is_empty() || !x.is_empty() || !tg.is_empty() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Pictures and links need Kixo's database update (migration 0021)".into()));
+    }
     let v = c.acct.rest(reqwest::Method::POST, "trader_profiles?on_conflict=user_id", Some(row)).await?;
     let saved = v.as_array().and_then(|r| r.first()).cloned().ok_or((StatusCode::SERVICE_UNAVAILABLE, "could not save".into()))?;
     Ok(Json(json!({ "profile": public_view(&saved) })))
@@ -262,6 +309,31 @@ pub async fn trader(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle)
         Some(m) if !own => count(&c.acct, &format!("follows?follower=eq.{m}&leader=eq.{uid}")).await > 0,
         _ => false,
     };
+    let (daily, invites, top) = tokio::join!(
+        c.acct.rest(reqwest::Method::POST, "rpc/trader_pnl_daily", Some(json!({ "p_user": uid, "p_from": crate::account::chrono_iso(t - 120 * 86_400) }))),
+        c.acct.rest(reqwest::Method::POST, "rpc/invites_of", Some(json!({ "p_user": uid }))),
+        c.acct.rest(reqwest::Method::POST, "rpc/social_leaders", Some(json!({ "p_from": crate::account::chrono_iso(t - 7 * 86_400), "p_limit": 10 }))),
+    );
+    let daily: Vec<Value> = daily
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .map(|d| json!({ "day": d["day"], "realized_usd": (num(&d["realized_usd"]) * 100.0).round() / 100.0, "trades": num(&d["trades"]), "wins": num(&d["wins"]) }))
+        .collect();
+    // Badges, each earned and checkable: waitlist invites and this week's top 10.
+    let invites = invites.ok().map(|v| num(&v)).unwrap_or(0.0);
+    // Only a week in profit counts: with few traders a losing week could still rank.
+    let rank = top.ok().and_then(|v| v.as_array().and_then(|r| r.iter().position(|x| x["handle"] == p["handle"] && num(&x["realized_usd"]) > 0.0)));
+    let mut badges = Vec::new();
+    if invites >= 10.0 {
+        badges.push(json!({ "key": "founding_trader", "label": "Founding Trader", "why": format!("Invited {invites} people to Kixo") }));
+    } else if invites >= 3.0 {
+        badges.push(json!({ "key": "founding_member", "label": "Founding Member", "why": format!("Invited {invites} people to Kixo") }));
+    }
+    if let Some(r) = rank {
+        badges.push(json!({ "key": "top10", "label": format!("Top {} this week", r + 1), "why": "Ranked by profit taken in the last 7 days" }));
+    }
     let trades = c
         .acct
         .rest(reqwest::Method::POST, "rpc/trader_trades", Some(json!({ "p_handle": p["handle"], "p_after": 0, "p_limit": 30 })))
@@ -276,6 +348,9 @@ pub async fn trader(State(c): State<SocialCtx>, headers: HeaderMap, Path(handle)
         "followers": followers,
         "following": following,
         "stats": { "d7": s7, "d30": s30, "all": sall },
+        "daily": daily,
+        "badges": badges,
+        "invites": invites,
         "trades": trades.iter().map(trade_view).collect::<Vec<_>>(),
     })))
 }
