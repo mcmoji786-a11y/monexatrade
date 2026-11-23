@@ -198,6 +198,8 @@ pub struct FeatureFlags {
     /// Helius saver: with nobody on the site for a few minutes, live data runs on the
     /// backup nodes and Helius waits (main.rs helius_saver).
     pub helius_saver: bool,
+    /// Kixo Agent: the self-hosted voice guide on coin pages (voice.rs, ai/voice.py).
+    pub voice_agent: bool,
     /// The welcome tour for new users (web components/tour).
     pub tour: bool,
     pub dev_record: bool,
@@ -271,6 +273,7 @@ impl Default for FeatureFlags {
             social: true,
             alert_delivery: true,
             helius_saver: false,
+            voice_agent: true,
             tour: true,
             dev_record: true,
             danger_warning: true,
@@ -409,6 +412,11 @@ impl AdminState {
     pub fn auto_wallet(&self) -> bool {
         let f = self.features.lock().expect("features lock");
         f.kixo_wallet && f.auto_wallet
+    }
+
+    /// Whether Kixo Agent (voice) is on.
+    pub fn voice_agent(&self) -> bool {
+        self.features.lock().expect("features lock").voice_agent
     }
 
     /// Whether the Helius saver may run.

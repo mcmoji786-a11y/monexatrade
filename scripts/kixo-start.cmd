@@ -31,6 +31,18 @@ if exist "%PY%" (
   )
 )
 
+rem Kixo Agent's voice (ai/voice.py): speaks and listens on this PC's GPU, no outside service.
+set VPY=E:\KixoAI\voice-venv\Scripts\python.exe
+if exist "%VPY%" (
+  powershell -NoProfile -Command "try { (Invoke-WebRequest http://127.0.0.1:8091/health -UseBasicParsing -TimeoutSec 3) | Out-Null; exit 0 } catch { exit 1 }"
+  if errorlevel 1 (
+    echo Starting Kixo voice...
+    start "Kixo voice" /MIN /D "%ROOT%" cmd /c "set TMP=E:\KixoAI\tmp&& set TEMP=E:\KixoAI\tmp&& set HF_HUB_DISABLE_SYMLINKS_WARNING=1&& "%VPY%" ai\voice.py >> "%LOGS%\voice.log" 2>&1"
+  ) else (
+    echo Kixo voice is already running.
+  )
+)
+
 rem Give the gateway a moment, then start the website if it is not up yet.
 timeout /t 8 /nobreak >nul
 powershell -NoProfile -Command "try { (Invoke-WebRequest http://localhost:3000 -UseBasicParsing -TimeoutSec 5) | Out-Null; exit 0 } catch { exit 1 }"
