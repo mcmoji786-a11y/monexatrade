@@ -164,6 +164,9 @@ impl Config {
     /// Live-stream nodes in order of preference: Helius, then the fallbacks.
     pub fn ws_urls(&self) -> Vec<String> {
         let mut v = vec![self.helius_ws_url()];
+        // Shyft's plan in use streams nothing over WebSocket (checked 2026-11-24: every
+        // address closes at once, while its HTTPS RPC works), so it serves RPC only
+        // (gateway rpc_router.rs) and the live stream falls back to the public nodes.
         v.extend(fallback_ws_urls());
         v
     }
