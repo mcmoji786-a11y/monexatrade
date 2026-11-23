@@ -16,6 +16,7 @@ import { QuickBuy } from "@/components/trade/quick-buy";
 import { useRadarFeed } from "@/components/radar/use-radar-feed";
 import { Tick } from "@/components/token/tick";
 import { TokenCard } from "@/components/radar/token-card";
+import { fromMarket } from "@/components/radar/radar-board";
 import { newLaunchChecks } from "@/lib/risk";
 import { useNow } from "@/components/radar/use-radar-feed";
 import { AiChatPanel } from "./ai-chat-panel";
@@ -34,6 +35,8 @@ type Pick = {
   now_x?: number | null;
   peak_x?: number | null;
   low_x?: number | null;
+  /** Worth a look: why it looks healthy right now. */
+  why?: string[];
   dump: number;
   pump: number;
   at: number;
@@ -47,6 +50,8 @@ type Overview = {
   waiting?: number;
   riskiest?: Pick[];
   best?: Pick[];
+  worth?: Pick[];
+  strong?: { mint: string }[];
   calls?: Call[];
   track?: { window_h: number; all: Group; high_dump: Group; low_dump: Group; high_pump: Group };
   model?: { trained: string | null; coins: number | null; targets: { dump: Target; pump: Target } | null; backtest?: Record<string, { trades: number }> } | null;
@@ -193,6 +198,9 @@ function Picks({ data, now }: { data: Overview | null; now: number }) {
   return (
     <div className="flex flex-col gap-4">
       <CoinList tone="good" title="Good odds now" hint="Low crash risk and a real chance to double, still trading near or above the call" picks={data ? good : undefined} now={now} empty="No coin has Good odds right now. That is normal: no trade is a fine trade" />
+      <CoinList tone="good" title="Worth a look" hint="Low crash risk at the call, and healthy right now: rising, more buyers than sellers, dev still in" picks={data ? (data.worth ?? []).filter((w) => !good.some((g) => g.mint === w.mint)) : undefined} now={now} empty="No new coin passes every check right now" />
+      <StrongNow mints={data?.strong?.map((s) => s.mint)} />
+      <p className="-mt-2 text-xs text-muted">Kixo AI can be wrong and most new memecoins go to zero. These are coins worth a closer look, not a promise. Not financial advice</p>
       <CoinList tone="bad" title="Danger now" hint="Best to stay away from these. See what happened since the call" picks={data?.riskiest?.filter((p) => p.dump >= 0.4)} now={now} empty="No coin marked Danger in the last 30 minutes" />
       <Calls calls={data?.calls} now={now} />
     </div>
@@ -250,6 +258,15 @@ function CoinList({ title, hint, picks, now: _now, empty, tone }: { title: strin
                       </span>
                     </span>
                   </div>
+                  {p.why && p.why.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 border border-y-0 border-border bg-surface-2 px-3 pb-2">
+                      {p.why.slice(0, 4).map((w) => (
+                        <span key={w} className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px] text-text-2">
+                          {w}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="[&>*]:rounded-t-none">
                     <TokenCard
                       token={t}
@@ -271,6 +288,35 @@ function CoinList({ title, hint, picks, now: _now, empty, tone }: { title: strin
           {gone > 0 && <p className="text-xs text-muted">{gone} more {gone === 1 ? "coin" : "coins"} from the last 30 minutes went quiet and left the radar</p>}
         </>
       )}
+    </section>
+  );
+}
+
+/** Established memecoins that look strong right now (the same check as the AI chat's
+ *  best coins: real liquidity, organic trading, no mint authority, spread holders, a
+ *  rising hour), as the same coin cards. */
+function StrongNow({ mints }: { mints?: string[] }) {
+  const feed = useRadarFeed();
+  const now = useNow();
+  const cards = (mints ?? []).map((m) => feed.markets[m]).filter((m): m is NonNullable<typeof m> => !!m);
+  if (!mints || cards.length === 0) return null;
+  return (
+    <section className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-cyan" aria-hidden="true" />
+          <h2 className="text-base font-medium text-text">Strong right now</h2>
+          <span className="font-mono text-xs text-muted">{cards.length}</span>
+        </div>
+        <p className="text-xs text-muted">Older memecoins with real liquidity, organic trading and a rising hour</p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {cards.map((m) => (
+          <div key={m.mint} className="coin-in min-w-0">
+            <TokenCard token={fromMarket(m)} alt={m} smart={feed.smart[m.mint] ?? 0} checks={[]} lowerRisk={false} original={null} sameSymbol={0} xShare={null} now={now} repeated={false} />
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

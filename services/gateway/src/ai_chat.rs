@@ -378,7 +378,7 @@ fn alive_now(board: &crate::Board, mint: &str, now: i64) -> Option<Value> {
     let mc = mk.mc_usd.unwrap_or(0.0);
     let quiet = now - mk.last_trade;
     let crashed = now_x < 0.5 || (peak_x > 0.0 && now_x / peak_x < 0.4) || (low_x <= 0.3 && now_x < 0.6);
-    if crashed || mk.dev_sold_all || mc < 3_000.0 || quiet > 600 {
+    if crashed || mk.dev_sold_all || mc < 3_000.0 || quiet > 600 || crude(&t.token.symbol, &t.token.name) {
         return None;
     }
     Some(json!({
@@ -394,10 +394,23 @@ fn alive_now(board: &crate::Board, mint: &str, now: i64) -> Option<Value> {
     }))
 }
 
+/// True for a coin named with a slur, sex or hate word (the same list as the waitlist's
+/// live coins). Such coins are never recommended, whatever their numbers.
+pub(crate) fn crude(symbol: &str, name: &str) -> bool {
+    const WORDS: [&str; 27] = [
+        "nigg", "niig", "neeg", "jew", "kike", "nazi", "hitler", "heil", "fag", "retard", "tranny", "chink", "rape", "porn", "nsfw", "sex", "pussy",
+        "dick", "cock", "boob", "isis", "terror", "kkk", "whore", "slut", "cunt", "holocaust",
+    ];
+    let text: String = format!("{symbol}{name}").to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect();
+    // Harmless words that contain a listed one.
+    let text = ["jewel", "grape", "drape", "peacock", "hancock"].iter().fold(text, |t, ok| t.replace(ok, ""));
+    WORDS.iter().any(|w| text.contains(w))
+}
+
 /// Established memecoins that look healthy right now (market board, Jupiter data):
 /// real liquidity and volume, organic trading, no mint authority, not held by a few
 /// wallets, and rising over the last hour. Best five by the last hour's volume.
-fn established(board: &crate::Board) -> Vec<Value> {
+pub(crate) fn established(board: &crate::Board) -> Vec<Value> {
     let mut v: Vec<crate::jupiter::MarketToken> = board
         .markets
         .all()
@@ -412,6 +425,7 @@ fn established(board: &crate::Board) -> Vec<Value> {
                 && m.top_holders_pct.unwrap_or(100.0) <= 30.0
                 && m.change_1h_pct.unwrap_or(-1.0) > 0.0
                 && m.change_5m_pct.unwrap_or(0.0) > -15.0
+                && !crude(&m.symbol, &m.name)
         })
         .collect();
     v.sort_by(|a, b| b.volume_1h_usd.unwrap_or(0.0).total_cmp(&a.volume_1h_usd.unwrap_or(0.0)));

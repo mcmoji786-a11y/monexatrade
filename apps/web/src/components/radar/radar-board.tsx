@@ -498,7 +498,7 @@ const FINAL_PCT = 50;
 
 /** A memecoin known from market data only, in the radar's shape: no curve of our own,
  *  its live figures (and, near graduation, its curve) come in as the card's market data. */
-function fromMarket(m: MarketToken, graduatedAt?: number): RadarToken & { graduatedAt?: number } {
+export function fromMarket(m: MarketToken, graduatedAt?: number): RadarToken & { graduatedAt?: number } {
   return {
     signature: "",
     name: m.name,
