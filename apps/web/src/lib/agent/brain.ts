@@ -11,6 +11,7 @@ import type { AiRisk } from "@/lib/ai-risk";
 import type { Safety } from "@/lib/safety";
 import type { AgentMode, AgentSettings, AlertKind } from "./settings";
 import { scalpRead, type Scalp } from "./scalp";
+import { enoughAnswer, tradesStory, type MyTrades } from "./coach";
 
 export type Plan = { tone: "bad" | "warn" | "good" | "muted"; title: string; sub: string; steps: string[] };
 
@@ -45,6 +46,8 @@ export type CoinCtx = {
   position: { costUsd: number; valueUsd: number | null } | null;
   /** Kixo AI's next minutes (lib/agent/scalp.ts), while the coin trades on its curve. */
   scalp: Scalp | null;
+  /** The user's own trades on this coin (demo, this round). */
+  myTrades: MyTrades | null;
 };
 
 const r0 = (x: number) => Math.round(x);
@@ -143,38 +146,45 @@ const CALLS: Record<Call, Record<Exclude<AgentMode, "quiet">, string[]>> = {
 
 /* ---------------- The reasons ---------------- */
 
-type Reason = { weight: number; good: boolean; text: string; explain?: string };
+/** `text`: the trader's version, with the numbers (Pro mode); `easy`: the same in everyday
+ *  words for someone new (every other mode). */
+type Reason = { weight: number; good: boolean; text: string; easy: string };
+
+/** A chance in words, for people who don't think in percentages. */
+export function likely(x: number) {
+  return x >= 0.75 ? "very likely" : x >= 0.5 ? "likely" : x >= 0.3 ? "possible" : x >= 0.15 ? "not very likely" : "unlikely";
+}
 
 function reasons(c: CoinCtx): Reason[] {
   const out: Reason[] = [];
   const m = c.market;
-  if (m?.dev_sold_all) out.push({ weight: 10, good: false, text: "the dev already sold everything", explain: "When the creator sells out, there's usually no one left to push the price." });
-  else if (m && m.dev_sells > 0) out.push({ weight: 8, good: false, text: `the dev has started selling and still holds ${pctWord(m.dev_pct)}`, explain: "A creator who sells often keeps selling." });
-  if (c.risk && c.risk.dump >= 0.4) out.push({ weight: 9, good: false, text: `Kixo AI gives it ${aPct(c.risk.dump * 100)} chance to crash within the hour` });
-  if (c.devReport && c.devReport.rugged > 0) out.push({ weight: 7, good: false, text: `this dev rugged ${c.devReport.rugged} of ${c.devReport.coins} earlier coins` });
+  if (m?.dev_sold_all) out.push({ weight: 10, good: false, text: "the dev already sold everything", easy: "the person who made this coin already sold all of theirs" });
+  else if (m && m.dev_sells > 0) out.push({ weight: 8, good: false, text: `the dev has started selling and still holds ${pctWord(m.dev_pct)}`, easy: "the person who made this coin has started selling" });
+  if (c.risk && c.risk.dump >= 0.4) out.push({ weight: 9, good: false, text: `Kixo AI gives it ${aPct(c.risk.dump * 100)} chance to crash within the hour`, easy: `Kixo AI thinks a crash is ${likely(c.risk.dump)} soon` });
+  if (c.devReport && c.devReport.rugged > 0) out.push({ weight: 7, good: false, text: `this dev rugged ${c.devReport.rugged} of ${c.devReport.coins} earlier coins`, easy: "the same person ran away with the money on earlier coins" });
   const bundles = m?.bundle_pct ?? null;
-  if (bundles != null && bundles >= 10) out.push({ weight: 6, good: false, text: `bundled wallets still hold ${pctWord(bundles)}`, explain: "Bundles are wallets that bought together at launch, often the dev's own. They can dump all at once." });
+  if (bundles != null && bundles >= 10) out.push({ weight: 6, good: false, text: `bundled wallets still hold ${pctWord(bundles)}`, easy: "a few wallets, probably the creator's own, still hold a big chunk and can dump it" });
   const top10 = m?.top10_pct ?? c.top10Pct;
-  if (top10 != null && top10 > 30) out.push({ weight: 5, good: false, text: `the top ten wallets hold ${pctWord(top10)}`, explain: "When a few wallets hold a lot, they can move the price hard when they sell." });
+  if (top10 != null && top10 > 30) out.push({ weight: 5, good: false, text: `the top ten wallets hold ${pctWord(top10)}`, easy: "a handful of wallets own most of it, so they can crash the price" });
   const snipers = m?.sniper_pct ?? c.sniperPct;
-  if (snipers != null && snipers >= 10) out.push({ weight: 5, good: false, text: `snipers who bought in the first seconds still hold ${pctWord(snipers)}`, explain: "Snipers are bots that buy at launch and sell into the first pump." });
+  if (snipers != null && snipers >= 10) out.push({ weight: 5, good: false, text: `snipers who bought in the first seconds still hold ${pctWord(snipers)}`, easy: "bots that bought in the first seconds are waiting to sell" });
   const holders = m?.holders ?? c.holders;
-  if (holders != null && holders < 20 && (c.ageSecs ?? 0) > 120) out.push({ weight: 4, good: false, text: `only ${holders} wallets hold it` });
+  if (holders != null && holders < 20 && (c.ageSecs ?? 0) > 120) out.push({ weight: 4, good: false, text: `only ${holders} wallets hold it`, easy: "hardly anyone owns it yet" });
   const flow = (c.buys1h ?? m?.buys_1h ?? 0) + (c.sells1h ?? m?.sells_1h ?? 0);
   const buys = c.buys1h ?? m?.buys_1h ?? 0;
   const sells = c.sells1h ?? m?.sells_1h ?? 0;
-  if (flow >= 30 && sells > buys * 1.5) out.push({ weight: 4, good: false, text: `sellers are winning, ${sells} sells against ${buys} buys this hour` });
-  if (c.liquidityUsd != null && c.liquidityUsd < 5000 && (m == null || m.complete)) out.push({ weight: 4, good: false, text: `liquidity is thin, about ${money(c.liquidityUsd)}` });
+  if (flow >= 30 && sells > buys * 1.5) out.push({ weight: 4, good: false, text: `sellers are winning, ${sells} sells against ${buys} buys this hour`, easy: "more people are selling than buying" });
+  if (c.liquidityUsd != null && c.liquidityUsd < 5000 && (m == null || m.complete)) out.push({ weight: 4, good: false, text: `liquidity is thin, about ${money(c.liquidityUsd)}`, easy: "there's very little money in it, so the price jumps around a lot" });
   // Good signs.
-  if (m && !m.dev_sold_all && m.dev_sells === 0 && (c.ageSecs ?? 0) > 120) out.push({ weight: 4, good: true, text: "the dev hasn't sold anything" });
-  if (top10 != null && top10 <= 20 && (holders ?? 0) >= 50) out.push({ weight: 4, good: true, text: `holders are spread out, the top ten hold just ${pctWord(top10)}` });
-  if (flow >= 30 && buys > sells * 1.5) out.push({ weight: 4, good: true, text: `buyers are in control, ${buys} buys against ${sells} sells this hour` });
-  if (c.risk && c.risk.dump < 0.15) out.push({ weight: 5, good: true, text: c.risk.dump < 0.01 ? "Kixo AI sees almost no crash risk" : `Kixo AI sees a low crash risk, about ${pctWord(c.risk.dump * 100)}` });
-  if (c.devReport && c.devReport.graduated > 0 && c.devReport.rugged === 0) out.push({ weight: 3, good: true, text: `this dev graduated ${c.devReport.graduated} coins before and never rugged` });
+  if (m && !m.dev_sold_all && m.dev_sells === 0 && (c.ageSecs ?? 0) > 120) out.push({ weight: 4, good: true, text: "the dev hasn't sold anything", easy: "the person who made it hasn't sold anything" });
+  if (top10 != null && top10 <= 20 && (holders ?? 0) >= 50) out.push({ weight: 4, good: true, text: `holders are spread out, the top ten hold just ${pctWord(top10)}`, easy: "lots of different people own it, not just a few" });
+  if (flow >= 30 && buys > sells * 1.5) out.push({ weight: 4, good: true, text: `buyers are in control, ${buys} buys against ${sells} sells this hour`, easy: "more people are buying than selling" });
+  if (c.risk && c.risk.dump < 0.15) out.push({ weight: 5, good: true, text: c.risk.dump < 0.01 ? "Kixo AI sees almost no crash risk" : `Kixo AI sees a low crash risk, about ${pctWord(c.risk.dump * 100)}`, easy: "Kixo AI doesn't expect it to crash" });
+  if (c.devReport && c.devReport.graduated > 0 && c.devReport.rugged === 0) out.push({ weight: 3, good: true, text: `this dev graduated ${c.devReport.graduated} coins before and never rugged`, easy: "the person who made it has a good track record" });
   for (const f of c.findings) {
-    if (f.tone === "good" && /proven/.test(f.text)) out.push({ weight: 4, good: true, text: f.text.replace(/\.$/, "").replace(/^(\d+) proven profitable traders? holds?/, (_, n) => `${n} proven profitable trader${n === "1" ? " holds" : "s hold"}`) });
+    if (f.tone === "good" && /proven/.test(f.text)) out.push({ weight: 4, good: true, text: f.text.replace(/\.$/, ""), easy: "some traders who usually win are holding it" });
   }
-  return out.sort((a, b) => b.weight - a.weight);
+  return out.sort((x, y) => y.weight - x.weight);
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -185,102 +195,83 @@ function momentum(c: CoinCtx, mode: AgentMode): string | null {
   if (ch == null || Math.abs(ch) < 15) return null;
   const up = ch > 0;
   if (mode === "pro") return `${up ? "Up" : "Down"} ${pctWord(ch)} in five minutes.`;
-  if (mode === "degen") return up ? `It's sending, up ${pctWord(ch)} in five minutes.` : `It's bleeding, down ${pctWord(ch)} in five minutes.`;
-  return `Right now it's ${up ? "up" : "down"} ${pctWord(ch)} in the last five minutes.`;
+  if (mode === "degen") return up ? "It's sending right now." : "It's bleeding right now.";
+  return up ? "It's going up fast right now." : "It's falling fast right now.";
 }
 
-/** What to do, from the plan's own levels. */
+/** What to do, in plain steps. */
 function action(c: CoinCtx, call: Call, mode: AgentMode): string | null {
   const own = c.position && c.position.valueUsd != null;
   if (call === "avoid") {
-    if (own) return mode === "pro" ? "You hold it. Consider selling into the next bounce." : "You're holding some. I'd sell on the next small bounce.";
-    return mode === "coach" ? "There are new coins every minute, so there's no need to force this one." : null;
+    if (own) return mode === "pro" ? "You hold it. Sell into the next bounce." : "You own some. I'd sell it on the next small bounce.";
+    return mode === "pro" ? null : "Skip this one, there are new coins every minute.";
   }
   if (call === "wait_young" || call === "wait_falling" || call === "too_late") {
-    if (own && call === "too_late") return mode === "pro" ? "If you hold it, take some profit." : "If you're holding, this is a good moment to take some profit.";
+    if (own && call === "too_late") return mode === "pro" ? "If you hold it, take some profit." : "If you own some, now's a good time to sell a bit and keep the profit.";
     return null;
   }
   const stop = call === "ok_small" ? 25 : call === "risky" ? 20 : call === "recommend" ? 40 : 20;
-  const size = call === "risky" ? "about one percent" : "one to three percent";
-  if (mode === "pro") return `Size ${size} of balance. Stop at minus ${stop}.`;
-  if (mode === "degen") return `Keep it to ${size} of your stack and cut it at minus ${stop} percent. No hero bags.`;
-  if (mode === "coach") return `If you buy, use only ${size} of your balance, and sell if it drops ${stop} percent. That way one bad coin can't hurt you much.`;
-  return `If you go in, keep it to ${size} of your balance and get out if it drops ${stop} percent.`;
+  if (mode === "pro") return `Size ${call === "risky" ? "about one percent" : "one to three percent"} of balance. Stop at minus ${stop}.`;
+  if (mode === "degen") return `Small bag only. If it drops ${stop} percent, you're out.`;
+  return `If you try it, only put in a little, money you're fine losing. If it falls ${stop} percent, sell and move on.`;
 }
 
 /** The next minutes from Kixo AI's scalp model, and the trade to take when they look hot.
- *  A coin the long-term read says no to can still be a quick scalp: memecoins move in
+ *  A coin the long-term read says no to can still be a quick trade: memecoins move in
  *  minutes, and the model is judged on exactly that trade. */
 function nextMinutes(c: CoinCtx, mode: AgentMode, call: Call | null): { text: string; action: string | null } | null {
-  const s = c.scalp;
-  const read = scalpRead(s);
-  if (!s || !read) return null;
-  const up20 = aPct(s.up20_2m * 100);
-  const down15 = aPct(s.down15_2m * 100);
+  const sc = c.scalp;
+  const read = scalpRead(sc);
+  if (!sc || !read) return null;
   const longNo = call === "avoid" || call === "risky" || call === "skip" || call === "wait_falling" || call === "wait_young";
+  if (mode === "pro") {
+    if (read === "hot") return { text: `Next two minutes: ${pctWord(sc.up20_2m * 100)} for plus twenty.`, action: "Scalp only. Take profit at plus twenty, stop at minus ten." };
+    if (read === "weak") return { text: `Next two minutes weak: ${pctWord(sc.down15_2m * 100)} for minus fifteen.`, action: null };
+    return null;
+  }
   if (read === "hot") {
-    const text =
-      mode === "pro"
-        ? `Next two minutes: ${pctWord(s.up20_2m * 100)} for plus twenty.`
-        : mode === "degen"
-          ? `But right now it's cooking: ${up20} chance it's up 20 percent in two minutes.`
-          : `${longNo ? "But short term it looks hot:" : "And short term it looks hot:"} Kixo AI sees ${up20} chance it's up 20 percent in the next two minutes.`;
-    const action =
-      mode === "pro"
-        ? "Scalp only. Take profit at plus twenty, stop at minus ten."
-        : mode === "coach"
-          ? `If you want to try, make it a quick trade: buy small, sell at plus 20 percent, and get out at minus 10 percent. Don't hold it${longNo ? ", the bigger picture is risky" : ""}.`
-          : mode === "degen"
-            ? "Quick in and out. Take the twenty, cut at minus ten. No diamond hands on this one."
-            : `If you scalp it, go in small, take profit at plus 20, and cut it at minus 10. Don't hold it.`;
-    return { text, action };
+    const text = mode === "degen" ? `${longNo ? "But" : "And"} right now it's cooking, lots of buyers piling in.` : `${longNo ? "But" : "And"} right now lots of people are buying, so a quick jump up is ${likely(sc.up20_2m)}.`;
+    const act =
+      mode === "degen"
+        ? "Quick in and out: grab twenty percent and leave. If it dips ten, cut it."
+        : `If you want a quick trade: buy a little, sell as soon as it's up twenty percent, and if it drops ten percent, sell right away. Don't hold this one${longNo ? ", the bigger picture is risky" : ""}.`;
+    return { text, action: act };
   }
-  if (read === "weak") {
-    return {
-      text:
-        mode === "pro"
-          ? `Next two minutes weak: ${pctWord(s.down15_2m * 100)} for minus fifteen.`
-          : mode === "degen"
-            ? `Momentum's dead right now, ${down15} chance it dumps 15 percent in two minutes.`
-            : `The next couple of minutes look weak: ${down15} chance it drops 15 percent.`,
-      action: null,
-    };
-  }
-  if (mode === "pro" || mode === "quiet") return null;
-  return { text: `Next two minutes: ${up20} chance of plus 20, and ${down15} chance of minus 15.`, action: null };
+  if (read === "weak") return { text: mode === "degen" ? "Momentum's dead right now." : "Right now buying has slowed down, so it's more likely to drop than go up.", action: null };
+  return null;
 }
 
-/** The read when a coin's page opens. Null while there is too little data to say anything. */
+/** The read when a coin's page opens. Null while there is too little data to say anything.
+ *  Pro gets the numbers; every other mode gets everyday words and at most one level. */
 export function brief(c: CoinCtx, mode: AgentMode): string | null {
   if (mode === "quiet") return null;
   const call = callOf(c.plan);
   if (!call) return null;
   const S = c.symbol || "this coin";
+  const pro = mode === "pro";
   const lines: string[] = [pick(CALLS[call][mode], `${S}${call}`).replace("{S}", S)];
   const rs = reasons(c);
+  const say = (r: Reason) => (pro ? r.text : r.easy);
   const negative = call === "avoid" || call === "risky" || call === "skip" || call === "wait_falling";
   const bad = rs.filter((r) => !r.good);
   const good = rs.filter((r) => r.good);
-  const plain = mode === "pro" || mode === "degen";
   if (negative) {
-    const list = bad.slice(0, mode === "pro" ? 1 : 2);
+    const list = bad.slice(0, pro ? 1 : 2);
     if (list.length) {
-      const joined = list.length === 2 ? `${list[0].text}, and ${list[1].text}` : list[0].text;
-      lines.push(plain ? `${cap(joined)}.` : `${pick(["The main thing is", "Here's why:", "Why? Well,"], S)} ${joined}.`);
-      if (mode === "coach" && list[0].explain) lines.push(list[0].explain);
-    } else if (c.plan?.sub) {
-      // No single red flag stands out: the plan's own reason (the forecast, too few holders...).
+      const joined = list.length === 2 ? `${say(list[0])}, and ${say(list[1])}` : say(list[0]);
+      const opener = lines[0].endsWith("why.") ? "" : `${pick(["The reason:", "Why?", "Here's why:"], S)} `;
+      lines.push(pro || mode === "degen" ? `${cap(joined)}.` : `${opener}${opener ? joined : cap(joined)}.`);
+    } else if (c.plan?.sub && pro) {
       lines.push(`${c.plan.sub.replace(/\.$/, "")}.`);
     }
   } else {
-    if (good[0]) lines.push(plain ? `${cap(good[0].text)}.` : `${pick(["On the plus side,", "Good news,", "What I like:"], S)} ${good[0].text}.`);
-    if (bad[0] && mode !== "pro") lines.push(plain ? `Watch out though, ${bad[0].text}.` : `${pick(["Just know that", "The risk is", "One thing to watch:"], S)} ${bad[0].text}.`);
-    if (!good[0] && !bad[0] && c.plan?.sub) lines.push(`${c.plan.sub.replace(/\.$/, "")}.`);
-    if (mode === "coach" && bad[0]?.explain) lines.push(bad[0].explain);
+    if (good[0]) lines.push(pro ? `${cap(good[0].text)}.` : `${pick(["Good sign:", "What I like:", "On the plus side,"], S)} ${good[0].easy}.`);
+    if (bad[0] && !pro) lines.push(`${pick(["But careful,", "Just know", "One thing to watch:"], S)} ${bad[0].easy}.`);
   }
-  const mom = momentum(c, mode);
-  if (mom && call !== "wait_falling" && call !== "too_late") lines.push(mom);
   const next = nextMinutes(c, mode, call);
+  // The next-minutes read says what the move means; the bare move only without it.
+  const mom = momentum(c, mode);
+  if (mom && !next && call !== "wait_falling" && call !== "too_late") lines.push(mom);
   if (next) {
     lines.push(next.text);
     if (next.action) {
@@ -357,6 +348,7 @@ const DETAIL: Record<AlertKind, Lines> = {
   },
   setup: { buddy: (x) => x, coach: (x) => x, pro: (x) => x, degen: (x) => x, quiet: (x) => x },
   fading: { buddy: (x) => x, coach: (x) => x, pro: (x) => x, degen: (x) => x, quiet: (x) => x },
+  mytrades: { buddy: (x) => x, coach: (x) => x, pro: (x) => x, degen: (x) => x, quiet: (x) => x },
   pump: {
     buddy: (x) => x,
     coach: (x) => `${x} Remember, buying after a big jump is risky.`,
@@ -376,7 +368,6 @@ export class Watcher {
   private primed = false;
   private last: Partial<Record<AlertKind, number>> = {};
   private lastAny = 0;
-  private posFlags = { down: false, up: false };
   private lastRead: string | null = null;
 
   constructor(readonly mint: string) {}
@@ -394,7 +385,8 @@ export class Watcher {
     const mode = s.mode;
     const allow = (k: AlertKind, gap: number) => s.alerts[k] && now - (this.last[k] ?? 0) > gap * 1000;
     const add = (k: AlertKind, detail: string, urgent: boolean) => out.push({ kind: k, short: ALERT_SHORT[k] ?? null, text: DETAIL[k][mode](detail), urgent });
-    const value = (solAmt: number) => (c.solUsd ? `${sol(solAmt)}, about ${usd(solAmt * c.solUsd)}` : sol(solAmt));
+    // Pro hears the SOL; everyone else the dollars ("about $450 worth").
+    const value = (solAmt: number) => (mode === "pro" ? (c.solUsd ? `${sol(solAmt)}, about ${usd(solAmt * c.solUsd)}` : sol(solAmt)) : c.solUsd ? `about ${usd(solAmt * c.solUsd)} worth` : sol(solAmt));
     const sells = (list: TradeRow[]) => list.filter((t) => !t.is_buy);
     const total = (list: TradeRow[]) => list.reduce((x, t) => x + t.sol, 0);
     const wallets = (list: TradeRow[]) => new Set(list.map((t) => t.wallet)).size;
@@ -444,20 +436,6 @@ export class Watcher {
       else if (rise >= 30 && allow("pump", 90)) add("pump", `Up ${pctWord(rise)} in the last minute.`, false);
     }
 
-    // The user's own position.
-    const p = c.position;
-    if (p && p.valueUsd != null && p.costUsd > 0 && s.alerts.position) {
-      const pnl = (p.valueUsd / p.costUsd - 1) * 100;
-      if (pnl <= -25 && !this.posFlags.down) {
-        this.posFlags.down = true;
-        out.push({ kind: "position", short: null, urgent: true, text: mode === "pro" ? `Your position is down ${pctWord(pnl)}.` : `You're down ${pctWord(pnl)} on this one. Think about cutting it before it gets worse.` });
-      } else if (pnl >= 50 && !this.posFlags.up) {
-        this.posFlags.up = true;
-        out.push({ kind: "position", short: null, urgent: false, text: mode === "pro" ? `Your position is up ${pctWord(pnl)}.` : `Nice, you're up ${pctWord(pnl)}. Taking some profit here would be smart.` });
-      }
-      if (pnl > -15) this.posFlags.down = false;
-      if (pnl < 30) this.posFlags.up = false;
-    }
 
     // Kixo AI's next minutes: a scalp setup forming (it was not hot before), or momentum
     // fading on a coin the user holds.
@@ -465,11 +443,11 @@ export class Watcher {
     if (sc && now - sc.at < 10_000) {
       const read = scalpRead(sc);
       if (read === "hot" && this.lastRead !== "hot" && allow("setup", 60)) {
-        out.push({ kind: "setup", short: ALERT_SHORT.setup ?? null, urgent: false, text: mode === "pro" ? `${pctWord(sc.up20_2m * 100)} for plus twenty in two minutes.` : `Buyers are piling in. ${cap(aPct(sc.up20_2m * 100))} chance it's up 20 percent in the next two minutes. Quick trade only.` });
+        out.push({ kind: "setup", short: ALERT_SHORT.setup ?? null, urgent: false, text: mode === "pro" ? `${pctWord(sc.up20_2m * 100)} for plus twenty in two minutes.` : `Lots of buyers are piling in right now, a quick jump up is ${likely(sc.up20_2m)}. Quick trade only: sell at plus twenty, get out at minus ten.` });
       }
       const holds = c.position && c.position.valueUsd != null;
       if (holds && read === "weak" && this.lastRead !== "weak" && allow("fading", 60)) {
-        out.push({ kind: "fading", short: null, urgent: false, text: mode === "pro" ? "Momentum fading. Consider taking profit." : `Momentum's fading on your position: ${aPct(sc.down15_2m * 100)} chance it drops 15 percent in two minutes. Think about taking profit.` });
+        out.push({ kind: "fading", short: null, urgent: false, text: fadingLine(c, mode) });
       }
       this.lastRead = read;
     }
@@ -483,6 +461,13 @@ export class Watcher {
     this.lastAny = now;
     return [top];
   }
+}
+
+/** Momentum fading on a held coin: take the profit if there is one, else be ready to cut. */
+function fadingLine(c: CoinCtx, mode: AgentMode): string {
+  const p = c.position && c.position.valueUsd != null && c.position.costUsd > 0 ? (c.position.valueUsd / c.position.costUsd - 1) * 100 : null;
+  if (p != null && p >= 3) return mode === "pro" ? `Momentum fading. Up ${pctWord(p)}: take it.` : `Buying is slowing down on your coin and it may drop soon. You're up ${pctWord(p)}, so I'd take the profit now.`;
+  return mode === "pro" ? "Momentum fading. Tight stop." : "Buying is slowing down on your coin and it may drop soon. Be ready to sell if it dips.";
 }
 
 /* ---------------- Questions ---------------- */
@@ -596,6 +581,10 @@ export function answer(q: string, c: CoinCtx, mode: AgentMode): string {
     }],
   ];
   const facts = topics.filter(([re]) => re.test(t)).slice(0, 3).map(([, fn]) => fn());
+
+  // The user's own trading on this coin.
+  if (/what (did|have) i (do|done|buy|bought|trade)|my trades|my history|how much (did|have) i (make|made|lose|lost)|what's my (profit|pnl)/.test(t)) return tradesStory(c.myTrades, c.position, S);
+  if (/enough|good profit|take (my )?profit|is it time|keep (it|holding)|hold or sell|sell or hold/.test(t)) return enoughAnswer(c.position, S, c.scalp);
 
   // Advice: selling what they hold, or buying.
   const sellQ = /(should|do|can) i sell|when (to|do i|should i) sell|sell (it|now|mine|my)|take profit|get out|\bexit\b|cut (it|my|losses)|dump my/.test(t);

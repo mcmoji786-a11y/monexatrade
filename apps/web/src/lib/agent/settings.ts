@@ -26,7 +26,7 @@ export const VOICES: { key: string; label: string }[] = [
   { key: "af_nicole", label: "Nicole (US)" },
 ];
 
-export type AlertKind = "dev" | "bundles" | "snipers" | "crowd" | "dump" | "whale" | "pump" | "position" | "setup" | "fading";
+export type AlertKind = "dev" | "bundles" | "snipers" | "crowd" | "dump" | "whale" | "pump" | "position" | "setup" | "fading" | "mytrades";
 
 export const ALERTS: { key: AlertKind; label: string; line: string }[] = [
   { key: "dev", label: "Dev sells", line: "The creator sells any of their coins: the second it happens" },
@@ -37,7 +37,8 @@ export const ALERTS: { key: AlertKind; label: string; line: string }[] = [
   { key: "whale", label: "Whale exits", line: "A wallet sells a big amount for this coin at once (5 SOL or more, more on bigger coins)" },
   { key: "setup", label: "Scalp setups", line: "Kixo AI sees a good chance of a quick +20% in the next two minutes" },
   { key: "fading", label: "Momentum fading", line: "You hold it and the next minutes look weak: time to take profit" },
-  { key: "position", label: "Your position", line: "Your position hits your stop or profit level" },
+  { key: "mytrades", label: "Your trades", line: "Talks you through every buy and sell you make, and the ones your take profit or stop loss make" },
+  { key: "position", label: "Your position", line: "Tells you when your coin is up 20, 50 or 100 percent (is it enough?) or down 10 or 25 percent" },
   { key: "pump", label: "Big moves up", line: "The price jumps fast (not an emergency, off by default)" },
 ];
 
@@ -69,7 +70,7 @@ export const DEFAULTS: AgentSettings = {
   mode: "buddy",
   brief: true,
   emergencies: true,
-  alerts: { dev: true, bundles: true, snipers: true, crowd: true, dump: true, whale: true, position: true, pump: false, setup: true, fading: true },
+  alerts: { dev: true, bundles: true, snipers: true, crowd: true, dump: true, whale: true, position: true, pump: false, setup: true, fading: true, mytrades: true },
   ptt: "v",
   voice: "",
   speed: 0,

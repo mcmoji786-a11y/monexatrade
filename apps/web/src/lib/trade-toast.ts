@@ -23,7 +23,11 @@ export type Filled = {
   source?: DemoTrade["source"];
 };
 
+/** Every filled trade also goes out as a page event, so Kixo Agent can talk about it. */
+export const FILLED_EVENT = "kixo:filled";
+
 export function tradeToast(f: Filled) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<Filled>(FILLED_EVENT, { detail: f }));
   const pnl = f.side === "sell" && f.realizedUsd != null ? f.realizedUsd : null;
   const cost = pnl != null && f.usd != null ? f.usd - pnl : null;
   const pnlPct = pnl != null && cost && cost > 0 ? (pnl / cost) * 100 : null;

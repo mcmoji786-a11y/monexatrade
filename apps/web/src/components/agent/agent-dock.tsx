@@ -19,6 +19,8 @@ import { freshScore, outlook, plan, scoreOf, useMarketForecast, useSimilar } fro
 import { MODES, setAgentSettings, useAgentSettings, voiceOf } from "@/lib/agent/settings";
 import { ALERT_SHORT, answer, brief, Watcher, type CoinCtx } from "@/lib/agent/brain";
 import { useScalp } from "@/lib/agent/scalp";
+import { onAutoSell, onFill, PositionCoach, summarize } from "@/lib/agent/coach";
+import { FILLED_EVENT, type Filled } from "@/lib/trade-toast";
 import { audioReady, beep, micLevel, micProblem, onSpeech, preload, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
 
 type Props = { mint: string; row: DiscoverRow; launch: FeedToken | null; book: BookState; safety: Safety | null; solUsd: number | null };
@@ -70,7 +72,7 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
   const fresh = freshScore(num);
   const established = !risk || !fresh;
   const forecast = useMarketForecast(mint, established);
-  const { mode, account } = useDemo();
+  const { mode, account, trades: demoTrades } = useDemo();
   const pos = mode === "demo" ? account?.positions.find((p) => p.mint === mint) : undefined;
   const scalp = useScalp(mint, book, launch?.timestamp ?? row.createdAt ?? null, launch?.launchpad ?? null, true);
 
@@ -103,8 +105,9 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       solUsd,
       position: pos ? { costUsd: pos.cost_usd, valueUsd: pos.value_usd } : null,
       scalp,
+      myTrades: mode === "demo" ? summarize(demoTrades, mint, account?.round ?? 0) : null,
     };
-  }, [risk, safety, num, fresh, sim, established, forecast.v, launch, row, scan.findings, book, solUsd, pos, scalp]);
+  }, [risk, safety, num, fresh, sim, established, forecast.v, launch, row, scan.findings, book, solUsd, pos, scalp, mode, demoTrades, mint, account?.round]);
 
   // The read when the page opens: once the scan and the forecast are in (or after 5 s).
   const ctxRef = useRef(ctx);
@@ -150,6 +153,47 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       } else say(a.text, { urgent: a.urgent });
     }
   }, [ctx, s, mint]);
+
+  // The user's own trading, talked through: every fill (demo or real) the moment it
+  // happens, sales their take profit, stop loss or Rug exit made, and the position's levels.
+  const sRef = useRef(s);
+  useEffect(() => {
+    sRef.current = s;
+  });
+  useEffect(() => {
+    const on = (e: Event) => {
+      const f = (e as CustomEvent<Filled>).detail;
+      const st = sRef.current;
+      const c = ctxRef.current;
+      if (!st.alerts.mytrades || !f || st.mode === "quiet") return;
+      const longRisky = c?.plan?.tone === "bad" || (c?.risk?.dump ?? 0) >= 0.4;
+      say(onFill(f, st.mode, f.mint === mint ? (c?.scalp ?? null) : null, f.mint === mint && longRisky), { urgent: true });
+    };
+    window.addEventListener(FILLED_EVENT, on);
+    return () => window.removeEventListener(FILLED_EVENT, on);
+  }, [mint]);
+  const seenTrades = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    if (!demoTrades) return;
+    if (!seenTrades.current) {
+      seenTrades.current = new Set(demoTrades.map((t) => t.id));
+      return;
+    }
+    for (const t of demoTrades) {
+      if (seenTrades.current.has(t.id)) continue;
+      seenTrades.current.add(t.id);
+      if (t.side !== "sell" || t.source === "manual" || t.source === "quick" || !s.alerts.mytrades) continue;
+      const line = onAutoSell(t, s.mode);
+      if (line) say(line, { urgent: true });
+    }
+  }, [demoTrades, s]);
+  const coach = useRef(new PositionCoach());
+  const posKey = pos ? `${pos.opened_at}:${pos.tokens}` : "";
+  useEffect(() => {
+    if (!s.alerts.position || s.mode === "quiet") return;
+    const line = coach.current.check(pos ? { costUsd: pos.cost_usd, valueUsd: pos.value_usd, key: posKey } : null, row.symbol, s.mode, scalp);
+    if (line) say(line);
+  }, [pos, posKey, row.symbol, s.alerts.position, s.mode, scalp]);
 
   // Speech state for the caption.
   const [caption, setCaption] = useState<string | null>(null);
