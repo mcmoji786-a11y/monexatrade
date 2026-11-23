@@ -111,7 +111,7 @@ pub fn diagnose(err: &Value, logs: &[String]) -> (&'static str, &'static str, &'
     if anchor_slippage || has("slippagetoleranceexceeded") || has("exceededslippage") || has("toomuchsolrequired") || has("toolittlesolreceived") || jupiter("0x1771") {
         ("slippage", "The price moved more than your slippage allows", "Raise slippage or try again")
     } else if has("insufficientfundsforfee") || has("insufficient lamports") || has("no record of a prior credit") || has("insufficientfundsforrent") {
-        ("no_sol", "Not enough SOL for this trade and its fees", "Lower the amount or add SOL")
+        ("no_sol", "Not enough SOL for this trade and its fees", "Add a little SOL for network fees, or lower the amount (a sell needs a little SOL too)")
     } else if has("notenoughtokenstosell") || has("error: insufficient funds") || jupiter("0x1788") || (has("accountnotinitialized") && has("user_base_token_account")) {
         ("no_tokens", "Not enough balance in the wallet for this trade", "Refresh your balance and trade a smaller amount")
     } else if has("error code: overflow") || has("notenoughsolinpool") || has("insufficientliquidity") {
@@ -629,6 +629,61 @@ async fn quote_inner(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Jso
     })))
 }
 
+#[derive(Deserialize)]
+pub struct DryIn {
+    wallet: String,
+    mint: String,
+    side: String,
+    lamports: Option<u64>,
+    fraction: Option<f64>,
+    slippage_bps: Option<u64>,
+}
+
+/// `POST /admin/trade/dry-run` (admin token): builds a real trade for any wallet with
+/// the same builders as `/trade/quote` (our own for launchpad coins, Jupiter otherwise)
+/// and simulates it, without a signature. Nothing is stored, nothing can be signed or
+/// sent, and the real-trading switch stays as it is: it checks every venue end to end
+/// before real money is allowed. The wallet itself takes the place of the fee wallet, so
+/// the fee transfer simulates even before a fee wallet is set.
+pub async fn dry_run(State(c): State<TradeCtx>, headers: HeaderMap, Json(d): Json<DryIn>) -> Result<Json<Value>, ApiErr> {
+    if !crate::admin::is_admin(&headers) {
+        return Err(err(StatusCode::FORBIDDEN, "admin", "admin token required", ""));
+    }
+    let wallet = stx::pubkey(&d.wallet).map_err(|_| bad("not a wallet address"))?;
+    if stx::pubkey(&d.mint).is_err() || d.mint == WSOL {
+        return Err(bad("not a coin address"));
+    }
+    let buy = match d.side.as_str() {
+        "buy" => true,
+        "sell" => false,
+        _ => return Err(bad("side must be buy or sell")),
+    };
+    let q = QuoteIn { wallet: d.wallet.clone(), mint: d.mint.clone(), side: d.side.clone(), lamports: d.lamports, fraction: d.fraction, slippage_bps: d.slippage_bps, speed: None, mev: Some(true), symbol: String::new() };
+    let slippage = d.slippage_bps.unwrap_or(1_000).clamp(10, MAX_SLIPPAGE_BPS);
+    let sp = speed("turbo");
+    let started = Instant::now();
+    let (built, native) = match native_build(&c, &q, &wallet, &wallet, buy, slippage, sp).await? {
+        Some(b) => (b, true),
+        None => (jupiter_build(&c, &q, &wallet, &wallet, buy, slippage, sp).await?, false),
+    };
+    Ok(Json(json!({
+        "simulated": true,
+        "builder": if native { "kixo" } else { "jupiter" },
+        "route": built.route,
+        "side": d.side,
+        "sol_lamports": built.sol_lamports.to_string(),
+        "token_amount": built.token_amount.to_string(),
+        "min_out": built.min_out.to_string(),
+        "decimals": built.decimals,
+        "platform_fee_lamports": built.fee,
+        "fee_bps": fee_bps_now(),
+        "price_impact_pct": built.price_impact_pct,
+        "cu_limit": built.cu_limit,
+        "units": built.units,
+        "build_ms": started.elapsed().as_millis() as u64,
+    })))
+}
+
 /// A trade ready to sign.
 struct Built {
     message: Vec<u8>,
@@ -791,7 +846,7 @@ pub fn native_plan(venue: Venue, h: &Holder, wallet: &Pubkey, mint: &Pubkey, buy
     };
     if buy {
         if h.lamports < lamports + tip + BUY_RESERVE {
-            return Err(err(StatusCode::BAD_REQUEST, "no_sol", "Not enough SOL for this trade and its fees", "Lower the amount or add SOL"));
+            return Err(err(StatusCode::BAD_REQUEST, "no_sol", "Not enough SOL for this trade and its fees", "Add a little SOL for network fees, or lower the amount (a sell needs a little SOL too)"));
         }
         let fee = fee_of(lamports);
         let spend = lamports - fee;
@@ -889,29 +944,41 @@ async fn native_build(c: &TradeCtx, q: &QuoteIn, wallet: &Pubkey, fee_wallet: &P
         priority_estimate(c, sp.level),
         blockhash(c),
     );
-    let Ok(accounts) = accounts else { return Ok(None) };
+    // Each early exit says why, so a builder that stops working is noticed in the log
+    // instead of every trade quietly taking the slower router.
+    let skip = |why: &str| {
+        tracing::info!(mint = q.mint, why, "own builder skipped; using the router");
+        Ok(None)
+    };
+    // A backup node sometimes misses one read: ask once more before giving the trade to
+    // the slower router.
+    let accounts = match accounts {
+        Ok(v) => Ok(v),
+        Err(_) => rpc(&r, "getMultipleAccounts", json!([keys, { "encoding": "base64", "commitment": "processed" }])).await,
+    };
+    let Ok(accounts) = accounts else { return skip("accounts not readable") };
     let values = accounts["value"].as_array().cloned().unwrap_or_default();
-    let Some(holder) = holder_inputs(&values) else { return Ok(None) };
+    let Some(holder) = holder_inputs(&values) else { return skip("mint or wallet not readable") };
     let (hash, last_valid) = bh.map_err(|_| err(StatusCode::BAD_GATEWAY, "rpc", "The network did not answer", "Try again"))?;
 
     let plan = if let Some(curve) = live_curve(&values) {
-        let Some(global) = global else { return Ok(None) };
+        let Some(global) = global else { return skip("pump.fun global config not readable") };
         native_plan(Venue::Curve(&curve, &global), &holder, wallet, &mint, buy, q.lamports.unwrap_or(0), fraction, slippage, sp.tip, pick())?
     } else if let Some(mut pool) = sol_pool(&values, &keys) {
         let (reserves, config) = tokio::join!(
             rpc(&r, "getMultipleAccounts", json!([[stx::b58(&pool.pool_base), stx::b58(&pool.pool_quote)], { "encoding": "base64", "commitment": "processed" }])),
             swap_config(c),
         );
-        let (Ok(reserves), Some(config)) = (reserves, config) else { return Ok(None) };
+        let (Ok(reserves), Some(config)) = (reserves, config) else { return skip("PumpSwap pool or config not readable") };
         let r = reserves["value"].as_array().cloned().unwrap_or_default();
         pool.set_reserves(token_amount(&r, 0), token_amount(&r, 1));
         native_plan(Venue::Pool(&pool, &config), &holder, wallet, &mint, buy, q.lamports.unwrap_or(0), fraction, slippage, sp.tip, pick())?
     } else if let Some(venue) = sim_venue(&c.r(), &values, &keys).await {
         return sim_quoted_build(&c.r(), q, wallet, fee_wallet, buy, slippage, sp, &holder, &values, &venue, &hash, last_valid, estimate).await;
     } else {
-        return Ok(None);
+        return skip("no own venue for this coin");
     };
-    let Some(plan) = plan else { return Ok(None) };
+    let Some(plan) = plan else { return skip("no plan for this amount") };
 
     let tip_account = stx::pubkey(TIP_ACCOUNTS[pick() % TIP_ACCOUNTS.len()]).expect("tip account");
     let first_limit = 300_000;
@@ -1005,7 +1072,7 @@ async fn sim_quoted_build(r: &Rpc, q: &QuoteIn, wallet: &Pubkey, fee_wallet: &Pu
     let fraction = q.fraction.unwrap_or(0.0);
     let (amount_in, fee_in, out_account, before) = if buy {
         if h.lamports < lamports + sp.tip + BUY_RESERVE {
-            return Err(err(StatusCode::BAD_REQUEST, "no_sol", "Not enough SOL for this trade and its fees", "Lower the amount or add SOL"));
+            return Err(err(StatusCode::BAD_REQUEST, "no_sol", "Not enough SOL for this trade and its fees", "Add a little SOL for network fees, or lower the amount (a sell needs a little SOL too)"));
         }
         let fee = fee_of(lamports);
         (lamports - fee, fee, pf::ata(wallet, &stx::pubkey(&q.mint).expect("mint"), &h.token_program), h.held)
@@ -1096,7 +1163,7 @@ async fn jupiter_build(c: &TradeCtx, q: &QuoteIn, wallet: &Pubkey, fee_wallet: &
         }
         let balance = rpc(&c.r(), "getBalance", json!([q.wallet, { "commitment": "confirmed" }])).await.ok().and_then(|v| v["value"].as_u64()).unwrap_or(0);
         if balance < q.lamports.unwrap_or(0) + sp.tip + BUY_RESERVE {
-            return Err(err(StatusCode::BAD_REQUEST, "no_sol", "Not enough SOL for this trade and its fees", "Lower the amount or add SOL"));
+            return Err(err(StatusCode::BAD_REQUEST, "no_sol", "Not enough SOL for this trade and its fees", "Add a little SOL for network fees, or lower the amount (a sell needs a little SOL too)"));
         }
         Ok(())
     };

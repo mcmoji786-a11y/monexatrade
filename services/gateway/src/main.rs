@@ -366,6 +366,7 @@ async fn main() -> Result<()> {
     let trade_routes: Router<Arc<AppState>> = Router::new()
         .route("/trade/config", get(trade::config))
         .route("/trade/quote", axum::routing::post(trade::quote))
+        .route("/admin/trade/dry-run", axum::routing::post(trade::dry_run))
         .route("/trade/prepare", axum::routing::post(trade::prepare))
         .route("/trade/send", axum::routing::post(trade::send))
         .route("/trade/status/{sig}", get(trade::status))
