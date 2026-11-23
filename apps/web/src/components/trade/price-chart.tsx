@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { dispose, init, registerYAxis, type Chart, type KLineData } from "klinecharts";
 import { price, usd, type Candle } from "@/lib/gateway";
+import { continuous } from "@/lib/candles";
 import type { BookState } from "./use-token-book";
 import { useSmartWallets } from "@/lib/labels";
 import { useFeatures } from "@/lib/features";
@@ -210,7 +211,7 @@ export function PriceChart({
       if (mode === "price" && tokenSupply) scale /= tokenSupply;
     }
     if (!scale) return [];
-    return aggregate(base, tf).map((c) => ({
+    return continuous(aggregate(base, tf), tf).map((c) => ({
       timestamp: c.t * 1000,
       open: c.o * scale,
       high: c.h * scale,
