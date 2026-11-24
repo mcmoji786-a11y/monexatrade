@@ -26,7 +26,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODELS = os.environ.get("KIXO_VOICE_MODELS", "E:/KixoAI/voice-models")
 PORT = int(os.environ.get("KIXO_VOICE_PORT", "8091"))
-STT_MODEL = os.environ.get("KIXO_STT_MODEL", "small.en")
+# distil-large-v3: about as accurate as Whisper large (accents included) and several times
+# faster; small.en misheard non-native English and trading words.
+STT_MODEL = os.environ.get("KIXO_STT_MODEL", "distil-large-v3")
+# Words people say to Kixo Agent, so Whisper expects them instead of look-alikes.
+STT_HINT = "Kixo, Solana, memecoin, pump.fun, dev, devs, bundles, bundlers, snipers, holders, whales, market cap, rug, rug pull, scalp, take profit, stop loss, SOL, buy, sell, should I buy, did the dev sell, how many holders, what is the future of this coin."
 MAX_TEXT = 600
 MAX_AUDIO = 4 << 20
 # Voices offered in the app (English): calm and clear ones first.
@@ -85,7 +89,7 @@ def load_stt():
         return stt
     from faster_whisper import WhisperModel
 
-    for device, compute in (("cuda", "float16"), ("cuda", "int8_float16"), ("cpu", "int8")):
+    for device, compute in (("cuda", "int8_float16"), ("cuda", "float16"), ("cpu", "int8")):
         try:
             stt = WhisperModel(STT_MODEL, device=device, compute_type=compute, download_root=f"{MODELS}/whisper")
             STT_DEVICE = device
@@ -152,7 +156,7 @@ def transcribe(audio: bytes) -> str:
     if samples.size < 1600:
         return ""
     with stt_lock:
-        segments, _ = model.transcribe(samples, language="en", beam_size=1, vad_filter=True, condition_on_previous_text=False)
+        segments, _ = model.transcribe(samples, language="en", beam_size=5, vad_filter=True, vad_parameters={"min_silence_duration_ms": 600}, condition_on_previous_text=False, initial_prompt=STT_HINT)
         return " ".join(s.text.strip() for s in segments).strip()
 
 

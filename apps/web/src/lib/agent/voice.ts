@@ -323,6 +323,32 @@ export function isListening() {
   return !!recorder;
 }
 
+/** Asks Kixo Brain (gateway /agent/ask): the question with the page's context. Null when
+ *  no model answered in time (the caller answers from Kixo's own rules). */
+export async function askBrain(question: string, mint: string, mode: string, app: unknown, history: { role: "user" | "assistant"; content: string }[]): Promise<string | null> {
+  try {
+    const r = await fetch(`${GATEWAY_HTTP}/agent/ask`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question, mint, mode, app, history }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const v = (await r.json()) as { reply?: string };
+    return v.reply?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads a coin's data into Kixo Brain ahead of a question (its prompt cache). */
+export function warmBrain(mint: string, mode: string) {
+  void fetch(`${GATEWAY_HTTP}/agent/ask`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question: "", mint, mode, prefill: true }),
+  }).catch(() => {});
+}
+
 /** Whether Kixo's voice service is up (admin switch on and the service answering). */
 export async function voiceStatus(): Promise<{ on: boolean; ready: boolean }> {
   try {

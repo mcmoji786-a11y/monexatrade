@@ -43,6 +43,20 @@ if exist "%VPY%" (
   )
 )
 
+rem Kixo Brain: an open language model (Qwen) on this PC's GPU through llama.cpp's server,
+rem for Kixo Agent and Ask AI. No outside service.
+set LLAMA=E:\KixoAI\llama\bin\llama-server.exe
+set BRAIN=E:\KixoAI\llm-models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+if exist "%LLAMA%" if exist "%BRAIN%" (
+  powershell -NoProfile -Command "try { (Invoke-WebRequest http://127.0.0.1:8092/health -UseBasicParsing -TimeoutSec 3) | Out-Null; exit 0 } catch { exit 1 }"
+  if errorlevel 1 (
+    echo Starting Kixo Brain...
+    start "Kixo Brain" /MIN /D "E:\KixoAI\llama\bin" cmd /c ""%LLAMA%" -m "%BRAIN%" --host 127.0.0.1 --port 8092 -ngl 99 -c 4096 -np 1 -fa on -ctk q8_0 -ctv q8_0 --alias kixo-brain >> "%LOGS%\brain.log" 2>&1"
+  ) else (
+    echo Kixo Brain is already running.
+  )
+)
+
 rem Give the gateway a moment, then start the website if it is not up yet.
 timeout /t 8 /nobreak >nul
 powershell -NoProfile -Command "try { (Invoke-WebRequest http://localhost:3000 -UseBasicParsing -TimeoutSec 5) | Out-Null; exit 0 } catch { exit 1 }"

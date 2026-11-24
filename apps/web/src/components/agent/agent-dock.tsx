@@ -17,11 +17,11 @@ import type { BookState } from "@/components/trade/use-token-book";
 import { useLiveScan } from "@/components/token/live-scan";
 import { freshScore, outlook, plan, scoreOf, useMarketForecast, useSimilar } from "@/components/token/ai-analysis";
 import { MODES, setAgentSettings, useAgentSettings, voiceOf } from "@/lib/agent/settings";
-import { ALERT_SHORT, answer, brief, Watcher, type CoinCtx } from "@/lib/agent/brain";
+import { ALERT_SHORT, answer, appContext, brief, quickAnswer, Watcher, type CoinCtx } from "@/lib/agent/brain";
 import { useScalp } from "@/lib/agent/scalp";
 import { onAutoSell, onFill, PositionCoach, summarize } from "@/lib/agent/coach";
 import { FILLED_EVENT, type Filled } from "@/lib/trade-toast";
-import { audioReady, beep, micLevel, micProblem, onSpeech, preload, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
+import { askBrain, audioReady, beep, warmBrain, micLevel, micProblem, onSpeech, preload, remember, say, startListening, stopListening, stopSpeaking, unlockAudio, voiceStatus } from "@/lib/agent/voice";
 
 type Props = { mint: string; row: DiscoverRow; launch: FeedToken | null; book: BookState; safety: Safety | null; solUsd: number | null };
 
@@ -195,6 +195,17 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
     if (line) say(line);
   }, [pos, posKey, row.symbol, s.alerts.position, s.mode, scalp]);
 
+  // Kixo Brain reads this coin ahead of any question, and again every 20 s, so a question
+  // is answered in a second or two instead of re-reading everything.
+  useEffect(() => {
+    const first = setTimeout(() => warmBrain(mint, s.mode), 6000);
+    const id = setInterval(() => warmBrain(mint, s.mode), 20_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [mint, s.mode]);
+
   // Speech state for the caption.
   const [caption, setCaption] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState(false);
@@ -224,11 +235,24 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       setLevel(0);
     };
   }, [listening]);
-  const ask = (q: string) => {
-    if (!q.trim() || !ctxRef.current) return;
+  // Plain facts at once from Kixo's rules; everything else (advice, the future, why...)
+  // from Kixo Brain with the page's context, the rules' answer if it does not reply.
+  const talk = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  const ask = async (q: string) => {
+    const c = ctxRef.current;
+    if (!q.trim() || !c) return;
     remember(q, "you");
     setHeard(q);
-    say(answer(q, ctxRef.current, s.mode), { urgent: true });
+    const quick = quickAnswer(q, c, s.mode);
+    let reply = quick;
+    if (!reply) {
+      setThinking(true);
+      reply = await askBrain(q, mint, s.mode, appContext(c), talk.current.slice(-4));
+      setThinking(false);
+    }
+    reply ??= answer(q, c, s.mode);
+    talk.current = [...talk.current, { role: "user" as const, content: q }, { role: "assistant" as const, content: reply }].slice(-8);
+    say(reply, { urgent: true });
   };
   // The mic's state lives in a ref: starting takes a moment (and the first time the browser
   // asks for permission), and a stop that comes before the start has finished must still
@@ -249,7 +273,7 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
     const q = await stopListening();
     setThinking(false);
     mic.current = "idle";
-    if (q) ask(q);
+    if (q) void ask(q);
     else say(s.mode === "pro" ? "Didn't catch that." : "Sorry, I didn't catch that. Try again a bit closer to the mic.", { urgent: true });
   };
   const begin = async () => {
@@ -349,7 +373,7 @@ function LiveAgent({ mint, row, launch, book, safety, solUsd }: Props) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          ask(typed);
+          void ask(typed);
           setTyped("");
         }}
         className="flex items-center gap-2 border-t border-border px-2.5 py-2"

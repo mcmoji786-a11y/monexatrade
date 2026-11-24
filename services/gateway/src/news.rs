@@ -138,6 +138,28 @@ impl Saved {
 }
 
 impl News {
+    /// The stories and on-chain alerts about one coin (its mint, a tag, or its $SYMBOL in
+    /// the title), newest first, and the newest general market stories (Kixo Agent).
+    pub fn about(&self, mint: &str, symbol: &str) -> (Vec<NewsItem>, Vec<NewsItem>) {
+        let items = self.items.lock().expect("news lock");
+        let sym = symbol.trim().to_lowercase();
+        let named = |t: &str| {
+            let t = t.to_lowercase();
+            sym.len() >= 3 && (t.contains(&format!("${sym}")) || t.split(|c: char| !c.is_alphanumeric()).any(|w| w == sym))
+        };
+        let mut coin: Vec<NewsItem> = items
+            .iter()
+            .filter(|i| i.mint.as_deref() == Some(mint) || i.coins.iter().any(|c| c.mint == mint) || named(&i.title))
+            .cloned()
+            .collect();
+        coin.sort_by(|a, b| b.ts.cmp(&a.ts));
+        coin.truncate(6);
+        let mut market: Vec<NewsItem> = items.iter().filter(|i| i.kind == "news" || i.kind == "community").cloned().collect();
+        market.sort_by(|a, b| b.ts.cmp(&a.ts));
+        market.truncate(4);
+        (coin, market)
+    }
+
     /// A feed that is not saved anywhere (tests).
     #[cfg(test)]
     pub fn new() -> Arc<Self> {

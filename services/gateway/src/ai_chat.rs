@@ -37,6 +37,8 @@ pub struct ChatCtx {
     pub app: Arc<crate::AppState>,
     pub admin: Arc<crate::admin::AdminState>,
     pub http: reqwest::Client,
+    /// The news engine, for what is being said about a coin (Kixo Agent).
+    pub news: Arc<crate::news::News>,
 }
 
 struct Provider {
@@ -59,7 +61,14 @@ fn provider(name: &'static str, url: &'static str, key_var: &str, model_var: &st
 /// chat format. Models change often: override with GROQ_MODEL, GEMINI_MODEL,
 /// OPENROUTER_MODEL in `.env`.
 fn providers() -> Vec<Provider> {
-    [
+    let local = (std::env::var("KIXO_BRAIN").ok().as_deref() != Some("off")).then(|| Provider {
+        name: "kixo-brain",
+        url: LOCAL_BRAIN,
+        key: "local".into(),
+        model: "kixo-brain".into(),
+        effort: None,
+    });
+    local.into_iter().chain([
         provider("groq", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "GROQ_MODEL", "openai/gpt-oss-120b", Some("low")),
         // Each Groq model has its own free limit (8,000 tokens a minute, about two answers
         // with live data), so two more models on the same key triple what Groq takes
@@ -70,9 +79,13 @@ fn providers() -> Vec<Provider> {
         provider("openrouter", "https://openrouter.ai/api/v1/chat/completions", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free", None),
     ]
     .into_iter()
-    .flatten()
+    .flatten())
     .collect()
 }
+
+/// Kixo's own language model on this machine (scripts/kixo-start.cmd starts llama.cpp's
+/// server with an open model on the GPU), in the same chat format as the others.
+const LOCAL_BRAIN: &str = "http://127.0.0.1:8092/v1/chat/completions";
 
 /// One answer from the first free provider that gives one (for background jobs such as
 /// turning a strategy write-up into rules); None when all are busy or none is set up.
@@ -556,7 +569,7 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
     let mut queue = usable.into_iter();
     let mut pending = futures_util::stream::FuturesUnordered::new();
     if let Some(p) = queue.next() {
-        pending.push(ask(ctx.http.clone(), p, messages.clone()));
+        pending.push(ask(ctx.http.clone(), p, messages.clone(), 700));
     }
     while !pending.is_empty() {
         tokio::select! {
@@ -567,7 +580,7 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
                         // Rate limited, down or empty: rest it a minute, try the next at once.
                         limits().lock().expect("chat limits lock").resting.insert(name, Instant::now());
                         if let Some(p) = queue.next() {
-                            pending.push(ask(ctx.http.clone(), p, messages.clone()));
+                            pending.push(ask(ctx.http.clone(), p, messages.clone(), 700));
                         }
                     }
                     None => break,
@@ -575,7 +588,7 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
             }
             _ = tokio::time::sleep(HEDGE_AFTER) => {
                 if let Some(p) = queue.next() {
-                    pending.push(ask(ctx.http.clone(), p, messages.clone()));
+                    pending.push(ask(ctx.http.clone(), p, messages.clone(), 700));
                 }
             }
         }
@@ -587,8 +600,8 @@ pub async fn chat(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<Soc
 const HEDGE_AFTER: Duration = Duration::from_secs(4);
 
 /// One provider's answer: its name and the text, or None when it refused or failed.
-async fn ask(http: reqwest::Client, p: Provider, messages: Vec<Value>) -> (&'static str, Option<String>) {
-    let mut req = json!({ "model": p.model, "messages": messages, "max_tokens": 700, "temperature": 0.4 });
+async fn ask(http: reqwest::Client, p: Provider, messages: Vec<Value>, max_tokens: u32) -> (&'static str, Option<String>) {
+    let mut req = json!({ "model": p.model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.4 });
     if let Some(e) = p.effort {
         req["reasoning_effort"] = json!(e);
     }
@@ -605,6 +618,134 @@ async fn ask(http: reqwest::Client, p: Provider, messages: Vec<Value>) -> (&'sta
             tracing::warn!(provider = p.name, error = %e, "AI chat provider unreachable");
             (p.name, None)
         }
+    }
+}
+
+/* ---------------- Kixo Agent's brain ---------------- */
+
+const AGENT_SYSTEM: &str = "You are Kixo Agent, a friendly voice guide inside Kixo, a Solana memecoin trading app. What you write is spoken out loud.
+
+How you talk:
+- Plain everyday English a total beginner understands. 1 to 3 short sentences, under 45 words. No lists, no markdown, no emojis.
+- Answer exactly what was asked, first. Learning questions (what is X, how do I start) get a simple explanation, not trading orders.
+- When the question is about buying, selling or this coin's future, say the action first: Sell now. Take your profit. Wait. Buy a little. Stay away. Then one simple reason from the data.
+- No jargon. If you must use a word like bundles or snipers, explain it in a few words. At most one number per answer, and only if it helps.
+- When they ask whether to sell: if they are in profit and the next-minutes read is weak, or the dev or big wallets are selling, say take the profit now.
+
+What you know:
+- COIN DATA: this coin live on Kixo (price moves, holders, the creator called the dev and whether they sold, bundles, snipers, whales, Kixo AI's chances, the safety score).
+- APP: what the user sees and has done (their position and trades, Kixo's call for this coin, the next-minutes read: chances it is up 10 percent in a minute, up 20 or down 15 percent in two).
+- NEWS: what news sites and Reddit say about this coin and the market lately.
+- KIXO RULES: trading rules Kixo tested on past coins.
+Use only these facts for anything about this coin or the user. Never invent numbers. If something is not there, say you don't know in a few words.
+For the future of a coin: say what is likely in the next minutes and the hour from Kixo AI's chances, in plain words, and that memecoins can go to zero.
+General crypto, Solana, wallet or trading questions: answer simply and correctly. Anything else: one short friendly answer, then bring it back to trading.
+Never promise profit or guarantee anything. Never ask for a seed phrase or private key.";
+
+const KIXO_RULES: &str = "Tested on past coins Kixo never trained on (1% fee each side counted): (1) Quick scalp: when Kixo's next-minutes read is hot, buy a little, sell at +20%, sell at once at -10%, never hold more than 2 minutes: made +5.8% a trade on average, 56% won. Buying at random moments lost 1.1% a trade. (2) A coin Kixo AI calls Danger crashed 70% or more within the hour about 58% of the time, against 6% for all coins. (3) Most new memecoins lose most of their value within hours: take profits early, keep sizes small.";
+
+fn agent_style(mode: &str) -> &'static str {
+    match mode {
+        "coach" => "Style: a patient teacher for someone brand new. Explain the one idea that matters.",
+        "pro" => "Style: a sharp pro trader. Short and direct. Numbers are fine.",
+        "degen" => "Style: crypto trader slang, a bit of fun, but always honest about risk.",
+        _ => "Style: a friendly trader buddy next to them. Casual and warm.",
+    }
+}
+
+#[derive(Deserialize)]
+pub struct AgentAsk {
+    question: String,
+    mint: Option<String>,
+    #[serde(default)]
+    mode: String,
+    /// What the page knows: the user's position and trades, Kixo's call, the next-minutes read.
+    #[serde(default)]
+    app: Value,
+    #[serde(default)]
+    history: Vec<Turn>,
+    /// Only read the coin's data into Kixo Brain's memory (its prompt cache), so the next
+    /// question about this coin is answered in a second or two.
+    #[serde(default)]
+    prefill: bool,
+}
+
+/// `POST /agent/ask` -> `{ reply, provider, ms }`, or `{ fallback: true }` when no model
+/// answered (the browser then answers from Kixo's own rules). Kixo's own model first.
+pub async fn agent_ask(State(ctx): State<ChatCtx>, ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<AgentAsk>) -> Json<Value> {
+    let q: String = if body.prefill { "ok".into() } else { body.question.trim().chars().take(400).collect() };
+    if q.is_empty() {
+        return Json(json!({ "fallback": true, "reason": "empty" }));
+    }
+    if looks_secret(&q) {
+        return Json(json!({ "refused": "secret" }));
+    }
+    if !ctx.admin.ai_chat() {
+        return Json(json!({ "fallback": true, "reason": "off" }));
+    }
+    if !body.prefill {
+        if let Err(why) = allow(visitor(addr, &headers)) {
+            return Json(json!({ "fallback": true, "reason": why }));
+        }
+    }
+    let started = Instant::now();
+    // The coin: its live facts, holders, bundles and the dev's wallet.
+    let mint = body.mint.filter(|m| is_base58(m) && m.len() >= 32);
+    let (mut coin, dev, symbol) = {
+        let board = ctx.app.board.lock().expect("board lock");
+        let dev = mint.as_deref().and_then(|m| board.tokens.get(m)).map(|t| t.token.creator.clone()).filter(|c| !c.is_empty());
+        let symbol = mint.as_deref().and_then(|m| board.tokens.get(m).map(|t| t.token.symbol.clone()).or_else(|| board.markets.get(m).map(|x| x.symbol.clone()))).unwrap_or_default();
+        (board_data(&board, mint.clone()), dev, symbol)
+    };
+    let c = &mut coin["coin_asked_about"];
+    if let Some(v) = c.get("market_cap_usd").and_then(|v| v.as_f64()) {
+        // Two significant figures: the figure changes with every trade otherwise.
+        let mag = 10f64.powi((v.max(1.0).log10().floor() as i32) - 1);
+        c["market_cap_usd"] = json!((v / mag).round() * mag);
+    }
+    if let Some(m) = mint.as_deref() {
+        if c.get("on_kixo_radar") != Some(&json!(false)) {
+            let g = crate::funders::groups(&ctx.app, m);
+            let held = |k: &str| g[k].as_array().map(|a| a.iter().filter(|x| x["still_holding"].as_u64().unwrap_or(0) > 0).map(|x| x["hold_pct"].as_f64().unwrap_or(0.0)).sum::<f64>()).unwrap_or(0.0);
+            c["wallet_groups"] = json!({ "bundles_still_hold_pct": round2(held("bundles")), "funded_by_one_wallet_hold_pct": round2(held("clusters")) });
+        }
+    }
+    if let Some(d) = dev {
+        let w = dev_wallet(&ctx, &d).await;
+        c["dev_wallet_sol"] = w["sol"].clone();
+    }
+    let (about, market) = ctx.news.about(mint.as_deref().unwrap_or(""), &symbol);
+    let now = crate::now_unix();
+    let brief = |v: &[crate::news::NewsItem]| v.iter().map(|i| json!({ "source": i.source, "title": i.title, "minutes_ago": (now - i.ts).max(0) / 60, "alert": i.alert })).collect::<Vec<_>>();
+    let news = json!({ "about_this_coin": brief(&about), "market": brief(&market) });
+
+    let system = format!(
+        "{AGENT_SYSTEM}\n{}\n\nKIXO RULES: {KIXO_RULES}\n\nCOIN DATA:\n{}\n\nNEWS:\n{}",
+        agent_style(&body.mode),
+        coin["coin_asked_about"],
+        news
+    );
+    let mut messages = vec![json!({ "role": "system", "content": system })];
+    if body.prefill {
+        // Kixo's own model only: reading the prompt is the point, one token is enough.
+        let p = Provider { name: "kixo-brain", url: LOCAL_BRAIN, key: "local".into(), model: "kixo-brain".into(), effort: None };
+        messages.push(json!({ "role": "user", "content": "ok" }));
+        let (_, text) = ask(ctx.http.clone(), p, messages, 1).await;
+        return Json(json!({ "warmed": text.is_some(), "ms": started.elapsed().as_millis() as u64 }));
+    }
+    // The page's moment-to-moment state goes with the question, after the cached part.
+    let q = format!("{q}\n\n(APP right now: {})", body.app);
+    for t in body.history.iter().rev().take(4).rev() {
+        let role = if t.role == "assistant" { "assistant" } else { "user" };
+        messages.push(json!({ "role": role, "content": t.content.chars().take(400).collect::<String>() }));
+    }
+    messages.push(json!({ "role": "user", "content": q }));
+    // Kixo's own model only (no outside service for the agent); without it the browser
+    // answers from Kixo's own rules.
+    let p = Provider { name: "kixo-brain", url: LOCAL_BRAIN, key: "local".into(), model: "kixo-brain".into(), effort: None };
+    match ask(ctx.http.clone(), p, messages, 120).await {
+        (name, Some(t)) => Json(json!({ "reply": plain(&t), "provider": name, "ms": started.elapsed().as_millis() as u64 })),
+        _ => Json(json!({ "fallback": true, "reason": "Kixo Brain did not answer" })),
     }
 }
 

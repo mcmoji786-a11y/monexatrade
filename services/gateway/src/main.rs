@@ -431,8 +431,8 @@ async fn main() -> Result<()> {
         .route("/voice/tts", axum::routing::post(voice::tts))
         .route("/voice/stt", axum::routing::post(voice::stt).layer(axum::extract::DefaultBodyLimit::max(4 << 20)))
         .with_state(voice::VoiceCtx { admin: admin_state.clone(), http: state.http.clone() });
-    let chat_ctx = ai_chat::ChatCtx { app: state.clone(), admin: admin_state.clone(), http: state.http.clone() };
-    let chat_routes: Router<Arc<AppState>> = Router::new().route("/ai/chat", axum::routing::post(ai_chat::chat)).with_state(chat_ctx);
+    let chat_ctx = ai_chat::ChatCtx { app: state.clone(), admin: admin_state.clone(), http: state.http.clone(), news: news_ctx.news.clone() };
+    let chat_routes: Router<Arc<AppState>> = Router::new().route("/ai/chat", axum::routing::post(ai_chat::chat)).route("/agent/ask", axum::routing::post(ai_chat::agent_ask)).with_state(chat_ctx);
     let news_routes: Router<Arc<AppState>> = Router::new()
         .route("/news", get(news::list))
         .route("/ws/news", get(news::ws))

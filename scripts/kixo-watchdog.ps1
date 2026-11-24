@@ -33,11 +33,13 @@ $checks = @(
     @{ Name = "gateway"; Url = "http://127.0.0.1:8080/health"; Timeout = 5 },
     @{ Name = "ai"; Url = "http://127.0.0.1:8090/health"; Timeout = 5 },
     @{ Name = "voice"; Url = "http://127.0.0.1:8091/health"; Timeout = 5 },
+    @{ Name = "brain"; Url = "http://127.0.0.1:8092/health"; Timeout = 5 },
     @{ Name = "website"; Url = "http://127.0.0.1:3000/"; Timeout = 15 }
 )
-$misses = @{ gateway = 0; ai = 0; voice = 0; website = 0 }
+$misses = @{ gateway = 0; ai = 0; voice = 0; brain = 0; website = 0 }
 $aiInstalled = Test-Path "E:\KixoAI\venv\Scripts\python.exe"
 $voiceInstalled = Test-Path "E:\KixoAI\voice-venv\Scripts\python.exe"
+$brainInstalled = (Test-Path "E:\KixoAI\llama\bin\llama-server.exe") -and (Test-Path "E:\KixoAI\llm-models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
 
 Write-Log "watchdog started"
 # Let a fresh start settle before judging anything.
@@ -48,6 +50,7 @@ while ($true) {
     foreach ($c in $checks) {
         if ($c.Name -eq "ai" -and -not $aiInstalled) { continue }
         if ($c.Name -eq "voice" -and -not $voiceInstalled) { continue }
+        if ($c.Name -eq "brain" -and -not $brainInstalled) { continue }
         if (Test-Url $c.Url $c.Timeout) {
             if ($misses[$c.Name] -ge 2) { Write-Log "$($c.Name) answers again" }
             $misses[$c.Name] = 0

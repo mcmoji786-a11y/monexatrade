@@ -485,6 +485,43 @@ const GLOSSARY: [RegExp, string][] = [
   [/slippage/, "Slippage is how far the price can move between when you click and when the trade lands."],
 ];
 
+/** A plain fact (holders, the dev, trades, price, my trades, a word's meaning) answered at
+ *  once from the coin's data; null for advice, the future, "why" and anything open, which
+ *  go to Kixo Brain (the language model) with the whole page's context. */
+export function quickAnswer(q: string, c: CoinCtx, mode: AgentMode): string | null {
+  const t = q.toLowerCase();
+  if (/future|predict|forecast|will it|going to|should|why|think|opinion|advice|good|bad|safe|worth|buy|sell|exit|hold|enough|profit|plan|strategy|explain|how do|how to|help me|best|risk|rug|scam|next/.test(t)) return null;
+  const a = answer(q, c, mode);
+  return /^(I didn't catch that|Not sure what you mean)/.test(a) ? null : a;
+}
+
+/** What the page knows, compact, for Kixo Brain's prompt (gateway /agent/ask). */
+export function appContext(c: CoinCtx) {
+  const p = c.position && c.position.valueUsd != null && c.position.costUsd > 0 ? c.position : null;
+  const rs = reasons(c);
+  return {
+    coin: c.symbol,
+    minutes_since_launch: c.ageSecs != null ? Math.round(c.ageSecs / 60) : null,
+    kixo_call: c.plan?.title ?? null,
+    kixo_call_why: c.plan?.sub ?? null,
+    red_flags: rs.filter((r) => !r.good).slice(0, 4).map((r) => r.easy),
+    good_signs: rs.filter((r) => r.good).slice(0, 3).map((r) => r.easy),
+    safety_score: c.safety?.score ?? null,
+    kixo_ai_hour: c.risk ? { crash_70pct_chance: Math.round(c.risk.dump * 100), double_chance: Math.round(c.risk.pump * 100) } : null,
+    next_minutes: c.scalp
+      ? { up10_in_1min: Math.round(c.scalp.up10_1m * 100), up20_in_2min: Math.round(c.scalp.up20_2m * 100), down15_in_2min: Math.round(c.scalp.down15_2m * 100), read: scalpRead(c.scalp) }
+      : null,
+    change_5min_pct: c.market?.change_5m_pct ?? c.change5m,
+    market_cap_usd: c.mcUsd != null ? Math.round(c.mcUsd) : null,
+    my_position: p ? { cost_usd: Math.round(p.costUsd * 100) / 100, worth_now_usd: Math.round((p.valueUsd ?? 0) * 100) / 100, profit_pct: Math.round(((p.valueUsd ?? 0) / p.costUsd - 1) * 100) } : "none",
+    my_trades_on_this_coin: c.myTrades,
+    last_2min: (() => {
+      const r = c.trades.filter((x) => x.ts >= Date.now() / 1000 - 120);
+      return { buys: r.filter((x) => x.is_buy).length, sells: r.filter((x) => !x.is_buy).length, dev_sold: r.some((x) => x.dev && !x.is_buy) };
+    })(),
+  };
+}
+
 /** A question, answered from the coin's live data. Typed or spoken, casual English. */
 export function answer(q: string, c: CoinCtx, mode: AgentMode): string {
   const t = q.toLowerCase().replace(/[^a-z0-9%$ .?']/g, " ");
