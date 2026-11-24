@@ -123,7 +123,7 @@ export const ALL_ON: Features = {
   strategy_library: true,
   alert_delivery: true,
   helius_saver: false,
-  voice_agent: true,
+  voice_agent: false,
   weekly_recap: true,
   pnl_calendar: true,
   rug_exit: true,

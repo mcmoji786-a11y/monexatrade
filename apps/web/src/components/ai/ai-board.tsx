@@ -82,7 +82,9 @@ const POLL_MS = 10_000;
 const riskOf = (p: { dump: number; pump: number; at: number }): AiRisk => ({ dump: p.dump, pump: p.pump, trades: 0, at: p.at });
 
 export function AiBoard() {
-  const aiAuto = useFeatures().ai_autotrade;
+  const feats = useFeatures();
+  const aiAuto = feats.ai_autotrade;
+  const tabs = TABS.filter((t) => t.key !== "voice" || feats.voice_agent);
   const [data, setData] = useState<Overview | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(0);
@@ -121,7 +123,7 @@ export function AiBoard() {
 
       {/* One thing at a time */}
       <div className="no-scrollbar -mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 sm:mx-0 sm:px-0" role="tablist" aria-label="Kixo AI">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
@@ -143,7 +145,7 @@ export function AiBoard() {
       {tab === "check" && <CheckCoin />}
       {tab === "auto" && <CopyAiCard />}
       {tab === "ask" && <AiChatPanel overview={data} />}
-      {tab === "voice" && <VoiceAgentTab />}
+      {tab === "voice" && feats.voice_agent && <VoiceAgentTab />}
     </section>
   );
 }

@@ -273,7 +273,7 @@ impl Default for FeatureFlags {
             social: true,
             alert_delivery: true,
             helius_saver: false,
-            voice_agent: true,
+            voice_agent: false,
             tour: true,
             dev_record: true,
             danger_warning: true,

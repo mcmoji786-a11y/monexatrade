@@ -32,8 +32,6 @@ function Test-Url($url, $timeout) {
 $checks = @(
     @{ Name = "gateway"; Url = "http://127.0.0.1:8080/health"; Timeout = 5 },
     @{ Name = "ai"; Url = "http://127.0.0.1:8090/health"; Timeout = 5 },
-    @{ Name = "voice"; Url = "http://127.0.0.1:8091/health"; Timeout = 5 },
-    @{ Name = "brain"; Url = "http://127.0.0.1:8092/health"; Timeout = 5 },
     @{ Name = "website"; Url = "http://127.0.0.1:3000/"; Timeout = 15 }
 )
 $misses = @{ gateway = 0; ai = 0; voice = 0; brain = 0; website = 0 }
