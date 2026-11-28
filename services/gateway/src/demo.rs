@@ -113,7 +113,13 @@ impl Quote {
 
     /// Buy with `usd` cash. Fees come off first, the rest moves the price.
     pub fn buy(&self, usd: f64) -> Option<Fill> {
-        let fee = usd * fee_rate() + NETWORK_SOL * self.sol_usd;
+        self.buy_paying(usd, 0.0)
+    }
+
+    /// A buy that also pays the user's own priority fee and tip (`extra_sol`, from their
+    /// fee preset), as the same trade on chain would.
+    pub fn buy_paying(&self, usd: f64, extra_sol: f64) -> Option<Fill> {
+        let fee = usd * fee_rate() + (NETWORK_SOL + extra_sol) * self.sol_usd;
         let net = usd - fee;
         if net <= 0.0 {
             return None;
@@ -130,6 +136,11 @@ impl Quote {
 
     /// Sell `tokens`. The price moves first, then fees come off the proceeds.
     pub fn sell(&self, tokens: f64) -> Option<Fill> {
+        self.sell_paying(tokens, 0.0)
+    }
+
+    /// A sell that also pays the user's own priority fee and tip (`extra_sol`).
+    pub fn sell_paying(&self, tokens: f64, extra_sol: f64) -> Option<Fill> {
         if tokens <= 0.0 {
             return None;
         }
@@ -140,7 +151,7 @@ impl Quote {
                 at_market * reserve_usd / (reserve_usd + at_market)
             }
         };
-        let fee = gross * fee_rate() + NETWORK_SOL * self.sol_usd;
+        let fee = gross * fee_rate() + (NETWORK_SOL + extra_sol) * self.sol_usd;
         let usd = (gross - fee).max(0.0);
         Some(self.fill("sell", tokens, usd, fee.min(gross.max(0.0))))
     }
@@ -381,6 +392,39 @@ pub struct OrderIn {
     /// true: price it without trading.
     #[serde(default)]
     preview: bool,
+    /// The fee preset's own priority fee and tip, in SOL (absent: Auto, the network's).
+    #[serde(default)]
+    priority_sol: Option<f64>,
+    #[serde(default)]
+    tip_sol: Option<f64>,
+    /// Slippage in basis points, checked against `expect` (what the preview showed:
+    /// tokens for a buy, USD for a sell). A fill worse than that is refused, as on chain.
+    #[serde(default)]
+    slippage_bps: Option<u32>,
+    #[serde(default)]
+    expect: Option<f64>,
+}
+
+/// The preset's priority fee plus tip in SOL, inside the limits real trades have.
+fn preset_sol(o: &OrderIn) -> f64 {
+    let max = crate::trade::MAX_CUSTOM_FEE as f64 / 1e9;
+    let one = |v: Option<f64>| v.filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, max);
+    match (o.priority_sol, o.tip_sol) {
+        (None, None) => 0.0,
+        (p, t) => one(p) + one(t),
+    }
+}
+
+/// Refuses a fill that came out worse than the previewed one by more than the slippage.
+fn check_slippage(fill: &Fill, expect: Option<f64>, slippage_bps: Option<u32>) -> Result<(), String> {
+    let (Some(want), Some(bps)) = (expect.filter(|v| *v > 0.0 && v.is_finite()), slippage_bps) else { return Ok(()) };
+    let got = if fill.side == "buy" { fill.tokens } else { fill.usd };
+    let worse = (1.0 - got / want) * 100.0;
+    let allowed = bps.clamp(10, 5_000) as f64 / 100.0;
+    if worse > allowed {
+        return Err(format!("price moved {worse:.1}% since the quote, more than your {allowed}% slippage. Nothing was traded"));
+    }
+    Ok(())
 }
 
 /// `POST /demo/order`: buy or sell at the live market, or preview the fill.
@@ -424,20 +468,21 @@ pub async fn order(State(c): State<DemoCtx>, headers: HeaderMap, Json(o): Json<O
             if usd > cash + 1e-9 {
                 return Err((StatusCode::BAD_REQUEST, format!("not enough demo balance (${cash:.2} available)")));
             }
-            q.buy(usd).ok_or((StatusCode::BAD_REQUEST, "amount too small after fees".into()))?
+            q.buy_paying(usd, preset_sol(&o)).ok_or((StatusCode::BAD_REQUEST, "amount too small after fees".into()))?
         }
         "sell" => {
             let f = o.fraction.filter(|f| *f > 0.0 && *f <= 1.0).ok_or((StatusCode::BAD_REQUEST, "choose how much to sell".into()))?;
             if held <= 0.0 {
                 return Err((StatusCode::BAD_REQUEST, "you hold none of this coin".into()));
             }
-            q.sell(held * f).ok_or((StatusCode::BAD_REQUEST, "nothing to sell".into()))?
+            q.sell_paying(held * f, preset_sol(&o)).ok_or((StatusCode::BAD_REQUEST, "nothing to sell".into()))?
         }
         _ => return Err((StatusCode::BAD_REQUEST, "side must be buy or sell".into())),
     };
     if o.preview {
         return Ok(Json(json!({ "fill": fill, "symbol": q.symbol })));
     }
+    check_slippage(&fill, o.expect, o.slippage_bps).map_err(|m| (StatusCode::CONFLICT, m))?;
     let res = c
         .acct
         .rest(
@@ -1058,5 +1103,20 @@ mod tests {
     fn tiny_orders_that_fees_eat_are_refused() {
         let q = pump(1e-7);
         assert!(q.buy(0.01).is_none());
+    }
+
+    #[test]
+    fn preset_fee_and_slippage() {
+        let q = Quote::from_curve("T".into(), 3e-8, 150.0).unwrap();
+        let plain = q.buy(100.0).unwrap();
+        let paid = q.buy_paying(100.0, 0.01).unwrap();
+        assert!((paid.fee_usd - plain.fee_usd - 1.5).abs() < 1e-9, "0.01 SOL at $150");
+        assert!(paid.tokens < plain.tokens);
+        let s = q.held(plain.tokens);
+        assert!(s.sell_paying(plain.tokens, 0.01).unwrap().usd < s.sell(plain.tokens).unwrap().usd);
+        // 3% fewer tokens than previewed: refused at 2% slippage, filled at 5%.
+        assert!(check_slippage(&plain, Some(plain.tokens / 0.97), Some(200)).is_err());
+        assert!(check_slippage(&plain, Some(plain.tokens / 0.97), Some(500)).is_ok());
+        assert!(check_slippage(&plain, None, Some(200)).is_ok());
     }
 }

@@ -28,6 +28,15 @@ export const groups = {
     check("demo sell", r[0] === 200, r[0] === 200 ? "" : r[1]);
     r = await A("/demo/order", "POST", { mint: BONK, side: "buy", usd: 0.5 });
     check("order under $1 refused", r[0] === 400);
+    // Fee presets: the preset's priority fee and tip are paid, and slippage refuses a worse fill.
+    const auto = json((await A("/demo/order", "POST", { mint: BONK, side: "buy", usd: 50, preview: true }))[1])?.fill;
+    const paid = json((await A("/demo/order", "POST", { mint: BONK, side: "buy", usd: 50, preview: true, priority_sol: 0.005, tip_sol: 0.005 }))[1])?.fill;
+    const solUsd = auto ? auto.usd / auto.sol : 0;
+    check("preset priority fee and tip are paid on a demo buy", !!auto && !!paid && Math.abs(paid.fee_usd - auto.fee_usd - 0.01 * solUsd) < 0.05, `${auto?.fee_usd} -> ${paid?.fee_usd}`);
+    r = await A("/demo/order", "POST", { mint: BONK, side: "buy", usd: 20, slippage_bps: 100, expect: (auto?.tokens ?? 1) * 10 });
+    check("fill worse than the slippage is refused", r[0] === 409, r[1]);
+    r = await A("/demo/order", "POST", { mint: BONK, side: "buy", usd: 20, slippage_bps: 1000, expect: (auto?.tokens ?? 0) * 0.4 });
+    check("fill inside the slippage goes through", r[0] === 200, r[1]);
   },
 
   async lossLimit() {

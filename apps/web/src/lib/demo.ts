@@ -207,7 +207,24 @@ export function useDemo() {
   return { ...s, account: mine ? s.account : null, trades: mine ? s.trades : null, rules: mine ? s.rules : [], error: mine ? s.error : null, mode, enabled: on };
 }
 
-export type OrderInput = { mint: string; side: "buy" | "sell"; usd?: number; fraction?: number; source?: TradeSource };
+export type OrderInput = {
+  mint: string;
+  side: "buy" | "sell";
+  usd?: number;
+  fraction?: number;
+  source?: TradeSource;
+  /** The fee preset's own priority fee and tip in SOL (left out for Auto). */
+  priority_sol?: number;
+  tip_sol?: number;
+  /** Slippage, checked against `expect`: the previewed tokens (buy) or USD (sell). */
+  slippage_bps?: number;
+  expect?: number;
+};
+
+/** Order fields for a fee preset, as a real trade would pay them. */
+export function presetOrder(p: { auto: boolean; priority_sol: number; tip_sol: number; slippage_bps: number }): Pick<OrderInput, "priority_sol" | "tip_sol" | "slippage_bps"> {
+  return p.auto ? { slippage_bps: p.slippage_bps } : { priority_sol: p.priority_sol, tip_sol: p.tip_sol, slippage_bps: p.slippage_bps };
+}
 
 /** Who placed a demo order: shown in the trade history. */
 export type TradeSource = "manual" | "sniper" | "quick" | "grid" | "copy";

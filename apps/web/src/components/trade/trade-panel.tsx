@@ -8,16 +8,18 @@ import { Loader2 } from "lucide-react";
 import {
   orderError,
   placeOrder,
+  presetOrder,
   previewOrder,
   useDemo,
   type DemoFill,
 } from "@/lib/demo";
 import { useAccount } from "@/lib/account";
 import { pushToast } from "@/lib/toast";
-import { useSettings } from "@/lib/settings";
+import { activeFee, useSettings } from "@/lib/settings";
 import { createRule } from "@/lib/growth";
 import { useFeatures } from "@/lib/features";
 import { RealTicket } from "./real-ticket";
+import { FeePresets } from "./fee-presets";
 
 const SELL_PCT = ["25", "50", "75", "100"];
 
@@ -25,7 +27,8 @@ const SELL_PCT = ["25", "50", "75", "100"];
  *  trading stays off until the founder approves it after a security review. */
 export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
   const platform = usePlatform();
-  const demoPresets = useSettings().settings.demo.buy_presets_usd.map(String);
+  const settings = useSettings().settings;
+  const demoPresets = settings.demo.buy_presets_usd.map(String);
   const { mode, account } = useDemo();
   const auth = useAccount();
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -49,6 +52,10 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
   const held = account?.positions.find((p) => p.mint === mint);
   const value = Number(amount);
   const valid = side === "buy" ? value >= 1 : value > 0 && value <= 100;
+  // The side's fee preset (P1 to P3): its priority fee and tip are paid on the demo fill,
+  // and its slippage refuses a fill worse than the preview, as on chain.
+  const fee = presetOrder(activeFee(settings.trading, side));
+  const feeKey = JSON.stringify(fee);
 
   // Live estimate of the fill while typing (debounced).
   useEffect(() => {
@@ -57,8 +64,8 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
     const t = setTimeout(() => {
       previewOrder(
         side === "buy"
-          ? { mint, side, usd: value }
-          : { mint, side, fraction: value / 100 },
+          ? { mint, side, usd: value, ...fee }
+          : { mint, side, fraction: value / 100, ...fee },
       )
         .then((r) => alive && (setPreview(r.fill), setPreviewErr(null)))
         .catch(
@@ -69,7 +76,8 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
       alive = false;
       clearTimeout(t);
     };
-  }, [demo, valid, side, value, mint, held]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `fee` is tracked by feeKey
+  }, [demo, valid, side, value, mint, held, feeKey]);
 
   async function submit() {
     if (side === "buy" && !(await confirmDanger(mint, symbol))) return;
@@ -77,10 +85,12 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
     // When the position was opened, for the share card's "Held" figure.
     const openedAt = held?.opened_at ?? null;
     try {
+      // What the preview showed, so slippage is checked against it.
+      const expect = preview ? (side === "buy" ? preview.tokens : preview.usd) : undefined;
       const r = await placeOrder(
         side === "buy"
-          ? { mint, side, usd: value }
-          : { mint, side, fraction: value / 100 },
+          ? { mint, side, usd: value, ...fee, expect }
+          : { mint, side, fraction: value / 100, ...fee, expect },
       );
       const f = r.fill;
       const sym = r.symbol || symbol;
@@ -226,6 +236,8 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
             </div>
           )}
 
+          <FeePresets side={side} compact amountSol={side === "buy" && preview ? preview.sol : undefined} />
+
           {demo && valid && (
             <dl className="mt-3 flex flex-col gap-1 rounded-lg border border-border px-3 py-2 font-mono text-xs tabular-nums">
               {preview ? (
@@ -273,7 +285,7 @@ export function TradePanel({ symbol, mint }: { symbol: string; mint: string }) {
           ) : null}
           {demo && (
             <p className="mt-1.5 text-center text-[10px] leading-4 text-muted">
-              Live price, {pctOf(platform.trade_fee_bps)} fee each way and real price impact, exactly as real trading would cost
+              Live price, {pctOf(platform.trade_fee_bps)} fee each way, your priority fee, tip and slippage, and real price impact, as real trading would cost
             </p>
           )}
         </>
