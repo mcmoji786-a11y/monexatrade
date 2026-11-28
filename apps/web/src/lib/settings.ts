@@ -8,8 +8,31 @@ import { accessToken, currentUserId, useAccount } from "./account";
    to every device. A copy is cached per user in the browser so pages open with them at
    once; the gateway's copy wins when it arrives. */
 
+/** How a real trade pays to land: Kixo picks a low fee from the network (`auto`), or the
+ *  user's own priority fee and tip, in SOL. Three for buying and three for selling. */
+export type FeePreset = { auto: boolean; priority_sol: number; tip_sol: number; slippage_bps: number; mev: boolean };
+
+export const DEFAULT_FEES: FeePreset[] = [
+  { auto: true, priority_sol: 0.0002, tip_sol: 0.00001, slippage_bps: 1000, mev: true },
+  { auto: false, priority_sol: 0.001, tip_sol: 0.001, slippage_bps: 1500, mev: true },
+  { auto: false, priority_sol: 0.005, tip_sol: 0.003, slippage_bps: 2000, mev: false },
+];
+
 export type Settings = {
-  trading: { slippage_bps: number; speed: "fast" | "turbo"; mev: boolean; buy_presets: number[]; sell_presets: number[]; confirm_above_sol: number; quick_buy_sol: number };
+  trading: {
+    slippage_bps: number;
+    speed: "fast" | "turbo";
+    mev: boolean;
+    buy_presets: number[];
+    sell_presets: number[];
+    confirm_above_sol: number;
+    quick_buy_sol: number;
+    buy_fees: FeePreset[];
+    sell_fees: FeePreset[];
+    /** Which preset is in use (0 to 2). */
+    buy_fee: number;
+    sell_fee: number;
+  };
   demo: { buy_presets_usd: number[]; quick_buy_usd: number };
   notifications: { trades: boolean; exits: boolean; sniper: boolean; sound: boolean };
   general: { start_mode: "last" | "demo" | "real" };
@@ -18,7 +41,7 @@ export type Settings = {
 };
 
 export const DEFAULTS: Settings = {
-  trading: { slippage_bps: 1000, speed: "turbo", mev: true, buy_presets: [0.05, 0.1, 0.25, 0.5, 1], sell_presets: [25, 50, 75, 100], confirm_above_sol: 1, quick_buy_sol: 0.1 },
+  trading: { slippage_bps: 1000, speed: "fast", mev: true, buy_presets: [0.05, 0.1, 0.25, 0.5, 1], sell_presets: [25, 50, 75, 100], confirm_above_sol: 1, quick_buy_sol: 0.1, buy_fees: DEFAULT_FEES, sell_fees: DEFAULT_FEES, buy_fee: 0, sell_fee: 0 },
   demo: { buy_presets_usd: [10, 50, 100, 500], quick_buy_usd: 25 },
   notifications: { trades: true, exits: true, sniper: true, sound: false },
   general: { start_mode: "last" },
@@ -39,12 +62,22 @@ const cacheKey = (uid: string) => `mx.settings.${uid}`;
 
 function merge(s: Partial<Settings> | null | undefined): Settings {
   return {
-    trading: { ...DEFAULTS.trading, ...s?.trading },
+    trading: {
+      ...DEFAULTS.trading,
+      ...s?.trading,
+      buy_fees: DEFAULT_FEES.map((d, i) => ({ ...d, ...s?.trading?.buy_fees?.[i] })),
+      sell_fees: DEFAULT_FEES.map((d, i) => ({ ...d, ...s?.trading?.sell_fees?.[i] })),
+    },
     demo: { ...DEFAULTS.demo, ...s?.demo },
     notifications: { ...DEFAULTS.notifications, ...s?.notifications },
     general: { ...DEFAULTS.general, ...s?.general },
     safety: { ...DEFAULTS.safety, ...s?.safety },
   };
+}
+
+/** The fee preset in use for a side. */
+export function activeFee(t: Settings["trading"], side: "buy" | "sell"): FeePreset {
+  return side === "buy" ? (t.buy_fees[t.buy_fee] ?? DEFAULT_FEES[0]) : (t.sell_fees[t.sell_fee] ?? DEFAULT_FEES[0]);
 }
 
 /** The current settings outside React (toasts, sounds). Defaults when signed out. */

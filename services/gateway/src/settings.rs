@@ -30,12 +30,78 @@ pub struct Trading {
     pub confirm_above_sol: f64,
     /// The Quick Buy button on Discover and Sol Radar rows, in SOL.
     pub quick_buy_sol: f64,
+    /// Three fee presets for buying and three for selling (P1, P2, P3), and which is in use.
+    pub buy_fees: Vec<FeePreset>,
+    pub sell_fees: Vec<FeePreset>,
+    pub buy_fee: usize,
+    pub sell_fee: usize,
+}
+
+/// How a real trade pays to land: Kixo picks the fee from the network (`auto`), or the
+/// user's own priority fee and tip, in SOL.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct FeePreset {
+    pub auto: bool,
+    pub priority_sol: f64,
+    pub tip_sol: f64,
+    pub slippage_bps: u64,
+    pub mev: bool,
+}
+
+impl Default for FeePreset {
+    fn default() -> Self {
+        Self { auto: true, priority_sol: 0.0002, tip_sol: 0.00001, slippage_bps: 1_000, mev: true }
+    }
+}
+
+/// P1: Kixo picks a low fee from the network. P2: faster. P3: for the first seconds of a launch.
+pub fn default_fees() -> Vec<FeePreset> {
+    vec![
+        FeePreset::default(),
+        FeePreset { auto: false, priority_sol: 0.001, tip_sol: 0.001, slippage_bps: 1_500, mev: true },
+        FeePreset { auto: false, priority_sol: 0.005, tip_sol: 0.003, slippage_bps: 2_000, mev: false },
+    ]
 }
 
 impl Default for Trading {
     fn default() -> Self {
-        Self { slippage_bps: 1_000, speed: "turbo".into(), mev: true, buy_presets: vec![0.05, 0.1, 0.25, 0.5, 1.0], sell_presets: vec![25.0, 50.0, 75.0, 100.0], confirm_above_sol: 1.0, quick_buy_sol: 0.1 }
+        Self {
+            slippage_bps: 1_000,
+            speed: "fast".into(),
+            mev: true,
+            buy_presets: vec![0.05, 0.1, 0.25, 0.5, 1.0],
+            sell_presets: vec![25.0, 50.0, 75.0, 100.0],
+            confirm_above_sol: 1.0,
+            quick_buy_sol: 0.1,
+            buy_fees: default_fees(),
+            sell_fees: default_fees(),
+            buy_fee: 0,
+            sell_fee: 0,
+        }
     }
+}
+
+/// Exactly three presets, every value inside Kixo's fee limits.
+fn fee_presets(v: &[FeePreset]) -> Vec<FeePreset> {
+    let min_p = crate::trade::MIN_PRIORITY as f64 / 1e9;
+    let min_t = crate::trade::MIN_TIP as f64 / 1e9;
+    let max = crate::trade::MAX_CUSTOM_FEE as f64 / 1e9;
+    let fit = |x: f64, lo: f64, d: f64| if x.is_finite() { x.clamp(lo, max) } else { d };
+    default_fees()
+        .into_iter()
+        .enumerate()
+        .map(|(i, d)| match v.get(i) {
+            Some(p) => FeePreset {
+                auto: p.auto,
+                priority_sol: fit(p.priority_sol, min_p, d.priority_sol),
+                tip_sol: fit(p.tip_sol, min_t, d.tip_sol),
+                slippage_bps: p.slippage_bps.clamp(10, 5_000),
+                mev: p.mev,
+            },
+            None => d,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -142,6 +208,10 @@ impl Settings {
         t.sell_presets = presets(&t.sell_presets, 1.0, 100.0, 4, &d.trading.sell_presets);
         t.confirm_above_sol = if t.confirm_above_sol.is_finite() { t.confirm_above_sol.clamp(0.0, 3.0) } else { d.trading.confirm_above_sol };
         t.quick_buy_sol = if t.quick_buy_sol.is_finite() { t.quick_buy_sol.clamp(0.001, crate::trade::MAX_LAMPORTS as f64 / 1e9) } else { d.trading.quick_buy_sol };
+        t.buy_fees = fee_presets(&t.buy_fees);
+        t.sell_fees = fee_presets(&t.sell_fees);
+        t.buy_fee = t.buy_fee.min(2);
+        t.sell_fee = t.sell_fee.min(2);
         self.demo.quick_buy_usd = if self.demo.quick_buy_usd.is_finite() { self.demo.quick_buy_usd.clamp(1.0, 10_000.0) } else { d.demo.quick_buy_usd };
         self.demo.buy_presets_usd = presets(&self.demo.buy_presets_usd, 1.0, 10_000.0, 4, &d.demo.buy_presets_usd);
         let lim = self.safety.daily_loss_limit_usd;
@@ -242,7 +312,7 @@ mod tests {
     #[test]
     fn settings_are_kept_in_range() {
         let wild = Settings {
-            trading: Trading { slippage_bps: 99_000, speed: "warp".into(), mev: false, buy_presets: vec![0.0, 0.5, 9.0, f64::NAN, 1.0, 2.0, 0.2, 0.3], sell_presets: vec![0.0, 150.0], confirm_above_sol: 40.0, quick_buy_sol: 99.0 },
+            trading: Trading { slippage_bps: 99_000, speed: "warp".into(), mev: false, buy_presets: vec![0.0, 0.5, 9.0, f64::NAN, 1.0, 2.0, 0.2, 0.3], sell_presets: vec![0.0, 150.0], confirm_above_sol: 40.0, quick_buy_sol: 99.0, buy_fees: vec![FeePreset { auto: false, priority_sol: 5.0, tip_sol: 0.0, slippage_bps: 99_000, mev: true }], sell_fees: vec![], buy_fee: 9, sell_fee: 1 },
             demo: Demo { buy_presets_usd: vec![], quick_buy_usd: f64::NAN },
             notifications: Notifications::default(),
             general: General { start_mode: "moon".into() },
@@ -252,7 +322,12 @@ mod tests {
         assert_eq!(wild.safety.daily_loss_limit_usd, 0.0, "a negative limit is off");
         assert_eq!(wild.safety.day_offset_min, 840);
         assert_eq!(wild.trading.slippage_bps, 5_000);
-        assert_eq!(wild.trading.speed, "turbo");
+        assert_eq!(wild.trading.speed, "fast");
+        assert_eq!(wild.trading.buy_fees.len(), 3, "always three presets");
+        let p = &wild.trading.buy_fees[0];
+        assert_eq!((p.priority_sol, p.tip_sol, p.slippage_bps), (0.1, 0.000005, 5_000), "fees inside the limits");
+        assert_eq!(wild.trading.buy_fees[1], default_fees()[1]);
+        assert_eq!((wild.trading.buy_fee, wild.trading.sell_fee), (2, 1));
         assert!(!wild.trading.mev, "a valid choice is kept");
         assert_eq!(wild.trading.buy_presets, vec![0.5, 1.0, 2.0, 0.2, 0.3], "out-of-range values dropped, at most five");
         assert_eq!(wild.trading.sell_presets, Trading::default().sell_presets, "nothing valid left: defaults");
@@ -263,7 +338,7 @@ mod tests {
         assert_eq!(wild.general.start_mode, "last");
         // Missing fields read as defaults.
         let partial: Settings = serde_json::from_value(json!({ "trading": { "slippage_bps": 500 } })).unwrap();
-        assert_eq!(partial.clamp().trading.speed, "turbo");
+        assert_eq!(partial.clamp().trading.speed, "fast");
         assert_eq!(Settings::default().clamp(), Settings::default());
     }
 }

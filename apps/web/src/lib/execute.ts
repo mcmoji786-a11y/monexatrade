@@ -9,8 +9,8 @@ import { useAccount } from "./account";
 import { orderError, placeOrder, useMode, type TradeSource } from "./demo";
 import { useFeatures } from "./features";
 import { kixoAddress, useKixoWallet } from "./kixo-wallet";
-import { getSettings } from "./settings";
-import { getQuote, signAndSend, tradeConfig, TradeFail, waitForTrade } from "./trade";
+import { activeFee, getSettings } from "./settings";
+import { feeParams, getQuote, signAndSend, tradeConfig, TradeFail, waitForTrade } from "./trade";
 
 export type Venue = "demo" | "real";
 
@@ -82,8 +82,7 @@ export async function execute(venue: Venue, r: TradeRequest): Promise<Fill> {
   if (!wallet) throw new Error("Unlock your Kixo wallet first");
   const cfg = await tradeConfig();
   if (!cfg.enabled || !cfg.ready) throw new Error(cfg.not_ready ?? "Real trading is not open");
-  const t = getSettings().trading;
-  const common = { wallet, mint: r.mint, slippage_bps: t.slippage_bps, speed: t.speed, mev: t.mev, symbol: r.symbol };
+  const common = { wallet, mint: r.mint, ...feeParams(activeFee(getSettings().trading, r.side)), symbol: r.symbol };
   let q;
   if (r.side === "buy") {
     const sol = r.sol ?? (r.usd != null && r.solUsd ? r.usd / r.solUsd : 0);

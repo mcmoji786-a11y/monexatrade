@@ -2,16 +2,16 @@
 import { confirmDanger } from "@/components/safety/danger-confirm";
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, ShieldCheck } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import { useKixoWallet } from "@/lib/kixo-wallet";
 import { WalletPanel } from "@/components/wallet/kixo-wallet-card";
 import { setMode } from "@/lib/demo";
 import { pushToast } from "@/lib/toast";
-import { getQuote, signAndSend, sol, solscan, TradeFail, usePrepare, useTradeConfig, waitForTrade, type Quote, type Stage, type TradeError, receiptLine } from "@/lib/trade";
+import { feeParams, getQuote, signAndSend, sol, solscan, TradeFail, usePrepare, useTradeConfig, waitForTrade, type Quote, type Stage, type TradeError, receiptLine } from "@/lib/trade";
+import { FeePresets } from "./fee-presets";
 import { compact } from "./trade-panel";
-import { useSettings } from "@/lib/settings";
+import { activeFee, useSettings } from "@/lib/settings";
 
-const SLIPPAGES = [500, 1000, 2000];
 /** A quote older than this is fetched again before signing. */
 const FRESH_MS = 15_000;
 
@@ -24,16 +24,9 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
   const kw = useKixoWallet();
   const wallet = kw.status === "unlocked" ? (kw.info?.pubkey ?? null) : null;
   const [amount, setAmount] = useState("");
-  // Defaults come from Settings; a change here applies to this ticket only.
+  // Fees come from the side's preset in use (P1 to P3), saved to the account.
   const t = useSettings().settings.trading;
-  const [own, setOwn] = useState<{ slippage?: number; speed?: "fast" | "turbo"; mev?: boolean }>({});
-  const slippage = own.slippage ?? t.slippage_bps;
-  const speed = own.speed ?? t.speed;
-  const mev = own.mev ?? t.mev;
-  const setSlippage = (v: number) => setOwn((o) => ({ ...o, slippage: v }));
-  const setSpeed = (v: "fast" | "turbo") => setOwn((o) => ({ ...o, speed: v }));
-  const setMev = (v: boolean) => setOwn((o) => ({ ...o, mev: v }));
-  const slippages = [...new Set([...SLIPPAGES, t.slippage_bps])].sort((a, b) => a - b);
+  const fees = feeParams(activeFee(t, side));
   // Large buys ask once more (Settings: confirm above).
   const [confirming, setConfirming] = useState(false);
   const [quote, setQuote] = useState<{ q: Quote; at: number; key: string } | null>(null);
@@ -46,7 +39,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
   const value = Number(amount);
   const maxSol = cfg ? cfg.max_lamports / 1e9 : 3;
   const valid = side === "buy" ? value >= 0.001 && value <= maxSol : value > 0 && value <= 100;
-  const key = `${wallet}|${mint}|${side}|${amount}|${slippage}|${speed}|${mev}`;
+  const key = `${wallet}|${mint}|${side}|${amount}|${JSON.stringify(fees)}`;
 
   const request = () =>
     getQuote({
@@ -54,9 +47,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
       mint,
       side,
       ...(side === "buy" ? { lamports: Math.round(value * 1e9) } : { fraction: value / 100 }),
-      slippage_bps: slippage,
-      speed,
-      mev,
+      ...fees,
       symbol,
     });
 
@@ -150,35 +141,19 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted">
-        <span className="flex items-center gap-1">
-          Slippage
-          {slippages.map((s) => (
-            <button key={s} type="button" aria-pressed={slippage === s} onClick={() => setSlippage(s)} className={`rounded px-1.5 py-0.5 font-mono ${slippage === s ? "bg-surface-3 text-text" : "hover:text-text"}`}>
-              {s / 100}%
-            </button>
-          ))}
-        </span>
-        <span className="flex items-center gap-1">
-          {(["fast", "turbo"] as const).map((s) => (
-            <button key={s} type="button" aria-pressed={speed === s} onClick={() => setSpeed(s)} className={`rounded px-1.5 py-0.5 capitalize ${speed === s ? "bg-surface-3 text-text" : "hover:text-text"}`}>
-              {s}
-            </button>
-          ))}
-        </span>
-        <button type="button" aria-pressed={mev} onClick={() => setMev(!mev)} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${mev ? "text-emerald" : "hover:text-text"}`} title="Avoids validators known for sandwich attacks">
-          <ShieldCheck size={12} strokeWidth={1.5} /> MEV {mev ? "on" : "off"}
-        </button>
-      </div>
+      <FeePresets side={side} compact amountSol={side === "buy" && value > 0 ? value : undefined} />
 
       {valid && !result && (
         <dl className="mt-3 flex flex-col gap-1 rounded-lg border border-border px-3 py-2 font-mono text-xs tabular-nums">
           {!q && !qErr ? (
             <>
               <Row k={`Platform fee ${cfg.fee_bps / 100}%`} v={side === "buy" ? `${((value * cfg.fee_bps) / 10_000).toFixed(5)} SOL` : `${cfg.fee_bps / 100}% of the SOL received`} />
-              <Row k="Sender tip" v={`${sol(cfg.speeds[speed].tip).toFixed(6)} SOL`} />
-              <Row k="Priority fee" v={`up to ${sol(cfg.speeds[speed].max_priority).toFixed(4)} SOL`} />
-              <span className="font-sans text-[11px] text-muted">Exact amounts show when you press {side === "buy" ? "Buy" : "Sell"}, before Phantom asks you to approve</span>
+              {fees.tip_lamports != null ? (
+                <Row k="Priority fee and tip" v={`${sol((fees.priority_lamports ?? 0) + fees.tip_lamports).toFixed(6)} SOL`} />
+              ) : (
+                <Row k="Priority fee and tip" v={`about ${sol(cfg.speeds.fast.tip + 30_000).toFixed(5)} SOL, from the network`} />
+              )}
+              <span className="font-sans text-[11px] text-muted">Exact amounts show when you press {side === "buy" ? "Buy" : "Sell"}, before anything is signed</span>
             </>
           ) : q ? (
             <>
@@ -187,7 +162,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
               {q.price_impact_pct != null && <Row k="Price impact" v={`${q.price_impact_pct.toFixed(2)}%`} warn={q.price_impact_pct > 5} />}
               <Row k={`Platform fee ${(q.fee_bps ?? cfg.fee_bps) / 100}%`} v={`${sol(q.platform_fee_lamports).toFixed(5)} SOL`} />
               <Row k="Network, priority and tip" v={`${sol(q.priority_fee_lamports + q.tip_lamports + q.network_fee_lamports).toFixed(5)} SOL`} />
-              <Row k="All costs" v={`${sol(costs).toFixed(5)} SOL`} />
+              <Row k="All costs" v={`${sol(costs).toFixed(5)} SOL${side === "buy" && value > 0 ? ` (${((sol(costs) / value) * 100).toFixed(2)}%)` : ""}`} warn={side === "buy" && value > 0 && sol(costs) / value > 0.05} />
               <Row k="Route" v={q.route.join(" › ") || "—"} />
             </>
           ) : qErr ? (
@@ -230,7 +205,7 @@ export function RealTicket({ symbol, mint, side }: { symbol: string; mint: strin
         {stage && <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />}
         {stage ? STAGE[stage] : confirming ? `Confirm buy of ${value} SOL` : `${side === "buy" ? "Buy" : "Sell"} ${symbol || "token"}`}
       </button>
-      <p className="mt-2 text-center text-[11px] text-muted">Real SOL from your wallet. You approve every trade in Phantom</p>
+      <p className="mt-2 text-center text-[11px] text-muted">Real SOL from your Kixo wallet, signed in this browser</p>
     </>
   );
 }

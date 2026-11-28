@@ -15,6 +15,7 @@ import { DeveloperKeys } from "@/components/settings/developer-keys";
 import { useFeatures } from "@/lib/features";
 import { refreshLimits, useLimits } from "@/components/safety/loss-limit";
 import { startTour } from "@/components/tour/product-tour";
+import { FeePresets } from "@/components/trade/fee-presets";
 
 const SECTIONS = [
   { id: "trading", label: "Trading" },
@@ -28,7 +29,6 @@ const SECTIONS = [
   { id: "shortcuts", label: "Shortcuts" },
 ] as const;
 
-const SLIPPAGE = [100, 500, 1000, 2000];
 
 /** Settings: trading defaults and presets, demo, notifications, account, data. Saved to
  *  the account, so they apply on every device. */
@@ -67,15 +67,18 @@ export function SettingsBoard() {
 
         <div className="flex min-w-0 flex-col gap-6">
           <Card id="trading" title="Trading" sub="Defaults for real trades. Each ticket can still change them for that trade">
-            <Row label="Slippage" hint="How far the price may move before a trade is refused instead of filled">
-              <Segmented value={t.slippage_bps} options={[...new Set([...SLIPPAGE, t.slippage_bps])].sort((a, b) => a - b).map((v) => ({ value: v, label: `${v / 100}%` }))} onChange={(v) => trading({ slippage_bps: v })} />
-            </Row>
-            <Row label="Speed" hint={t.speed === "turbo" ? "Every fast path, 0.001 SOL tip, priority fee up to 0.003 SOL" : "Staked connections only, 0.000005 SOL tip, priority fee up to 0.001 SOL"}>
-              <Segmented value={t.speed} options={[{ value: "fast", label: "Fast" }, { value: "turbo", label: "Turbo" }]} onChange={(v) => trading({ speed: v })} />
-            </Row>
-            <Row label="MEV protection" hint="Avoids validators known for sandwich attacks">
-              <Switch on={t.mev} onChange={(v) => trading({ mev: v })} label="MEV protection" />
-            </Row>
+            <div className="grid gap-5 px-5 py-4 md:grid-cols-2">
+              <div className="min-w-0">
+                <p className="text-sm text-text">Buy fees</p>
+                <p className="mb-2 text-xs text-muted">Priority fee, tip, slippage and MEV protection. Pick P1 to P3 on any ticket</p>
+                <FeePresets side="buy" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm text-text">Sell fees</p>
+                <p className="mb-2 text-xs text-muted">Separate from buying, so exits can pay more to land first</p>
+                <FeePresets side="sell" />
+              </div>
+            </div>
             <Row label="Buy buttons" hint="Up to five amounts in SOL, at most 3 SOL each">
               <Presets values={t.buy_presets} unit="SOL" max={5} step={0.01} onChange={(v) => trading({ buy_presets: v })} />
             </Row>

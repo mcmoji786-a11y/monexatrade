@@ -5,6 +5,7 @@ import { GATEWAY_HTTP } from "./gateway";
 import { accessToken } from "./account";
 import { signTxWithKixo } from "./kixo-wallet";
 import { checkTx } from "./tx-check";
+import type { FeePreset } from "./settings";
 
 /* Real trades: the gateway builds and simulates, the browser checks, the Kixo wallet signs
    (in the browser, no popup), the gateway sends and tracks. The key never leaves the browser. */
@@ -20,6 +21,8 @@ export type TradeConfig = {
   fee_wallet: string | null;
   tip_accounts: string[];
   speeds: Record<"fast" | "turbo", { tip: number; max_priority: number }>;
+  /** Limits on fees a user sets (lamports). Below `sender_min_tip` a trade takes the staked-only path. */
+  custom?: { min_tip: number; min_priority: number; max_fee: number; sender_min_tip: number };
   allowlist: boolean;
 };
 
@@ -40,7 +43,7 @@ export type Quote = {
   tip_lamports: number;
   network_fee_lamports: number;
   slippage_bps: number;
-  speed: "fast" | "turbo";
+  speed: string;
   mev: boolean;
   route: string[];
 };
@@ -103,9 +106,35 @@ export async function tradeConfig(): Promise<TradeConfig> {
   return cfgCache;
 }
 
-export type QuoteIn = { wallet: string; mint: string; side: "buy" | "sell"; lamports?: number; fraction?: number; slippage_bps: number; speed: "fast" | "turbo"; mev: boolean; symbol?: string };
+export type QuoteIn = {
+  wallet: string;
+  mint: string;
+  side: "buy" | "sell";
+  lamports?: number;
+  fraction?: number;
+  slippage_bps: number;
+  speed: "fast" | "turbo";
+  /** The user's own priority fee and tip (lamports); both together replace `speed`. */
+  priority_lamports?: number;
+  tip_lamports?: number;
+  mev: boolean;
+  symbol?: string;
+};
 
-export const getQuote = (q: QuoteIn) => call<Quote>("/trade/quote", q);
+/** Quote fields for a fee preset: Kixo's network fee when `auto`, else the user's own. */
+export function feeParams(p: FeePreset): Pick<QuoteIn, "speed" | "priority_lamports" | "tip_lamports" | "slippage_bps" | "mev"> {
+  const base = { speed: "fast" as const, slippage_bps: p.slippage_bps, mev: p.mev };
+  return p.auto ? base : { ...base, priority_lamports: Math.round(p.priority_sol * 1e9), tip_lamports: Math.round(p.tip_sol * 1e9) };
+}
+
+/** Builds the trade. A quote that pays more priority fee or tip than the user set is refused
+ *  here, before anything can be signed. */
+export async function getQuote(q: QuoteIn): Promise<Quote> {
+  const r = await call<Quote>("/trade/quote", q);
+  if (q.tip_lamports != null && r.tip_lamports > Math.max(q.tip_lamports, 5_000)) throw new TradeFail({ code: "fees", message: "The tip is higher than you set", hint: "Nothing was signed" });
+  if (q.priority_lamports != null && r.priority_fee_lamports > Math.max(q.priority_lamports, 1_000) + 1) throw new TradeFail({ code: "fees", message: "The priority fee is higher than you set", hint: "Nothing was signed" });
+  return r;
+}
 
 /** While a real ticket is open, tells the gateway to keep the blockhash, fees and
  *  connections warm, so pressing Buy or Sell does not wait for them. */

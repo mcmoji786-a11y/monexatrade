@@ -15,7 +15,7 @@ PLease Before Doin or building we have to discuss abount this in roman urdu comp
 
 The central trading infrastructure responsible for executing user trades quickly, reliably and accurately.
 
-### Trading Features
+### Trading Features 
 - Instant Buy and Sell
 - One-click trading
 - Quick Buy and Quick Sell

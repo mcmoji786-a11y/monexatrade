@@ -67,20 +67,41 @@ pub struct Speed {
     max_priority: u64,
     /// Sender's staked-connection-only mode (lower minimum tip, fewer pathways).
     swqos_only: bool,
+    /// The user chose the priority fee: pay exactly `max_priority`, whatever the estimate.
+    fixed: bool,
 }
 
-pub const FAST: Speed = Speed { name: "fast", level: "high", tip: 5_000, min_price: 20_000, max_priority: 1_000_000, swqos_only: true };
-pub const TURBO: Speed = Speed { name: "turbo", level: "veryHigh", tip: 1_000_000, min_price: 100_000, max_priority: 3_000_000, swqos_only: false };
+pub const FAST: Speed = Speed { name: "fast", level: "high", tip: 5_000, min_price: 20_000, max_priority: 1_000_000, swqos_only: true, fixed: false };
+pub const TURBO: Speed = Speed { name: "turbo", level: "veryHigh", tip: 1_000_000, min_price: 100_000, max_priority: 3_000_000, swqos_only: false, fixed: false };
 
+/// Limits on fees a user sets by hand (lamports). The smallest tip Helius Sender takes
+/// on its staked-only path; below `SENDER_MIN_TIP` a trade goes that way.
+pub const MIN_TIP: u64 = 5_000;
+pub const SENDER_MIN_TIP: u64 = 1_000_000;
+pub const MIN_PRIORITY: u64 = 1_000;
+pub const MAX_CUSTOM_FEE: u64 = 100_000_000;
+
+/// "turbo", or "fast" (the default, also for "auto" and anything unknown).
 pub fn speed(name: &str) -> Speed {
     // Tips come from the admin settings; the rest of each speed is fixed.
     let (fast, turbo) = crate::platform::tips();
-    if name == "fast" { Speed { tip: fast, ..FAST } } else { Speed { tip: turbo, ..TURBO } }
+    if name == "turbo" { Speed { tip: turbo, ..TURBO } } else { Speed { tip: fast, ..FAST } }
 }
 
-/// Priority fee in micro-lamports per CU, inside the speed's floor and total cap.
+/// The user's own priority fee and tip, in lamports, kept inside Kixo's limits.
+pub fn custom_speed(priority: u64, tip: u64) -> Speed {
+    let tip = tip.clamp(MIN_TIP, MAX_CUSTOM_FEE);
+    let priority = priority.clamp(MIN_PRIORITY, MAX_CUSTOM_FEE);
+    Speed { name: "custom", level: "high", tip, min_price: 0, max_priority: priority, swqos_only: tip < SENDER_MIN_TIP, fixed: true }
+}
+
+/// Priority fee in micro-lamports per CU, inside the speed's floor and total cap; a fee
+/// the user set is paid as set.
 pub fn priority_price(estimate: u64, cu_limit: u32, s: Speed) -> u64 {
     let cap = s.max_priority.saturating_mul(1_000_000) / cu_limit.max(1) as u64;
+    if s.fixed {
+        return cap;
+    }
     estimate.max(s.min_price).min(cap)
 }
 
@@ -447,6 +468,7 @@ pub async fn config(State(c): State<TradeCtx>) -> Json<Value> {
         "fee_wallet": c.fee_wallet().map(|w| stx::b58(&w)),
         "tip_accounts": TIP_ACCOUNTS,
         "speeds": { "fast": { "tip": speed("fast").tip, "max_priority": FAST.max_priority }, "turbo": { "tip": speed("turbo").tip, "max_priority": TURBO.max_priority } },
+        "custom": { "min_tip": MIN_TIP, "min_priority": MIN_PRIORITY, "max_fee": MAX_CUSTOM_FEE, "sender_min_tip": SENDER_MIN_TIP },
         "allowlist": !c.t.allowlist.is_empty(),
     }))
 }
@@ -517,9 +539,23 @@ pub struct QuoteIn {
     fraction: Option<f64>,
     slippage_bps: Option<u64>,
     speed: Option<String>,
+    /// The user's own priority fee and tip in lamports; both together replace `speed`.
+    #[serde(default)]
+    priority_lamports: Option<u64>,
+    #[serde(default)]
+    tip_lamports: Option<u64>,
     mev: Option<bool>,
     #[serde(default)]
     symbol: String,
+}
+
+impl QuoteIn {
+    fn speed(&self) -> Speed {
+        match (self.priority_lamports, self.tip_lamports) {
+            (Some(p), Some(t)) => custom_speed(p, t),
+            _ => speed(self.speed.as_deref().unwrap_or("fast")),
+        }
+    }
 }
 
 /// `POST /trade/quote`: builds and simulates the swap for the user's wallet and
@@ -565,7 +601,7 @@ async fn quote_inner(State(c): State<TradeCtx>, headers: HeaderMap, Json(q): Jso
     }
     c.t.touch();
     let slippage = q.slippage_bps.unwrap_or(1_000).clamp(10, MAX_SLIPPAGE_BPS);
-    let sp = speed(q.speed.as_deref().unwrap_or("turbo"));
+    let sp = q.speed();
     let mev = q.mev.unwrap_or(true);
     let buy = match q.side.as_str() {
         "buy" => true,
@@ -658,7 +694,7 @@ pub async fn dry_run(State(c): State<TradeCtx>, headers: HeaderMap, Json(d): Jso
         "sell" => false,
         _ => return Err(bad("side must be buy or sell")),
     };
-    let q = QuoteIn { wallet: d.wallet.clone(), mint: d.mint.clone(), side: d.side.clone(), lamports: d.lamports, fraction: d.fraction, slippage_bps: d.slippage_bps, speed: None, mev: Some(true), symbol: String::new() };
+    let q = QuoteIn { wallet: d.wallet.clone(), mint: d.mint.clone(), side: d.side.clone(), lamports: d.lamports, fraction: d.fraction, slippage_bps: d.slippage_bps, speed: None, priority_lamports: None, tip_lamports: None, mev: Some(true), symbol: String::new() };
     let slippage = d.slippage_bps.unwrap_or(1_000).clamp(10, MAX_SLIPPAGE_BPS);
     let sp = speed("turbo");
     let started = Instant::now();
@@ -1675,12 +1711,21 @@ mod tests {
             assert!(stx::pubkey(t).is_ok(), "{t}");
         }
         assert_eq!(speed("fast"), FAST);
-        assert_eq!(speed("anything"), TURBO);
+        assert_eq!(speed("anything"), FAST, "the cheaper speed unless Turbo is asked for");
+        assert_eq!(speed("turbo"), TURBO);
     }
 
     #[test]
     fn priority_fee_stays_inside_floor_and_cap() {
         // Quiet network: the floor applies.
+        let c = custom_speed(2_000_000, 10_000);
+        assert_eq!(100_000 * priority_price(900_000_000, 100_000, c) / 1_000_000, 2_000_000, "a fee the user set is paid as set");
+        assert_eq!(100_000 * priority_price(0, 100_000, c) / 1_000_000, 2_000_000);
+        assert!(c.swqos_only && c.tip == 10_000);
+        let wild = custom_speed(u64::MAX, 0);
+        assert_eq!((wild.max_priority, wild.tip), (MAX_CUSTOM_FEE, MIN_TIP));
+        assert!(!custom_speed(0, SENDER_MIN_TIP).swqos_only);
+        assert_eq!(speed("auto").name, "fast");
         assert_eq!(priority_price(0, 100_000, TURBO), TURBO.min_price);
         // Normal: the estimate.
         assert_eq!(priority_price(500_000, 100_000, TURBO), 500_000);
@@ -1986,7 +2031,7 @@ mod live {
                     println!("{:<10} {label:<12} no launchpad venue (router path)", &mint[..8]);
                     continue;
                 };
-                let q = QuoteIn { wallet: wallet.into(), mint: mint.into(), side: if buy { "buy" } else { "sell" }.into(), lamports: Some(100_000_000), fraction: Some(fraction), slippage_bps: Some(1_000), speed: None, mev: None, symbol: String::new() };
+                let q = QuoteIn { wallet: wallet.into(), mint: mint.into(), side: if buy { "buy" } else { "sell" }.into(), lamports: Some(100_000_000), fraction: Some(fraction), slippage_bps: Some(1_000), speed: None, priority_lamports: None, tip_lamports: None, mev: None, symbol: String::new() };
                 let bh = rpc(&r, "getLatestBlockhash", json!([{ "commitment": "confirmed" }])).await.unwrap();
                 let hash = stx::pubkey(bh["value"]["blockhash"].as_str().unwrap()).unwrap();
                 match sim_quoted_build(&r, &q, &w, &stx::pubkey(FEE_STANDIN).unwrap(), buy, 1_000, TURBO, &h, &values, &venue, &hash, 0, 50_000).await {
